@@ -101,8 +101,8 @@ type PodClique struct {
 	//NamePrefix is the prefix that will be used to name the pods in the clique.
 	// +optional
 	NamePrefix string `json:"namePrefix,omitempty"`
-	// Spec is the specification of the pods in the clique.
-	Spec corev1.PodSpec `json:"spec"`
+	// Template is the template of the pods in the clique.
+	Template corev1.PodTemplateSpec `json:"template"`
 	// Size is the number of pods in the clique. Once set this cannot be changed.
 	// If not specified then it will be defaulted to 1.
 	// +optional
@@ -177,29 +177,29 @@ type PodGangList struct {
 
 // RollingUpdateConfiguration is the configuration to control the desired behavior of a rolling update of a PodGang.
 type RollingUpdateConfiguration struct {
-	// The maximum number of pods that can be unavailable during the update.
-	// Value can be an absolute number (ex: 5) or a percentage of total pods at the start of update (ex: 10%).
+	// The maximum number of podgangs that can be unavailable during the update.
+	// Value can be an absolute number (ex: 5) or a percentage of total podgangs at the start of update (ex: 10%).
 	// Absolute number is calculated from percentage by rounding down.
 	// This can not be 0 if MaxSurge is 0.
 	// By default, a fixed value of 1 is used.
 	// Example: when this is set to 30%, the old RC can be scaled down by 30%
-	// immediately when the rolling update starts. Once new pods are ready, old RC
+	// immediately when the rolling update starts. Once new podgangs are ready, old RC
 	// can be scaled down further, followed by scaling up the new RC, ensuring
-	// that at least 70% of original number of pods are available at all times
+	// that at least 70% of original number of podgangs are available at all times
 	// during the update.
 	// +optional
 	MaxUnavailable intstr.IntOrString `json:"maxUnavailable,omitempty"`
 
-	// The maximum number of pods that can be scheduled above the original number of
-	// pods.
-	// Value can be an absolute number (ex: 5) or a percentage of total pods at
+	// The maximum number of podgangs that can be scheduled above the original number of
+	// podgangs.
+	// Value can be an absolute number (ex: 5) or a percentage of total podgangs at
 	// the start of the update (ex: 10%). This can not be 0 if MaxUnavailable is 0.
 	// Absolute number is calculated from percentage by rounding up.
 	// By default, a value of 1 is used.
 	// Example: when this is set to 30%, the new RC can be scaled up by 30%
-	// immediately when the rolling update starts. Once old pods have been killed,
-	// new RC can be scaled up further, ensuring that total number of pods running
-	// at any time during the update is at most 130% of original pods.
+	// immediately when the rolling update starts. Once old podgangs have been killed,
+	// new RC can be scaled up further, ensuring that total number of podgangs running
+	// at any time during the update is at most 130% of original podgangs.
 	// +optional
 	MaxSurge intstr.IntOrString `json:"maxSurge,omitempty"`
 }
@@ -235,8 +235,8 @@ type PodGangSetSpec struct {
 }
 
 // NetworkSpreadStrategy defines the strategy for spreading pods across nodes while minimizing network switch hops.
-// An attempt will always be made to ensure that the pods are packed optimally minimizing the total number of network switch hops.
-// Pack strategy only describes if this is a strict requirement or a best-effort.
+// An attempt will always be made to ensure that the pods are spread across the cluster among failure-domains.
+// Spread strategy only describes if this is a strict requirement or a best-effort.
 // +kubebuilder:validation:Enum={BestEffort,Strict}
 type NetworkSpreadStrategy string
 
@@ -244,7 +244,7 @@ const (
 	// BestEffortSpread pack strategy makes the best effort for optimal placement of pods but does not guarantee it.
 	BestEffortSpread NetworkSpreadStrategy = "BestEffort"
 	// StrictSpread pack strategy guarantees that pods will be packed optimally. If optimal placement cannot be achieved then pods will remain pending.
-	StrictSpread NetworkPackStrategy = "Strict"
+	StrictSpread NetworkSpreadStrategy = "Strict"
 )
 
 // GangSpreadStrategy defines the strategy for spreading the PodGangs across nodes grouped by the topologyKey.
