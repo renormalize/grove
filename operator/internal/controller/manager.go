@@ -21,14 +21,16 @@ import (
 	"strconv"
 	"time"
 
-	configv1alpha1 "github.com/NVIDIA/grove/operator/api/config/v1alpha1"
-	"github.com/NVIDIA/grove/operator/internal/client"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	ctrlmetricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	ctrlwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	configv1alpha1 "github.com/NVIDIA/grove/operator/api/config/v1alpha1"
+	"github.com/NVIDIA/grove/operator/internal/client"
+	"github.com/NVIDIA/grove/operator/internal/webhook"
 )
 
 const pprofBindAddress = "127.0.0.1:2753"
@@ -42,7 +44,11 @@ func CreateAndInitializeManager(operatorCfg *configv1alpha1.OperatorConfiguratio
 	if err = RegisterControllers(mgr, operatorCfg.Controllers); err != nil {
 		return nil, err
 	}
-	// TODO register controller, webhooks, readyz, healthz endpoints
+	if err = webhook.RegisterWebhooks(mgr); err != nil {
+		return nil, err
+	}
+	// TODO register readyz, healthz endpoints
+
 	return mgr, nil
 }
 
