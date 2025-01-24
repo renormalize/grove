@@ -14,23 +14,28 @@
 // limitations under the License.
 // */
 
-package webhook
+package mutation
 
 import (
-	"fmt"
-
-	"github.com/NVIDIA/grove/operator/internal/webhook/pgs/mutation"
-	"github.com/NVIDIA/grove/operator/internal/webhook/pgs/validation"
+	"github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-func RegisterWebhooks(mgr manager.Manager) error {
-	if err := validation.RegisterWithManager(mgr); err != nil {
-		return fmt.Errorf("failed adding %s webhook handler: %v", validation.HandlerName, err)
-	}
+const (
+	// HandlerName is the name of the default webhook handler for PodGangSet.
+	HandlerName = "podgangset-default-webhook"
+	webhookPath = "/webhooks/default-podgangset"
+)
 
-	if err := mutation.RegisterWithManager(mgr); err != nil {
-		return fmt.Errorf("failed adding %s webhook handler: %v", mutation.HandlerName, err)
-	}
+// RegisterWithManager registers the webhook with the manager.
+func RegisterWithManager(mgr manager.Manager) error {
+	webhook := admission.
+		WithCustomDefaulter(mgr.GetScheme(),
+			&v1alpha1.PodGangSet{},
+			&Handler{logger: mgr.GetLogger().WithName("webhook").WithName(HandlerName)}).
+		WithRecoverPanic(true)
+
+	mgr.GetWebhookServer().Register(webhookPath, webhook)
 	return nil
 }

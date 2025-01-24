@@ -14,23 +14,30 @@
 // limitations under the License.
 // */
 
-package webhook
+package mutation
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/NVIDIA/grove/operator/internal/webhook/pgs/mutation"
-	"github.com/NVIDIA/grove/operator/internal/webhook/pgs/validation"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"github.com/NVIDIA/grove/operator/api/core/v1alpha1"
+	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
-func RegisterWebhooks(mgr manager.Manager) error {
-	if err := validation.RegisterWithManager(mgr); err != nil {
-		return fmt.Errorf("failed adding %s webhook handler: %v", validation.HandlerName, err)
-	}
+// Handler struct sets default values on PodGangSet CR
+type Handler struct {
+	logger logr.Logger
+}
 
-	if err := mutation.RegisterWithManager(mgr); err != nil {
-		return fmt.Errorf("failed adding %s webhook handler: %v", mutation.HandlerName, err)
+// Default implements webhook.CustomDefaulter
+func (d *Handler) Default(ctx context.Context, obj runtime.Object) error {
+	d.logger.V(1).Info("Defaulting for PodGangSet")
+
+	pgs, ok := obj.(*v1alpha1.PodGangSet)
+	if !ok {
+		return fmt.Errorf("expected an PodGangSet object but got %T", obj)
 	}
+	defaultPodGangSet(pgs)
 	return nil
 }
