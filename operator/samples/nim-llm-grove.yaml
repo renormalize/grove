@@ -7,7 +7,6 @@ metadata:
 spec:
   replicas: {{ .Values.replicaCount }}
   template:
-    restartPolicy: GangRestartPolicyOnFailure
     cliques:
       - metadata:
           name: "leader"
