@@ -11,13 +11,6 @@ metadata:
     app.kubernetes.io/version: "1.0.3"
     app.kubernetes.io/managed-by: Helm
 ---
-# Source: nim-llm/templates/secrets.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: release-name-nim-llm-ssh-pk
-type: Opaque
----
 # Source: nim-llm/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -301,8 +294,6 @@ spec:
                 name: dshm
               - name: scripts-volume
                 mountPath: /scripts
-              - name: ssh-pk
-                mountPath: /opt/nim/llm/pk
               - name: ssh-dotfiles
                 mountPath: /opt/nim/llm/.ssh
               - name: mpi-config
@@ -364,10 +355,6 @@ spec:
               defaultMode: 0555
           - name: ssh-dotfiles
             emptyDir: {}
-          - name: ssh-pk
-            secret:
-              defaultMode: 256
-              secretName: release-name-nim-llm-ssh-pk
     workerTemplate:
       metadata:
         annotations:
@@ -400,8 +387,6 @@ spec:
                 mountPath: /ssh-confs
               - name: ssh-dotfiles
                 mountPath: /opt/nim/llm/.ssh
-              - name: ssh-pk
-                mountPath: /opt/nim/llm/pk
               - name: start-mpi-script
                 mountPath: /opt/nim/start-mpi-cluster.sh
                 subPath: start-mpi-cluster.sh
@@ -459,30 +444,7 @@ spec:
             emptyDir: {}
           - name: ssh-dotfiles
             emptyDir: {}
-          - name: ssh-pk
-            secret:
-              defaultMode: 256
-              secretName: release-name-nim-llm-ssh-pk
           - name: start-mpi-script
             configMap:
               name: release-name-nim-llm-mpi-start-script
               defaultMode: 0555
----
-# Source: nim-llm/templates/servicemonitor.yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: release-name-nim-llm
-  labels:
-    helm.sh/chart: nim-llm-1.7.0-rc1
-    app.kubernetes.io/name: nim-llm
-    app.kubernetes.io/instance: release-name
-    app.kubernetes.io/version: "1.0.3"
-    app.kubernetes.io/managed-by: Helm
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: nim-llm
-      app.kubernetes.io/instance: release-name
-  endpoints:
-  - port: http-openai
