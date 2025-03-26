@@ -30,18 +30,17 @@ import (
 
 const (
 	controllerName = "podgangset-controller"
-	finalizerName  = "podgangset.grove.io"
 )
 
 // RegisterWithManager registers the PodGangSet Reconciler with the manager.
 func (r *Reconciler) RegisterWithManager(mgr manager.Manager) error {
-	r.logger.Info("Registering reconciler", "controllerName", controllerName)
 	return builder.ControllerManagedBy(mgr).
 		Named(controllerName).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: *r.config.ConcurrentSyncs,
 		}).
 		For(&v1alpha1.PodGangSet{}).
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		Owns(&v1alpha1.PodClique{}, builder.WithPredicates(podCliquePredicate())).
 		Complete(r)
 }
