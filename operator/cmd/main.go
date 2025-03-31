@@ -18,11 +18,11 @@ package main
 
 import (
 	"flag"
-	grovectrl "github.com/NVIDIA/grove/operator/internal/controller"
 	"os"
 
 	configv1alpha1 "github.com/NVIDIA/grove/operator/api/config/v1alpha1"
 	groveopts "github.com/NVIDIA/grove/operator/cmd/opts"
+	grovectrl "github.com/NVIDIA/grove/operator/internal/controller"
 	grovelogger "github.com/NVIDIA/grove/operator/internal/logger"
 	groveversion "github.com/NVIDIA/grove/operator/internal/version"
 
@@ -78,7 +78,7 @@ func initializeOperatorConfig(cliOpts *groveopts.CLIOptions) (*configv1alpha1.Op
 }
 
 func printFlags() {
-	var flagKVs []interface{}
+	var flagKVs []any
 	flag.VisitAll(func(f *flag.Flag) {
 		flagKVs = append(flagKVs, f.Name, f.Value.String())
 	})

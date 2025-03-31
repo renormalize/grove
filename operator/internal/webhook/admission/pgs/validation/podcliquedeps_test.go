@@ -1,9 +1,10 @@
 package validation
 
 import (
-	"github.com/stretchr/testify/assert"
-	"sort"
+	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGetUnknownCliques(t *testing.T) {
@@ -101,17 +102,12 @@ func TestGetStronglyConnectedCliques(t *testing.T) {
 			actualStronglyConnectedCliques := depG.GetStronglyConnectedCliques()
 			// sort the expected strongly connected cliques
 			for _, expectedScc := range tc.expectedStronglyConnectedCliques {
-				sort.Slice(expectedScc, func(i, j int) bool {
-					return expectedScc[i] < expectedScc[j]
-				})
+				slices.Sort(expectedScc)
 			}
 			// sort the actual strongly connected cliques
 			for _, actualScc := range actualStronglyConnectedCliques {
-				sort.Slice(actualScc, func(i, j int) bool {
-					return actualScc[i] < actualScc[j]
-				})
+				slices.Sort(actualScc)
 			}
-
 			assert.ElementsMatch(t, tc.expectedStronglyConnectedCliques, actualStronglyConnectedCliques)
 		})
 	}
