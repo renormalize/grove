@@ -1,3 +1,19 @@
+// /*
+// Copyright 2025 The Grove Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// */
+
 package pod
 
 import (
@@ -42,11 +58,13 @@ func New(client client.Client, scheme *runtime.Scheme) component.Operator[v1alph
 	}
 }
 
-func (r _resource) GetExistingResourceNames(ctx context.Context, logger logr.Logger, pclq *v1alpha1.PodClique) ([]string, error) {
+// GetExistingResourceNames returns the names of all the existing resources that the Pod Operator manages.
+func (r _resource) GetExistingResourceNames(_ context.Context, _ logr.Logger, _ *v1alpha1.PodClique) ([]string, error) {
 	//TODO Implement me
 	return nil, nil
 }
 
+// Sync synchronizes all resources that the Pod Operator manages.
 func (r _resource) Sync(ctx context.Context, logger logr.Logger, pclq *v1alpha1.PodClique) error {
 	info, err := r.listPods(ctx, logger, pclq.Name, pclq.Namespace)
 	if err != nil {
@@ -129,8 +147,8 @@ func (r _resource) doDelete(ctx context.Context, logger logr.Logger, pod *corev1
 func (r _resource) buildResource(logger logr.Logger, pod *corev1.Pod, pclq *v1alpha1.PodClique, info *podInfo) error {
 	podObjectKey, pclqObjectKey := client.ObjectKeyFromObject(pod), client.ObjectKeyFromObject(pclq)
 	if actual, ok := info.pods[pod.Name]; ok {
-		pod.ObjectMeta.Labels = actual.Labels
-		pod.ObjectMeta.Annotations = actual.Annotations
+		pod.Labels = actual.Labels
+		pod.Annotations = actual.Annotations
 		pod.Spec = actual.Spec
 		if updatePod(pod, pclq) {
 			logger.Info("Update pod", "name", pod.Name)
@@ -148,8 +166,8 @@ func (r _resource) buildResource(logger logr.Logger, pod *corev1.Pod, pclq *v1al
 		if err := controllerutil.SetControllerReference(pclq, pod, r.scheme); err != nil {
 			return err
 		}
-		pod.ObjectMeta.Labels = pclq.Labels
-		pod.ObjectMeta.Annotations = pclq.Annotations
+		pod.Labels = pclq.Labels
+		pod.Annotations = pclq.Annotations
 		pod.Spec = *podSpec
 	}
 	return nil

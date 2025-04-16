@@ -1,12 +1,31 @@
+// /*
+// Copyright 2025 The Grove Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// */
+
 package role
 
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	"github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
 	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
+
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -15,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"strings"
 )
 
 const (
@@ -29,6 +47,7 @@ type _resource struct {
 	scheme *runtime.Scheme
 }
 
+// New creates an instance of Role component operator.
 func New(client client.Client, scheme *runtime.Scheme) component.Operator[v1alpha1.PodGangSet] {
 	return &_resource{
 		client: client,
@@ -36,7 +55,8 @@ func New(client client.Client, scheme *runtime.Scheme) component.Operator[v1alph
 	}
 }
 
-func (r _resource) GetExistingResourceNames(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodGangSet) ([]string, error) {
+// GetExistingResourceNames returns the names of all the existing resources that the Role Operator manages.
+func (r _resource) GetExistingResourceNames(ctx context.Context, _ logr.Logger, pgs *v1alpha1.PodGangSet) ([]string, error) {
 	roleNames := make([]string, 0, 1)
 	objectKey := getObjectKey(pgs.ObjectMeta)
 	objMeta := &metav1.PartialObjectMetadata{}
@@ -57,6 +77,7 @@ func (r _resource) GetExistingResourceNames(ctx context.Context, logger logr.Log
 	return roleNames, nil
 }
 
+// Sync synchronizes all resources that the Role Operator manages.
 func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodGangSet) error {
 	objectKey := getObjectKey(pgs.ObjectMeta)
 	role := emptyRole(objectKey)

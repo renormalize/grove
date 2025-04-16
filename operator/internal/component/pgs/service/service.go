@@ -1,18 +1,34 @@
+// /*
+// Copyright 2025 The Grove Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// */
+
 package service
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
-	"github.com/samber/lo"
 
 	"github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
-	"github.com/NVIDIA/grove/operator/internal/utils"
-
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
+	"github.com/NVIDIA/grove/operator/internal/utils"
+	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
+
 	"github.com/go-logr/logr"
+	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -30,6 +46,7 @@ type _resource struct {
 	scheme *runtime.Scheme
 }
 
+// New creates an instance of Service component operator.
 func New(client client.Client, scheme *runtime.Scheme) component.Operator[v1alpha1.PodGangSet] {
 	return &_resource{
 		client: client,
@@ -37,6 +54,7 @@ func New(client client.Client, scheme *runtime.Scheme) component.Operator[v1alph
 	}
 }
 
+// GetExistingResourceNames returns the names of all the existing resources that the Service Operator manages.
 func (r _resource) GetExistingResourceNames(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodGangSet) ([]string, error) {
 	logger.Info("Looking for existing PodGangSet Headless Services", "objectKey", client.ObjectKeyFromObject(pgs))
 	existingServiceNames := make([]string, 0, int(pgs.Spec.Replicas))
@@ -61,6 +79,7 @@ func (r _resource) GetExistingResourceNames(ctx context.Context, logger logr.Log
 	return existingServiceNames, nil
 }
 
+// Sync synchronizes all resources that the Service Operator manages.
 func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodGangSet) error {
 	// Do not create headless service if service spec is not defined.
 	if pgs.Spec.TemplateSpec.HeadlessServiceConfig == nil {

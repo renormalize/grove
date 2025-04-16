@@ -1,25 +1,43 @@
+// /*
+// Copyright 2025 The Grove Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// */
+
 package validation
 
 import (
 	"k8s.io/utils/strings/slices"
 )
 
+// PodCliqueDependencyGraph is the graph structure established from the dependencies between PodCliques.
 type PodCliqueDependencyGraph struct {
 	adjacency map[string][]string
 }
 
+// NewPodCliqueDependencyGraph returns an empty PodCliqueDependencyGraph.
 func NewPodCliqueDependencyGraph() *PodCliqueDependencyGraph {
 	return &PodCliqueDependencyGraph{
 		adjacency: make(map[string][]string),
 	}
 }
 
+// AddDependencies adds all the `to` PodCliques that depend on the  `from` PodClique.
 func (g *PodCliqueDependencyGraph) AddDependencies(from string, to []string) {
-	for _, t := range to {
-		g.adjacency[from] = append(g.adjacency[from], t)
-	}
+	g.adjacency[from] = append(g.adjacency[from], to...)
 }
 
+// GetUnknownCliques returns cliques that are not present in the discoveredCliques slice.
 func (g *PodCliqueDependencyGraph) GetUnknownCliques(discoveredCliques []string) []string {
 	unknownCliques := make([]string, 0, len(discoveredCliques))
 	for _, toCliques := range g.adjacency {

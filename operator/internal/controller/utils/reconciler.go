@@ -1,11 +1,27 @@
+// /*
+// Copyright 2025 The Grove Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// */
+
 package utils
 
 import (
 	"context"
-	"github.com/NVIDIA/grove/operator/internal/component"
 	"time"
 
 	"github.com/NVIDIA/grove/operator/api/core/v1alpha1"
+	"github.com/NVIDIA/grove/operator/internal/component"
 	grovectrl "github.com/NVIDIA/grove/operator/internal/controller/common"
 
 	"github.com/go-logr/logr"
@@ -37,6 +53,7 @@ func GetPodClique(ctx context.Context, cl client.Client, logger logr.Logger, obj
 	return grovectrl.ContinueReconcile()
 }
 
+// VerifyNoResourceAwaitsCleanup ensures no resources that are to be cleaned up are still present in the cluster.
 func VerifyNoResourceAwaitsCleanup[T component.GroveCustomResourceType](ctx context.Context, logger logr.Logger, operatorRegistry component.OperatorRegistry[T], obj *T) grovectrl.ReconcileStepResult {
 	operators := operatorRegistry.GetAllOperators()
 	resourceNamesAwaitingCleanup := make([]string, 0, len(operators))

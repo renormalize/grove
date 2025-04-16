@@ -1,3 +1,19 @@
+// /*
+// Copyright 2025 The Grove Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// */
+
 package component
 
 import (
@@ -94,16 +110,19 @@ type _registry[T GroveCustomResourceType] struct {
 	operators map[Kind]Operator[T]
 }
 
+// NewOperatorRegistry creates a new OperatorRegistry.
 func NewOperatorRegistry[T GroveCustomResourceType]() OperatorRegistry[T] {
 	return &_registry[T]{
 		operators: make(map[Kind]Operator[T]),
 	}
 }
 
+// Register registers an operator with its associated kind in the registry.
 func (r *_registry[T]) Register(kind Kind, operator Operator[T]) {
 	r.operators[kind] = operator
 }
 
+// GetOperator gets the operator associated with a kind from the registry.
 func (r *_registry[T]) GetOperator(kind Kind) (Operator[T], error) {
 	operator, ok := r.operators[kind]
 	if !ok {
@@ -112,6 +131,7 @@ func (r *_registry[T]) GetOperator(kind Kind) (Operator[T], error) {
 	return operator, nil
 }
 
+// GetAllOperators gets all operators registered.
 func (r *_registry[T]) GetAllOperators() map[Kind]Operator[T] {
 	return r.operators
 }

@@ -15,26 +15,26 @@
 # limitations under the License.
 # */
 
-
 set -o errexit
 set -o nounset
 set -o pipefail
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-OPERATOR_GO_MODULE_ROOT="$(dirname "$SCRIPT_DIR")"
-GOARCH=${GOARCH:-$(go env GOARCH)}
-PLATFORM=${PLATFORM:-linux/${GOARCH}}
+echo "> Adding Apache License header to all go files where it is not present"
 
-function build_docker_image() {
-  local version="$(cat "${OPERATOR_GO_MODULE_ROOT}/VERSION")"
-  printf '%s\n' "Building grove-operator:${version} with:
-   PLATFORM: ${PLATFORM}... "
-  docker buildx build \
-    --platform ${PLATFORM} \
-    --build-arg VERSION=${version} \
-    -t grove-operator-${GOARCH}:${version} \
-    -f ${OPERATOR_GO_MODULE_ROOT}/Dockerfile \
-    ${OPERATOR_GO_MODULE_ROOT}
-}
+YEAR="$(date +%Y)"
 
-build_docker_image
+# addlicense with a license file (parameter -f) expects no comments in the file.
+# boilerplate.go.txt is however also used also when generating go code.
+# Therefore we remove '//' from boilerplate.go.txt here before passing it to addlicense.
+
+temp_file=$(mktemp)
+trap "rm -f $temp_file" EXIT
+sed -e "s/YEAR/${YEAR}/g" -e 's|^// *||' hack/boilerplate.go.txt > $temp_file
+
+addlicense \
+  -f $temp_file \
+  -ignore "**/*.md" \
+  -ignore "**/*.yaml" \
+  -ignore "**/*.yml" \
+  -ignore "**/Dockerfile" \
+  .
