@@ -21,8 +21,8 @@ lint:
 	@make --directory=operator lint
 	@echo "> Linting scheduler-api"
 	@make --directory=scheduler-api lint
-	@echo "> Linting scheduler-plugins"
-	@make --directory=scheduler-plugins lint
+	@echo "> Linting scheduler"
+	@make --directory=scheduler lint
 
 # Formats the entire codebase (all modules)
 .PHONY: format
@@ -31,8 +31,8 @@ format:
 	@make --directory=operator format
 	@echo "> Formatting scheduler-api"
 	@make --directory=scheduler-api format
-	@echo "> Formatting scheduler-plugins"
-	@make --directory=scheduler-plugins format
+	@echo "> Formatting scheduler"
+	@make --directory=scheduler format
 
 # Generates code and CRDs for the entire codebase (all relevant modules)
 .PHONY: generate
@@ -49,6 +49,6 @@ add-license-headers:
 	@make --directory=operator add-license-headers
 	@echo "> Adding license headers to scheduler-api"
 	@make --directory=scheduler-api add-license-headers
-	@echo "> Adding license headers to scheduler-plugins"
-	@make --directory=scheduler-plugins add-license-headers
+	@echo "> Adding license headers to scheduler"
+	@make --directory=scheduler add-license-headers
 

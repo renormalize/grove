@@ -19,7 +19,7 @@ package main
 import (
 	"os"
 
-	"github.com/NVIDIA/grove/scheduler-plugins/grovescheduling"
+	"github.com/NVIDIA/grove/scheduler/plugins/grovescheduling"
 
 	"k8s.io/component-base/cli"
 	"k8s.io/kubernetes/cmd/kube-scheduler/app"
