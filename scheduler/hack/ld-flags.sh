@@ -39,8 +39,10 @@ function build_ld_flags() {
   # Use `git status --porcelain $MODULE_ROOT` to only check the status of the directory
   local tree_state="$([ -z "$(git status --porcelain $MODULE_ROOT 2>/dev/null | grep -vf <(git ls-files -o --deleted --ignored --exclude-from=${MODULE_ROOT}/Dockerfile.dockerignore))" ] && echo clean || echo dirty)"
 
-  echo "-X $package_path/version.gitVersion=$version
-        -X $package_path/version.gitCommit=$(git rev-parse --verify HEAD)
+  # The k8s.component-base/version.gitCommit can not be set to the version of grove
+  # due to the error: "emulation version 1.33 is not between [1.31, 0.1.0-dev]".
+  # https://github.com/kubernetes/kubernetes/blob/5dc8b8dd268f2170286a75c142781f4db1da9020/staging/src/k8s.io/component-base/compatibility/version.go#L165
+  echo "-X $package_path/version.gitCommit=$(git rev-parse --verify HEAD)
         -X $package_path/version.gitTreeState=$tree_state
         -X $package_path/version.buildDate=$build_date
         -X $package_path/version.programName=$program_name"

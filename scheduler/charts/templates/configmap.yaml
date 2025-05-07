@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "grove-kube-scheduler.config.name" . }}
+  namespace: kube-system
+data:
+{{- include "grove-kube-scheduler.config.data" . | nindent 2 }}

@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grove-kube-scheduler
+  namespace: kube-system
+  labels:
+{{- include "grove-kube-scheduler.deployment.labels" . | nindent 4 }}
+spec:
+  replicas: {{ required ".Values.replicaCount is required" .Values.replicaCount }}
+  selector:
+    matchLabels:
+{{- include "grove-kube-scheduler.deployment.matchLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+{{- include "grove-kube-scheduler.deployment.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ required ".Values.serviceAccount.name is required" .Values.serviceAccount.name }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: grove-kube-scheduler
+          image: {{ include "image" .Values.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- /*
+          args:
+            - --config=/etc/grove-operator/config/config.yaml
+          {{- if .Values.config.server.healthProbes.enable }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ required ".Values.config.server.healthProbe.port is required" .Values.config.server.healthProbes.port }}
+              scheme: HTTP
+            initialDelaySeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ required ".Values.config.server.healthProbe.port is required" .Values.config.server.healthProbes.port }}
+              scheme: HTTP
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+          {{- end }}
+          */}}
+          {{- if .Values.resources }}
+          resources:
+{{- toYaml .Values.resources | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - mountPath: /etc/kubernetes/scheduler.conf
+              name: kubeconfig
+              readOnly: true
+            - name: grove-kube-scheduler-config
+              mountPath: /etc/kubernetes/scheduler-configuration.yaml
+            - name: kube-api-access-grove-kube-scheduler
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+      volumes:
+        - name: kube-api-access-grove-kube-scheduler
+          projected:
+            defaultMode: 420
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 43200 # 12 hours
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                  - key: ca.crt
+                    path: ca.crt
+        - name: grove-kube-scheduler-config
+          configMap:
+            name: {{ include "grove-kube-scheduler.config.name" . }}
+        - name: kubeconfig
+          hostPath:
+            path: /etc/kubernetes/scheduler.conf
+            type: FileOrCreate

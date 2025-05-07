@@ -78,8 +78,7 @@ docker-build-%:
 # Deploys grove-kube-scheduler to a local k8s cluster using skaffold.
 .PHONY: deploy-local-second
 deploy-local-second: $(SKAFFOLD)
-	@$(MODULE_HACK_DIR)/prepare-local-deploy.sh $(NAMESPACE) $(CERT_EXPIRY)
-	@$(MODULE_HACK_DIR)/deploy-local.sh run -m grove-operator -n $(NAMESPACE)
+	@$(MODULE_HACK_DIR)/deploy-local.sh
 
 # deploys kube-scheduler by replacing the vanilla kube-scheduler in kind
 # The kube-scheduler configuration is maintained in this script

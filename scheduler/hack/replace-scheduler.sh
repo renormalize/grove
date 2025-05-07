@@ -47,7 +47,7 @@ function skaffold_build() {
   local ld_flags=$(build_ld_flags)
   export LD_FLAGS="${ld_flags}"
   # default registry is needed if there is no current kube context
-  IMAGE=$(skaffold build --platform=linux/$GOARCH --quiet --output="{{range .Builds}}{{.Tag}}{{println}}{{end}}" --default-repo localhost:$REG_PORT --module scheduler-plugins-replace)
+  IMAGE=$(skaffold build --platform=$PLATFORM --quiet --output="{{range .Builds}}{{.Tag}}{{println}}{{end}}" --default-repo localhost:$REG_PORT --module scheduler)
 }
 
 function generate_kube_scheduler_configuration() {

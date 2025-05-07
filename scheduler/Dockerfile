@@ -10,7 +10,7 @@ COPY ../. .
 ARG TARGETOS
 ARG TARGETARCH
 
-RUN make --directory=scheduler-plugins build-${TARGETOS}-${TARGETARCH}
+RUN make --directory=scheduler build-${TARGETOS}-${TARGETARCH}
 
 # All image label keys are as per the OCI recommendations.
 # Reference: https://github.com/opencontainers/image-spec/blob/main/annotations.md#pre-defined-annotation-keys
@@ -22,9 +22,9 @@ ARG VERSION
 
 LABEL org.opencontainers.image.title="Grove kube-scheduler"
 LABEL org.opencontainers.image.description="Kubernetes scheduler which supports PodGang and PodGangSet custom resources"
-LABEL org.opencontainers.image.source="https://github.com/NVIDIA/grove/tree/main/scheduler-plugins"
+LABEL org.opencontainers.image.source="https://github.com/NVIDIA/grove/tree/main/scheduler"
 LABEL org.opencontainers.image.version=${VERSION}
 
 WORKDIR /bin
-COPY --from=builder /go/src/github.com/NVIDIA/grove/scheduler-plugins/bin/kube-scheduler /bin/kube-scheduler
+COPY --from=builder /go/src/github.com/NVIDIA/grove/scheduler/bin/kube-scheduler /bin/kube-scheduler
 ENTRYPOINT ["/bin/kube-scheduler"]

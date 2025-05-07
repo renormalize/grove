@@ -1,7 +1,7 @@
 apiVersion: skaffold/v4beta12
 kind: Config
 metadata:
-  name: scheduler-plugins-replace
+  name: scheduler
 build:
   local: { } # see https://skaffold.dev/docs/builders/build-environments/local/
   artifacts:
@@ -16,28 +16,7 @@ build:
         dependencies:
           paths:
             - cmd
-            - grovescheduling
-            - internal
-            - VERSION
-        flags:
-          - -v
-        ldflags:
-          - '{{.LD_FLAGS}}'
-        main: ./cmd
----
-apiVersion: skaffold/v4beta12
-kind: Config
-metadata:
-  name: scheduler-plugins-second
-build:
-  local: { } # see https://skaffold.dev/docs/builders/build-environments/local/
-  artifacts:
-    - image: local-skaffold/kube-scheduler
-      ko:
-        dependencies:
-          paths:
-            - cmd
-            - grovescheduling
+            - plugins/grovescheduling
             - internal
             - VERSION
         flags:
@@ -46,10 +25,32 @@ build:
           - '{{.LD_FLAGS}}'
         main: ./cmd
 # Deploy will only be used to run the scheduler as the second scheduler
-# deploy:
-#   kubectl:
-#     hooks:
-#       after:
-#       - host:
-#           command: ["sh", "-c", "./hack/replace-scheduler.sh"]
-#           os: [darwin, linux]
+deploy:
+  helm:
+    releases:
+      - name: kube-scheduler
+        chartPath: charts
+        setValueTemplates:
+          image.repository: '{{.IMAGE_REPO_local_skaffold_kube_scheduler}}'
+          image.tag: '{{.IMAGE_TAG_local_skaffold_kube_scheduler}}@{{.IMAGE_DIGEST_local_skaffold_kube_scheduler}}'
+        skipBuildDependencies: true
+        createNamespace: true
+        wait: false
+profiles:
+  - name: debug
+    patches:
+      - op: add
+        path: /deploy/helm/releases/0/setValues
+        value:
+          replicaCount: 1
+          config.leaderElection.enabled: false
+  # - name: kind
+  #   deploy:
+  #     helm:
+  #       releases:
+  #         - name: grove-kube-scheduler
+  #           chartPath: charts
+  #           setValueTemplates:
+  #             image.repository: '{{.IMAGE_REPO_local_skaffold_grove_scheduler}}'
+  #             image.tag: '{{.IMAGE_TAG_local_skaffold_grove_scheduler}}@{{.IMAGE_DIGEST_local_skaffold_grove_scheduler}}'
+  #             kubeconfig: /etc/kubernetes/kubeconfig

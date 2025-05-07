@@ -1,0 +1,123 @@
+# ReplicaCount is the value for spec.replcas for the grove-kube-scheduler deployment resource
+replicaCount: 1
+
+# This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+image:
+  repository: grove-kube-scheduler
+  # This sets the pull policy for images.
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: latest
+
+# This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
+serviceAccount:
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: false
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: "grove-kube-scheduler"
+  labels:
+    app.kubernetes.io/component: grove-kube-scheduler-serviceccount
+    app.kubernetes.io/name: grove-kube-scheduler-serviceccount
+    app.kubernetes.io/part-of: grove
+
+configMap:
+  name: grove-kube-scheduler-config
+  labels:
+    app.kubernetes.io/component: grove-kube-scheduler-configmap
+    app.kubernetes.io/name: grove-kube-scheduler
+    app.kubernetes.io/part-of: grove
+
+clusterRole:
+  name: system:kube-scheduler
+  labels:
+    app.kubernetes.io/component: operator-clusterrole
+    app.kubernetes.io/name: grove-operator
+    app.kubernetes.io/part-of: grove
+
+clusterRoleBinding:
+  name: grove-kube-scheduler
+  labels:
+    app.kubernetes.io/component: grove-kube-scheduler-clusterrolebinding
+    app.kubernetes.io/name: grove-kube-scheduler
+    app.kubernetes.io/part-of: grove
+
+deployment:
+  labels:
+    app.kubernetes.io/component: operator-deployment
+    app.kubernetes.io/name: grove-operator
+    app.kubernetes.io/part-of: grove
+
+# This is for setting Kubernetes Annotations to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+podAnnotations: {}
+# This is for setting Kubernetes Labels to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+podLabels: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
+service:
+  # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+  type: ClusterIP
+  # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
+  port: 80
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+# This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+livenessProbe:
+  httpGet:
+    path: /
+    port: http
+readinessProbe:
+  httpGet:
+    path: /
+    port: http
+
+# This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Additional volumes on the output Deployment definition.
+volumes: []
+# - name: foo
+#   secret:
+#     secretName: mysecret
+#     optional: false
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+# - name: foo
+#   mountPath: "/etc/foo"
+#   readOnly: true
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
