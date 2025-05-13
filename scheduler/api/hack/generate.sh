@@ -21,7 +21,7 @@ set -o pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 MODULE_ROOT="$(dirname "$SCRIPT_DIR")"
-REPO_ROOT="$(dirname "$MODULE_ROOT")"
+REPO_ROOT="$(dirname $(dirname "$MODULE_ROOT"))"
 REPO_HACK_DIR=${REPO_ROOT}/hack
 TOOLS_BIN_DIR="${REPO_HACK_DIR}/tools/bin"
 
@@ -54,12 +54,12 @@ function check_controller_gen_prereq() {
 function generate_deepcopy_defaulter() {
   kube::codegen::gen_helpers \
     --boilerplate "${REPO_HACK_DIR}/boilerplate.go.txt" \
-    "${MODULE_ROOT}/api"
+    "${MODULE_ROOT}"
 }
 
 function generate_crds() {
-  local output_dir="${MODULE_ROOT}/api/crds"
-  local package="github.com/NVIDIA/grove/scheduler-api/api/v1alpha1"
+  local output_dir="${MODULE_ROOT}/core/v1alpha1/crds"
+  local package="github.com/NVIDIA/grove/scheduler/api/core/v1alpha1"
   local package_path="$(go list -f '{{.Dir}}' "${package}")"
 
   if [ -z "${package_path}" ]; then

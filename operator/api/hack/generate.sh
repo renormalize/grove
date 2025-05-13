@@ -21,9 +21,12 @@ set -o pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 MODULE_ROOT="$(dirname "$SCRIPT_DIR")"
-REPO_ROOT="$(dirname "$MODULE_ROOT")"
+OPERATOR_ROOT="$(dirname "$MODULE_ROOT")"
+REPO_ROOT="$(dirname "$OPERATOR_ROOT")"
 REPO_HACK_DIR=${REPO_ROOT}/hack
 TOOLS_BIN_DIR="${REPO_HACK_DIR}/tools/bin"
+
+source "${TOOLS_BIN_DIR}/kube_codegen.sh"
 
 trap cleanup EXIT
 
@@ -42,19 +45,48 @@ function cleanup() {
   rm -rf ${MODULE_ROOT}/hack/tools
 }
 
+function check_controller_gen_prereq() {
+  if ! command -v controller-gen &>/dev/null; then
+    echo >&2 "controller-gen is not available, cannot generate deepcopy/runtime.Object for the API types and cannot generate CRDs"
+    exit 1
+  fi
+}
+
 function generate_deepcopy_defaulter() {
- kube::codegen::gen_helpers \
+  kube::codegen::gen_helpers \
     --boilerplate "${REPO_HACK_DIR}/boilerplate.go.txt" \
-    "${MODULE_ROOT}/api"
+    "${MODULE_ROOT}"
+}
+
+function generate_crds() {
+  local output_dir="${MODULE_ROOT}/core/v1alpha1/crds"
+  local package="github.com/NVIDIA/grove/operator/api/core/v1alpha1"
+  local package_path="$(go list -f '{{.Dir}}' "${package}")"
+
+  if [ -z "${package_path}" ]; then
+    echo >&2 "Could not locate directory for package: ${package}"
+    exit 1
+  fi
+
+  if [ -z "${output_dir}" ]; then
+    mkdir -p "${output_dir}"
+  fi
+
+  # clean all generated crd files
+  if ls "${output_dir}/*.yaml" 1> /dev/null 2>&1; then
+    rm "${output_dir}/*.yaml"
+  fi
+
+  controller-gen crd paths="${package_path}" output:crd:dir="${output_dir}" output:stdout
 }
 
 function generate_clientset() {
   kube::codegen::gen_client \
     --with-watch \
-    --output-dir "${MODULE_ROOT}/client" \
+    --output-dir "${OPERATOR_ROOT}/client" \
     --output-pkg "github.com/NVIDIA/grove/operator/client" \
     --boilerplate "${REPO_HACK_DIR}/boilerplate.go.txt" \
-    "${MODULE_ROOT}/api"
+    "${MODULE_ROOT}"
 }
 
 function main() {
@@ -66,7 +98,11 @@ function main() {
   echo "> Generating DeepCopy and Defaulting functions..."
   generate_deepcopy_defaulter
 
-  echo "> Generating ClientSet for PodGangSet API..."
+  check_controller_gen_prereq
+  echo "> Generate CRDs..."
+  generate_crds
+
+  echo "> Generating ClientSet..."
   generate_clientset
 }
 

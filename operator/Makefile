@@ -44,12 +44,6 @@ lint: $(GOLANGCI_LINT)
 format: $(GOIMPORTS_REVISER)
 	@$(REPO_HACK_DIR)/format.sh ./api/ ./internal/ ./cmd/
 
-# Generates code and CRDs.
-.PHONY: generate
-generate: $(CODE_GENERATOR) $(CONTROLLER_GEN)
-	@$(MODULE_HACK_DIR)/codegen.sh
-	@$(MODULE_HACK_DIR)/generate-crds.sh
-
 # Add license headers to all files
 .PHONY: add-license-headers
 add-license-headers: $(GO_ADD_LICENSE)

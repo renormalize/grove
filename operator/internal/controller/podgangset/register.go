@@ -59,10 +59,7 @@ func podCliquePredicate() predicate.Predicate {
 		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
 			return isManagedClique(deleteEvent.Object)
 		},
-		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
-			// Only allow update event if the PodClique is managed by Grove and the spec has not changed.
-			return isManagedClique(updateEvent.ObjectNew)
-		},
+		UpdateFunc:  func(_ event.UpdateEvent) bool { return false },
 		GenericFunc: func(_ event.GenericEvent) bool { return false },
 	}
 }
