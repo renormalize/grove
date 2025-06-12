@@ -125,10 +125,10 @@ func (r _resource) buildResource(pgs *v1alpha1.PodGangSet, role *rbacv1.Role) er
 	}
 	role.Rules = []rbacv1.PolicyRule{
 		{
-			APIGroups:     []string{v1alpha1.GroupName},
-			Resources:     []string{"podcliques", "podcliques/status"},
-			Verbs:         []string{"get", "list", "watch"},
-			ResourceNames: getAllPodCliqueNames(pgs),
+			APIGroups: []string{v1alpha1.GroupName},
+			Resources: []string{"podcliques", "podcliques/status"},
+			Verbs:     []string{"get", "list", "watch"},
+			// ResourceNames: getAllPodCliqueNames(pgs),
 		},
 	}
 	return nil
