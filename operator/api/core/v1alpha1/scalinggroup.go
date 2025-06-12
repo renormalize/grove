@@ -36,16 +36,46 @@ type PodCliqueScalingGroup struct {
 	Status PodCliqueScalingGroupStatus `json:"status,omitempty"`
 }
 
+// +kubebuilder:object:root=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// PodCliqueScalingGroupList is a slice of PodCliqueScalingGroup's.
+type PodCliqueScalingGroupList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	// Items is a slice of PodCliqueScalingGroup.
+	Items []PodCliqueScalingGroup `json:"items"`
+}
+
 // PodCliqueScalingGroupSpec is the specification of the PodCliqueScalingGroup.
 type PodCliqueScalingGroupSpec struct {
 	// Replicas is the desired number of replicas for the PodCliqueScalingGroup.
+	// If not specified, it defaults to 1.
 	Replicas int32 `json:"replicas"`
+	// CliqueNames is the fully qualified list of PodClique names that are a part of this scaling group.
+	CliqueNames []string `json:"cliqueNames"`
 }
 
 // PodCliqueScalingGroupStatus is the status of the PodCliqueScalingGroup.
 type PodCliqueScalingGroupStatus struct {
 	// Replicas is the observed number of replicas for the PodCliqueScalingGroup.
-	Replicas int32 `json:"replicas"`
+	Replicas int32 `json:"replicas,omitempty"`
 	// Selector is the selector used to identify the pods that belong to this scaling group.
-	Selector *string `json:"selector"`
+	Selector *string `json:"selector,omitempty"`
+	// ObservedGeneration is the most recent generation observed by the controller.
+	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
+	// LastOperation captures the last operation done by the respective reconciler on the PodClique.
+	LastOperation *LastOperation `json:"lastOperation,omitempty"`
+	// LastErrors captures the last errors observed by the controller when reconciling the PodClique.
+	LastErrors []LastError `json:"lastErrors,omitempty"`
+}
+
+// SetLastErrors sets the last errors observed by the controller when reconciling the PodCliqueScalingGroup.
+func (pcsg *PodCliqueScalingGroup) SetLastErrors(lastErrs ...LastError) {
+	pcsg.Status.LastErrors = lastErrs
+}
+
+// SetLastOperation sets the last operation done by the respective reconciler on the PodCliqueScalingGroup.
+func (pcsg *PodCliqueScalingGroup) SetLastOperation(lastOp *LastOperation) {
+	pcsg.Status.LastOperation = lastOp
 }

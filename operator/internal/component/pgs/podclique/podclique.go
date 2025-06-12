@@ -18,8 +18,8 @@ package podclique
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -59,7 +59,6 @@ func New(client client.Client, scheme *runtime.Scheme) component.Operator[grovec
 // GetExistingResourceNames returns the names of all the existing resources that the PodClique Operator manages.
 func (r _resource) GetExistingResourceNames(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) ([]string, error) {
 	logger.Info("Looking for existing PodCliques")
-	existingPCLQNames := make([]string, 0, int(pgs.Spec.Replicas)*len(pgs.Spec.TemplateSpec.Cliques))
 	objMetaList := &metav1.PartialObjectMetadataList{}
 	objMetaList.SetGroupVersionKind(grovecorev1alpha1.SchemeGroupVersion.WithKind("PodClique"))
 	if err := r.client.List(ctx,
@@ -73,12 +72,7 @@ func (r _resource) GetExistingResourceNames(ctx context.Context, logger logr.Log
 			fmt.Sprintf("Error listing PodCliques for PodGangSet: %v", client.ObjectKeyFromObject(pgs)),
 		)
 	}
-	for _, pclqObjMeta := range objMetaList.Items {
-		if metav1.IsControlledBy(&pclqObjMeta, &pgs.ObjectMeta) {
-			existingPCLQNames = append(existingPCLQNames, pclqObjMeta.Name)
-		}
-	}
-	return existingPCLQNames, nil
+	return k8sutils.FilterMapOwnedResourceNames(pgs.ObjectMeta, objMetaList.Items), nil
 }
 
 // Sync synchronizes all resources that the PodClique Operator manages.
@@ -86,27 +80,42 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev
 	numTasks := int(pgs.Spec.Replicas) * len(pgs.Spec.TemplateSpec.Cliques)
 	tasks := make([]utils.Task, 0, numTasks)
 
+	existingPCLQNames, err := r.GetExistingResourceNames(ctx, logger, pgs)
+	if err != nil {
+		return groveerr.WrapError(err,
+			errSyncPodClique,
+			component.OperationSync,
+			"Unable to fetch existing PodClique names duing Sync",
+		)
+	}
+
 	for replicaIndex := range pgs.Spec.Replicas {
 		for _, pclqTemplateSpec := range pgs.Spec.TemplateSpec.Cliques {
 			pclqObjectKey := client.ObjectKey{
 				Name:      grovecorev1alpha1.GeneratePodCliqueName(pgs.Name, int(replicaIndex), pclqTemplateSpec.Name),
 				Namespace: pgs.Namespace,
 			}
+			exists := slices.Contains(existingPCLQNames, pclqObjectKey.Name)
 			createOrUpdateTask := utils.Task{
 				Name: fmt.Sprintf("CreateOrUpdatePodClique-%s", pclqObjectKey),
 				Fn: func(ctx context.Context) error {
-					return r.doCreateOrUpdate(ctx, logger, pgs, pclqObjectKey)
+					return r.doCreateOrUpdate(ctx, logger, pgs, pclqObjectKey, exists)
 				},
 			}
 			tasks = append(tasks, createOrUpdateTask)
 		}
 	}
-	if errs := utils.RunConcurrently(ctx, tasks); len(errs) > 0 {
-		return errors.Join(errs...)
+	if runResult := utils.RunConcurrently(ctx, logger, tasks); runResult.HasErrors() {
+		return groveerr.WrapError(runResult.GetAggregatedError(),
+			errSyncPodClique,
+			component.OperationSync,
+			fmt.Sprintf("Error CreateOrUpdate of PodCliques for PodGangSet: %v, run summary: %s", client.ObjectKeyFromObject(pgs), runResult.GetSummary()),
+		)
 	}
 	return nil
 }
 
+// Delete deletes all resources that the PodClique Operator manages.
 func (r _resource) Delete(ctx context.Context, logger logr.Logger, pgsObjectMeta metav1.ObjectMeta) error {
 	logger.Info("Triggering deletion of PodCliques")
 	if err := r.client.DeleteAllOf(ctx,
@@ -123,11 +132,11 @@ func (r _resource) Delete(ctx context.Context, logger logr.Logger, pgsObjectMeta
 	return nil
 }
 
-func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pclqObjectKey client.ObjectKey) error {
+func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pclqObjectKey client.ObjectKey, exists bool) error {
 	logger.Info("Running CreateOrUpdate PodClique", "pclqObjectKey", pclqObjectKey)
 	pclq := emptyPodClique(pclqObjectKey)
 	opResult, err := controllerutil.CreateOrPatch(ctx, r.client, pclq, func() error {
-		return r.buildResource(logger, pclq, pgs)
+		return r.buildResource(logger, pclq, pgs, exists)
 	})
 	if err != nil {
 		return groveerr.WrapError(err,
@@ -140,7 +149,7 @@ func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs
 	return nil
 }
 
-func (r _resource) buildResource(logger logr.Logger, pclq *grovecorev1alpha1.PodClique, pgs *grovecorev1alpha1.PodGangSet) error {
+func (r _resource) buildResource(logger logr.Logger, pclq *grovecorev1alpha1.PodClique, pgs *grovecorev1alpha1.PodGangSet, exists bool) error {
 	var err error
 	pclqObjectKey, pgsObjectKey := client.ObjectKeyFromObject(pclq), client.ObjectKeyFromObject(pgs)
 	pclqNameParts, err := getPodCliqueNameParts(pclq.Name)
@@ -174,7 +183,14 @@ func (r _resource) buildResource(logger logr.Logger, pclq *grovecorev1alpha1.Pod
 	pclq.Annotations = pclqTemplateSpec.Annotations
 	// set PodCliqueSpec
 	// ------------------------------------
-	pclq.Spec = pclqTemplateSpec.Spec
+	if exists {
+		// If an HPA is mutating the number of replicas, then it should not be overwritten by the template spec replicas.
+		currentPCLQReplicas := pclq.Spec.Replicas
+		pclq.Spec = pclqTemplateSpec.Spec
+		pclq.Spec.Replicas = currentPCLQReplicas
+	} else {
+		pclq.Spec = pclqTemplateSpec.Spec
+	}
 	var dependentPclqNames []string
 	if dependentPclqNames, err = identifyFullyQualifiedStartupDependencyNames(pgs, pclq, pclqNameParts.B, foundAtIndex); err != nil {
 		return err

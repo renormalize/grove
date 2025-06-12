@@ -43,16 +43,80 @@ spec:
           spec:
             description: Spec is the specification of the PodCliqueScalingGroup.
             properties:
+              cliqueNames:
+                description: CliqueNames is the fully qualified list of PodClique
+                  names that are a part of this scaling group.
+                items:
+                  type: string
+                type: array
               replicas:
-                description: Replicas is the desired number of replicas for the PodCliqueScalingGroup.
+                description: |-
+                  Replicas is the desired number of replicas for the PodCliqueScalingGroup.
+                  If not specified, it defaults to 1.
                 format: int32
                 type: integer
             required:
+            - cliqueNames
             - replicas
             type: object
           status:
             description: Status is the status of the PodCliqueScalingGroup.
             properties:
+              lastErrors:
+                description: LastErrors captures the last errors observed by the controller
+                  when reconciling the PodClique.
+                items:
+                  description: LastError captures the last error observed by the controller
+                    when reconciling an object.
+                  properties:
+                    code:
+                      description: Code is the error code that uniquely identifies
+                        the error.
+                      type: string
+                    description:
+                      description: Description is a human-readable description of
+                        the error.
+                      type: string
+                    observedAt:
+                      description: ObservedAt is the time at which the error was observed.
+                      format: date-time
+                      type: string
+                  required:
+                  - code
+                  - description
+                  - observedAt
+                  type: object
+                type: array
+              lastOperation:
+                description: LastOperation captures the last operation done by the
+                  respective reconciler on the PodClique.
+                properties:
+                  description:
+                    description: Description is a human-readable description of the
+                      last operation.
+                    type: string
+                  lastTransitionTime:
+                    description: LastUpdateTime is the time at which the last operation
+                      was updated.
+                    format: date-time
+                    type: string
+                  state:
+                    description: State is the state of the last operation.
+                    type: string
+                  type:
+                    description: Type is the type of the last operation.
+                    type: string
+                required:
+                - description
+                - lastTransitionTime
+                - state
+                - type
+                type: object
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
               replicas:
                 description: Replicas is the observed number of replicas for the PodCliqueScalingGroup.
                 format: int32
@@ -61,9 +125,6 @@ spec:
                 description: Selector is the selector used to identify the pods that
                   belong to this scaling group.
                 type: string
-            required:
-            - replicas
-            - selector
             type: object
         required:
         - spec

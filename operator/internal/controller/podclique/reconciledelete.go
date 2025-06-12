@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/NVIDIA/grove/operator/api/core/v1alpha1"
+	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
 	"github.com/NVIDIA/grove/operator/internal/utils"
@@ -30,8 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-func (r *Reconciler) triggerDeletionFlow(ctx context.Context, logger logr.Logger, pclq *v1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
-	deleteStepFns := []ctrlcommon.ReconcileStepFn[v1alpha1.PodClique]{
+func (r *Reconciler) triggerDeletionFlow(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
+	deleteStepFns := []ctrlcommon.ReconcileStepFn[grovecorev1alpha1.PodClique]{
 		r.deletePodCliqueResources,
 		r.verifyNoResourcesAwaitsCleanup,
 		r.removeFinalizer,
@@ -45,7 +45,7 @@ func (r *Reconciler) triggerDeletionFlow(ctx context.Context, logger logr.Logger
 	return ctrlcommon.DoNotRequeue()
 }
 
-func (r *Reconciler) deletePodCliqueResources(ctx context.Context, logger logr.Logger, pclq *v1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
+func (r *Reconciler) deletePodCliqueResources(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
 	operators := r.operatorRegistry.GetAllOperators()
 	deleteTasks := make([]utils.Task, 0, len(operators))
 	for kind, operator := range operators {
@@ -57,24 +57,26 @@ func (r *Reconciler) deletePodCliqueResources(ctx context.Context, logger logr.L
 		})
 	}
 	logger.Info("Triggering delete of PodClique resources")
-	if errs := utils.RunConcurrently(ctx, deleteTasks); len(errs) > 0 {
-		return ctrlcommon.ReconcileWithErrors("error deleting managed resources", errs...)
+	if runResult := utils.RunConcurrently(ctx, logger, deleteTasks); runResult.HasErrors() {
+		deletionErr := runResult.GetAggregatedError()
+		logger.Error(deletionErr, "Error deleting managed resources", "summary", runResult.GetSummary())
+		return ctrlcommon.ReconcileWithErrors("error deleting managed resources", deletionErr)
 	}
 	return ctrlcommon.ContinueReconcile()
 }
 
-func (r *Reconciler) verifyNoResourcesAwaitsCleanup(ctx context.Context, logger logr.Logger, pclq *v1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
+func (r *Reconciler) verifyNoResourcesAwaitsCleanup(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
 	return ctrlutils.VerifyNoResourceAwaitsCleanup(ctx, logger, r.operatorRegistry, pclq)
 }
 
-func (r *Reconciler) removeFinalizer(ctx context.Context, logger logr.Logger, pclq *v1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
-	if !controllerutil.ContainsFinalizer(pclq, v1alpha1.FinalizerPodClique) {
+func (r *Reconciler) removeFinalizer(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
+	if !controllerutil.ContainsFinalizer(pclq, grovecorev1alpha1.FinalizerPodClique) {
 		logger.Info("Finalizer not found", "PodClique", pclq)
 		return ctrlcommon.DoNotRequeue()
 	}
-	logger.Info("Removing finalizer", "PodClique", pclq, "finalizerName", v1alpha1.FinalizerPodClique)
-	if err := ctrlutils.RemoveAndPatchFinalizer(ctx, r.client, pclq, v1alpha1.FinalizerPodClique); err != nil {
-		return ctrlcommon.ReconcileWithErrors("error removing finalizer", fmt.Errorf("failed to remove finalizer: %s from PodClique: %v: %w", v1alpha1.FinalizerPodClique, client.ObjectKeyFromObject(pclq), err))
+	logger.Info("Removing finalizer", "PodClique", pclq, "finalizerName", grovecorev1alpha1.FinalizerPodClique)
+	if err := ctrlutils.RemoveAndPatchFinalizer(ctx, r.client, pclq, grovecorev1alpha1.FinalizerPodClique); err != nil {
+		return ctrlcommon.ReconcileWithErrors("error removing finalizer", fmt.Errorf("failed to remove finalizer: %s from PodClique: %v: %w", grovecorev1alpha1.FinalizerPodClique, client.ObjectKeyFromObject(pclq), err))
 	}
 	return ctrlcommon.ContinueReconcile()
 }
