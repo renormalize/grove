@@ -105,6 +105,7 @@ type PodGangTemplateSpec struct {
 	Cliques []*PodCliqueTemplateSpec `json:"cliques"`
 	// StartupType defines the type of startup dependency amongst the cliques within a PodGang.
 	// If it is not defined then default of CliqueStartupTypeInOrder is used.
+	// +kubebuilder:default=CliqueStartupTypeInOrder
 	// +optional
 	StartupType *CliqueStartupType `json:"cliqueStartupType,omitempty"`
 	// HeadlessServiceConfig defines the config options for the headless service.
@@ -112,6 +113,9 @@ type PodGangTemplateSpec struct {
 	// +optional
 	HeadlessServiceConfig *HeadlessServiceConfig `json:"headlessServiceConfig,omitempty"`
 	// SchedulingPolicyConfig defines the scheduling policy configuration for the PodGang.
+	// Defaulting only works for optional fields.
+	// See https://github.com/kubernetes-sigs/controller-tools/issues/893#issuecomment-1991256368
+	// +kubebuilder:default:={networkPackStrategy:BestEffort}
 	SchedulingPolicyConfig *SchedulingPolicyConfig `json:"schedulingPolicyConfig,omitempty"`
 	// PodCliqueScalingGroupConfigs is a list of scaling groups for the PodGangSet.
 	PodCliqueScalingGroupConfigs []PodCliqueScalingGroupConfig `json:"podCliqueScalingGroups,omitempty"`
@@ -179,7 +183,6 @@ type HeadlessServiceConfig struct {
 
 // CliqueStartupType defines the order in which each PodClique is started.
 // +kubebuilder:validation:Enum={CliqueStartupTypeInOrder,CliqueStartupTypeAnyOrder,CliqueStartupTypeExplicit}
-// +kubebuilder:default=CliqueStartupTypeInOrder
 type CliqueStartupType string
 
 const (
