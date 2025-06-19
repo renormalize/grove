@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/NVIDIA/grove/operator/api v0.0.0
+	github.com/NVIDIA/grove/operator/client v0.0.0
 	github.com/go-logr/logr v1.4.2
 	github.com/google/uuid v1.6.0
 	github.com/samber/lo v1.50.0
@@ -71,4 +72,7 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-replace github.com/NVIDIA/grove/operator/api => ./api
+replace (
+	github.com/NVIDIA/grove/operator/api => ./api
+	github.com/NVIDIA/grove/operator/client => ./client
+)

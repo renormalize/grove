@@ -20,33 +20,22 @@ set -o nounset
 set -o pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-MODULE_ROOT="$(dirname "$SCRIPT_DIR")"
-REPO_ROOT="$(dirname "$MODULE_ROOT")"
+OPERATOR_MODULE_ROOT="$(dirname "$SCRIPT_DIR")"
+REPO_ROOT="$(dirname "$OPERATOR_MODULE_ROOT")"
+INITC_MODULE_ROOT="$OPERATOR_MODULE_ROOT/initc"
 GOARCH=${GOARCH:-$(go env GOARCH)}
 PLATFORM=${PLATFORM:-linux/${GOARCH}}
 
-function build_docker_images() {
-  local version="$(cat "${MODULE_ROOT}/VERSION")"
-
+function build_docker_image() {
+  local version="$(cat "${OPERATOR_MODULE_ROOT}/VERSION")"
   printf '%s\n' "Building grove-initc:${version} with:
    PLATFORM: ${PLATFORM}... "
   docker buildx build \
     --platform ${PLATFORM} \
     --build-arg VERSION=${version} \
     --tag grove-initc-${GOARCH}:${version} \
-    --target grove-initc \
-    --file ${MODULE_ROOT}/Dockerfile \
-    $REPO_ROOT # docker context is as the repository root to access `.git/`
-
-  printf '%s\n' "Building grove-operator:${version} with:
-   PLATFORM: ${PLATFORM}... "
-  docker buildx build \
-    --platform ${PLATFORM} \
-    --build-arg VERSION=${version} \
-    --tag grove-operator-${GOARCH}:${version} \
-    --target grove-operator \
-    --file ${MODULE_ROOT}/Dockerfile \
+    --file ${INITC_MODULE_ROOT}/Dockerfile \
     $REPO_ROOT # docker context is as the repository root to access `.git/`
 }
 
-build_docker_images
+build_docker_image
