@@ -3,13 +3,13 @@
 
 # Grove 🌲 
 
-Grove is an open-source Kubernetes API and scheduling framework purpose-built for orchestrating AI workloads in scale-out GPU clusters, where a single custom resource allows you to hierarchically compose multiple AI components with flexible gang-scheduling and auto-scaling specfications at multiple levels. Through native support for network topology-aware gang scheduling, multi-dimensional auto-scaling and prescriptive startup ordering, Grove enables developers to define complex AI stacks in a concise, declarative, and framework-agnostic manner.
+Grove is an open-source Kubernetes operator and scheduling API purpose-built for orchestrating AI workloads in scale-out GPU clusters, where a single custom resource allows you to hierarchically compose multiple AI components with flexible gang-scheduling and auto-scaling specfications at multiple levels. Through native support for network topology-aware gang scheduling, multi-dimensional auto-scaling and prescriptive startup ordering, Grove enables developers to define complex AI stacks in a concise, declarative, and framework-agnostic manner.
 
 Grove was originally motivated by the challenges of orchestrating multinode, disaggregated inference systems. It provides a consistent and unified API that allows users to define, configure, and scale prefill, decode, and any other components like routing within a single custom resource. However, it is flexible enough to map naturally to the roles, scaling behaviors, and dependencies of any real-world inference systems, from "traditional" single node aggregated inference to agentic pipelines with multiple models.
 
 ## Why Grove?
 
-Modern inference systems are often no longer single-pod workloads. They involve multiple components running across many nodes, often requiring coordination, colocation, custom roles, and precise startup ordering. Inference workloads also need better scheduler coordination to achieve key performance SLAs with features such as network-aware gang-scheduling and auto-scaling, topology aware rolling upgrades and more. Based on these requirements, and after many years of experience of managing AI workloads with Kubernetes in GPU clusters, the Grove project was created so that AI developers can define their workload orchestration in a declarative manner, while allowing Grove to manage the system level optimizations.
+Modern inference systems are often no longer single-pod workloads. They involve multiple components running across many nodes, often requiring coordination, colocation, custom roles, and precise startup ordering. Inference workloads also need better scheduler coordination to achieve key performance SLAs with features such as network topology-aware gang-scheduling, auto-scaling, rolling upgrades and more. The Grove project was created so that AI developers can define their workload in a declarative manner and influence orchestration level optimizations with easy-to-use, high-level, scheduling policy APIs.
 
 
 ## Core Concepts
@@ -18,32 +18,34 @@ The Grove API consists of a user API and a scheduling API. While the user API (`
 
 | Concept                                                      | Description                                                  |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| [PodGangSet](https://github.com/nvrohanv/grove/blob/rohanv/doc/update_readme/operator/api/core/v1alpha1/podgangset.go) | The top-level Grove object that defines a group of components managed together. Supports autoscaling with topology aware spread of PodGangSet replicas for availability. |
-| [PodClique](https://github.com/nvrohanv/grove/blob/rohanv/doc/update_readme/operator/api/core/v1alpha1/podclique.go) | A group of pods representing a specific role (e.g., leader, worker). Each clique has an independent configuration and supports custom scaling logic. |
-| [PodCliqueScalingGroup](https://github.com/nvrohanv/grove/blob/rohanv/doc/update_readme/operator/api/core/v1alpha1/scalinggroup.go) | A set of PodCliques that scale and schedule together. Ideal for tightly coupled roles like prefill and decode. |
+| [PodGangSet](https://github.com/nvrohanv/grove/blob/rohanv/doc/update_readme/operator/api/core/v1alpha1/podgangset.go) | The top-level Grove object that defines a group of components managed and colocated together. Also supports autoscaling with topology aware spread of PodGangSet replicas for availability. |
+| [PodClique](https://github.com/nvrohanv/grove/blob/rohanv/doc/update_readme/operator/api/core/v1alpha1/podclique.go) | A group of pods representing a specific role (e.g., leader, worker, frontend). Each clique has an independent configuration and supports custom scaling logic. |
+| [PodCliqueScalingGroup](https://github.com/nvrohanv/grove/blob/rohanv/doc/update_readme/operator/api/core/v1alpha1/scalinggroup.go) | A set of PodCliques that scale and schedule together. Ideal for tightly coupled roles like prefill leader and worker. |
 | [PodGang](scheduler/api/core/v1alpha1/podgang.go)            | The scheduler API that defines a unit of gang-scheduling. A PodGang is a collection of groups of similar pods, where each pod group defines a minimum number of replicas guaranteed for gang-scheduling. |
 
 
 ## Key Capabilities
 
 - ✅ **Declarative Super-Pod Orchestration**  
-  Define tightly coupled pod groups with explicit role-based logic. E.g. a group of pods that scale together where one pod is a leader and the rest are workers.
+  Define tightly coupled groups of pods, a.k.a super-pod, with explicit role-based logic. E.g. a group of pods that scale together where one pod is a leader and the rest are workers.
 
-- ✅ **Gang Scheduling**
-  Ensure all pods in a super-pod are scheduled together to prevent resource deadlocks.
+- ✅ **Multi-level Gang Scheduling**  
+  Specify gang-scheduling requirements of pods within and across super-pods to prevent resource deadlocks and enable topology-optimized placement.
 
-- ✅ **Multi-Component Coordination**  
+- ✅ **Multi-Component Coordination and Auto-Scaling**  
   Cleanly represent patterns like prefill/decode disaggregation with independent scaling and resource allocation.
 
 - ✅ **Network Topology-Aware Scheduling**  
-  Schedule pods of a super-pod close together (rack-aware, spine-aware, etc.) to optimize network performance, while spread super-pod replicas for availability.
+  Allows specifying network topology pack and spread constraints within and across super-pods to optimize network performance and service availability.
 
-- ✅ **Custom Startup Dependencies** 
-  Specify which roles must be ready before others launch without brittle startup scripts. Pod startup is decoupled from pod creation
+- ✅ **Custom Startup Dependencies**  
+  Prescribe which roles must start before others launch in a declarative specification. Pod startup is decoupled from pod creation or scheduling.
+
+- ✅ **Resource-Aware Rolling Upgrades**  
+  Reuse resource reservations across versions during upgrades in order to maintain topology-optimized placement.
 
 - ✅ **Unified Control Plane**  
   Manage inference workers, request routers, and frontend servers together using a single resource definition.
-
 
 ## Example Use Cases
 
