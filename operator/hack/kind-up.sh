@@ -107,6 +107,14 @@ apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
   image: kindest/node:v1.32.2
+- role: worker
+  image: kindest/node:v1.32.2
+  labels:
+    run.ai/simulated-gpu-node-pool: default
+- role: worker
+  image: kindest/node:v1.32.2
+  labels:
+    run.ai/simulated-gpu-node-pool: default
 EOF
   if [ "${DEPLOY_REGISTRY}" = true ]; then
     echo "Adding registry config to the kind cluster config..."

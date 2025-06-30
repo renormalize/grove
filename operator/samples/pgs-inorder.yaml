@@ -9,15 +9,18 @@ spec:
   templateSpec:
     cliques:
     - name: decode
+      labels:
+        "kai.scheduler/queue": "test"
       spec:
-        replicas: 3
+        replicas: 2
         podSpec:
+          schedulerName: kai-scheduler
           containers:
           - name: decode
             image: nginx:latest
             resources:
               requests:
-                cpu: 10m
+                cpu: 3
         autoScalingConfig:
           maxReplicas: 5
           metrics:
@@ -28,25 +31,31 @@ spec:
                 type: Utilization
                 averageUtilization: 80
     - name: prefill-leader
+      labels:
+        "kai.scheduler/queue": "test"
       spec:
-        replicas: 2
+        replicas: 1
         podSpec:
+          schedulerName: kai-scheduler
           containers:
           - name: prefill-leader
             image: nginx:latest
             resources:
               requests:
-                cpu: 10m
+                cpu: 3
     - name: prefill-worker
+      labels:
+        "kai.scheduler/queue": "test"
       spec:
         replicas: 2
         podSpec:
+          schedulerName: kai-scheduler
           containers:
           - name: prefill-worker
             image: nginx:latest
             resources:
               requests:
-                cpu: 10m
+                cpu: 2
     podCliqueScalingGroups:
       - name: prefill
         cliqueNames:
