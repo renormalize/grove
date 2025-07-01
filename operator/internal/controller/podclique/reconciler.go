@@ -26,7 +26,6 @@ import (
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
 
-	"github.com/go-logr/logr"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,25 +61,28 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		WithValues("pclq-name", req.Name, "pclq-namespace", req.Namespace)
 
 	pclq := &grovecorev1alpha1.PodClique{}
-	if result := ctrlutils.GetPodClique(ctx, r.client, logger, req.NamespacedName, pclq); ctrlcommon.ShortCircuitReconcileFlow(result) {
+	if result := ctrlutils.GetPodClique(ctx, r.client, logger, req.NamespacedName, pclq, true); ctrlcommon.ShortCircuitReconcileFlow(result) {
 		return result.Result()
 	}
 
-	if result := r.reconcileDelete(ctx, logger, pclq); ctrlcommon.ShortCircuitReconcileFlow(result) {
-		return result.Result()
-	}
-
-	return r.reconcileSpec(ctx, logger, pclq).Result()
-}
-
-func (r *Reconciler) reconcileDelete(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
-	logger.Info("reconcile deletion")
+	var deletionOrSpecReconcileFlowResult ctrlcommon.ReconcileStepResult
 	if !pclq.DeletionTimestamp.IsZero() {
 		if !controllerutil.ContainsFinalizer(pclq, grovecorev1alpha1.FinalizerPodClique) {
-			return ctrlcommon.DoNotRequeue()
+			return ctrlcommon.DoNotRequeue().Result()
 		}
 		dLog := logger.WithValues("operation", "delete")
-		return r.triggerDeletionFlow(ctx, dLog, pclq)
+		deletionOrSpecReconcileFlowResult = r.triggerDeletionFlow(ctx, dLog, pclq)
+	} else {
+		specLog := logger.WithValues("operation", "specReconcile")
+		deletionOrSpecReconcileFlowResult = r.reconcileSpec(ctx, specLog, pclq)
 	}
-	return ctrlcommon.ContinueReconcile()
+	if ctrlcommon.ShortCircuitReconcileFlow(deletionOrSpecReconcileFlowResult) {
+		return deletionOrSpecReconcileFlowResult.Result()
+	}
+
+	if statusReconcileResult := r.reconcileStatus(ctx, logger, pclq); ctrlcommon.ShortCircuitReconcileFlow(statusReconcileResult) {
+		return statusReconcileResult.Result()
+	}
+
+	return ctrlcommon.DoNotRequeue().Result()
 }

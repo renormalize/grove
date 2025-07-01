@@ -14,8 +14,9 @@
 // limitations under the License.
 // */
 
-// +k8s:deepcopy-gen=package
-// +kubebuilder:object:generate=true
-// +groupName=scheduler.grove.io
+package common
 
-package v1alpha1
+import "time"
+
+// ComponentSyncRetryInterval is a retry interval with which a reconcile request will be requeued.
+const ComponentSyncRetryInterval = 5 * time.Second

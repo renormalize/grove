@@ -75,6 +75,11 @@ func (r *Reconciler) syncPodGangSetResources(ctx context.Context, logger logr.Lo
 		}
 		logger.Info("Syncing PodGangSet resource", "kind", kind)
 		if err = operator.Sync(ctx, logger, pgs); err != nil {
+			if ctrlutils.ShouldRequeueAfter(err) {
+				logger.Info("retrying sync due to component", "kind", kind, "syncRetryInterval", ctrlcommon.ComponentSyncRetryInterval)
+				return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, fmt.Sprintf("requeueing sync due to component %s after %s", kind, ctrlcommon.ComponentSyncRetryInterval))
+			}
+			logger.Error(err, "failed to sync PodGangSet resources", "kind", kind)
 			return ctrlcommon.ReconcileWithErrors("error syncing managed resources", fmt.Errorf("failed to sync %s: %w", kind, err))
 		}
 	}
@@ -112,12 +117,13 @@ func (r *Reconciler) recordIncompleteReconcile(ctx context.Context, logger logr.
 
 func getOrderedKindsForSync() []component.Kind {
 	return []component.Kind{
-		component.KindPodClique,
-		component.KindHeadlessService,
+		component.KindServiceAccount,
 		component.KindRole,
 		component.KindRoleBinding,
-		component.KindServiceAccount,
+		component.KindHeadlessService,
 		component.KindPodCliqueScalingGroup,
+		component.KindPodClique,
 		component.KindHorizontalPodAutoscaler,
+		component.KindPodGang,
 	}
 }

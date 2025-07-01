@@ -100,9 +100,12 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, pcsg *grovecorev1alpha
 	pcsg.Status.Replicas = pcsg.Spec.Replicas
 
 	pgsName := k8sutils.GetFirstOwnerName(pcsg.ObjectMeta)
-	labels := lo.Assign(k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName), map[string]string{
-		grovecorev1alpha1.LabelPodCliqueScalingGroup: pcsg.Name,
-	})
+	labels := lo.Assign(
+		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		map[string]string{
+			grovecorev1alpha1.LabelAppNameKey: pcsg.Name,
+		},
+	)
 
 	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: labels})
 	if err != nil {
@@ -158,12 +161,13 @@ func (r *Reconciler) updatePodCliques(ctx context.Context, logger logr.Logger, p
 
 func (r *Reconciler) updatePodCliqueReplicas(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, pclqObjectKey client.ObjectKey) ctrlcommon.ReconcileStepResult {
 	pclq := &grovecorev1alpha1.PodClique{}
-	if result := ctrlutils.GetPodClique(ctx, r.client, logger, pclqObjectKey, pclq); ctrlcommon.ShortCircuitReconcileFlow(result) {
+	if result := ctrlutils.GetPodClique(ctx, r.client, logger, pclqObjectKey, pclq, false); ctrlcommon.ShortCircuitReconcileFlow(result) {
 		return result
 	}
 	// update the spec
 	expectedReplicas := pcsg.Spec.Replicas * pclqTemplateSpec.Spec.Replicas
 	if expectedReplicas != pclq.Spec.Replicas {
+		logger.Info("Updating PCLQ replicas due to change in PCSG replicas", "pcsgReplicas", pcsg.Spec.Replicas, "expectedReplicasForPCLQ", expectedReplicas)
 		patch := client.MergeFrom(pclq.DeepCopy())
 		pclq.Spec.Replicas = expectedReplicas
 		if err := r.client.Patch(ctx, pclq, patch); err != nil {
