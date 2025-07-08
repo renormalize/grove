@@ -52,9 +52,8 @@ type PodGangList struct {
 type PodGangSpec struct {
 	// PodGroups is a list of member pod groups in the PodGang.
 	PodGroups []PodGroup `json:"podgroups"`
-	// NetworkPackStrategy defines the strategy for packing pods on nodes while minimizing network switch hops.
-	// +optional
-	NetworkPackStrategy *NetworkPackStrategy `json:"networkPackStrategy,omitempty"`
+	// NetworkPackGroupConfigs is a list of network pack group configurations.
+	NetworkPackGroupConfigs []NetworkPackGroupConfig `json:"networkPackGroupConfigs,omitempty"`
 	// SpreadConstraints defines the constraints for spreading PodGang's filtered by the same label selector, across domains identified by a topology key.
 	// +optional
 	SpreadConstraints []corev1.TopologySpreadConstraint `json:"spreadConstraints,omitempty"`
@@ -84,12 +83,20 @@ type PodGangSpec struct {
 
 // PodGroup defines a set of pods in a PodGang that share the same PodTemplateSpec.
 type PodGroup struct {
+	// Name is the name of the PodGroup.
+	Name string `json:"name"`
 	// PodReferences is a list of references to the Pods that are part of this group.
 	PodReferences []NamespacedName `json:"podReferences"`
 	// MinReplicas is the number of replicas that needs to be gang scheduled.
 	// If the MinReplicas is greater than len(PodReferences) then scheduler makes the best effort to schedule as many pods beyond
 	// MinReplicas. However, guaranteed gang scheduling is only provided for MinReplicas.
 	MinReplicas int32 `json:"minReplicas"`
+}
+
+// NetworkPackGroupConfig indicates that all the Pods belonging to the constituent PodGroup's should be optimally placed w.r.t cluster's network topology.
+type NetworkPackGroupConfig struct {
+	// PodGroupNames is the list of PodGroup.Name that are part of the network pack group.
+	PodGroupNames []string `json:"podGroupNames"`
 }
 
 // NamespacedName is a struct that contains the namespace and name of an object.
@@ -102,24 +109,40 @@ type NamespacedName struct {
 	Name string `json:"name"`
 }
 
-// NetworkPackStrategy defines the strategy for packing pods across nodes while minimizing network switch hops.
-// An attempt will always be made to ensure that the pods are packed optimally minimizing the total number of network switch hops.
-// Pack strategy only describes if this is a strict requirement or a best-effort.
-// +kubebuilder:validation:Enum={BestEffort,Strict}
-type NetworkPackStrategy string
+// PodGangPhase defines the current phase of a PodGang.
+type PodGangPhase string
 
 const (
-	// BestEffort pack strategy makes the best effort for optimal placement of pods but does not guarantee it.
-	BestEffort NetworkPackStrategy = "BestEffort"
-	// Strict pack strategy strives for the most optimal placement for pods assuming sufficient capacity.
-	// If optimal placement cannot be achieved then pods will remain pending.
-	Strict NetworkPackStrategy = "Strict"
+	// PodGangPhasePending indicates that all the pods in a PodGang have been created and the PodGang is pending scheduling.
+	PodGangPhasePending PodGangPhase = "Pending"
+	// PodGangPhaseStarting indicates that the scheduler has started binding pods in the PodGang to nodes.
+	PodGangPhaseStarting PodGangPhase = "Starting"
+	// PodGangPhaseRunning indicates that all the pods in the PodGang have been scheduled and are running.
+	PodGangPhaseRunning PodGangPhase = "Running"
+)
+
+// PodGangConditionType defines the type of condition for a PodGang.
+type PodGangConditionType string
+
+const (
+	// PodGangConditionTypeScheduled indicates that the PodGang has been scheduled.
+	PodGangConditionTypeScheduled PodGangConditionType = "Scheduled"
+	// PodGangConditionTypeReady indicates that all the constituent PodGroups are Ready.
+	PodGangConditionTypeReady PodGangConditionType = "Ready"
+	// PodGangConditionTypeUnhealthy indicates that the PodGang is unhealthy. It is now a candidate for gang termination.
+	// If this condition is true for at least PodGangSpec.TerminationDelay duration, then the PodGang will be terminated.
+	PodGangConditionTypeUnhealthy PodGangConditionType = "Unhealthy"
+	// PodGangConditionTypeDisruptionTarget indicates that the PodGang is a target for disruption and is about to be terminated.
+	// due to one of the following reasons:
+	// 1. PodGang is preempted by a higher priority PodGang.
+	// 2. PodGang is being terminated due to PodGangConditionTypeUnhealthy condition being true for at least PodGangSpec.TerminationDelay duration.
+	PodGangConditionTypeDisruptionTarget PodGangConditionType = "DisruptionTarget"
 )
 
 // PodGangStatus defines the status of a PodGang.
 type PodGangStatus struct {
-	// SchedulingPhase is the current phase of scheduling for the PodGang.
-	SchedulingPhase string `json:"schedulingPhase"`
+	// Phase is the current phase of a PodGang.
+	Phase PodGangPhase `json:"phase"`
 	// Conditions is a list of conditions that describe the current state of the PodGang.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// PlacementScore is network optimality score for the PodGang. If the choice that the scheduler has made corresponds to the

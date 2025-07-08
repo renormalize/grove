@@ -121,8 +121,10 @@ func (r _resource) buildResource(pgs *grovecorev1alpha1.PodGangSet, pgInfo podGa
 		)
 	}
 	pg.Spec.PodGroups = createPodGroupsForPodGang(pg.Namespace, pgInfo)
-	pg.Spec.PriorityClassName = pgs.Spec.PriorityClassName
-	pg.Spec.TerminationDelay = pgs.Spec.TemplateSpec.SchedulingPolicyConfig.TerminationDelay
+	pg.Spec.PriorityClassName = pgs.Spec.Template.PriorityClassName
+	if pgs.Spec.Template.SchedulingPolicyConfig != nil {
+		pg.Spec.TerminationDelay = pgs.Spec.Template.SchedulingPolicyConfig.TerminationDelay
+	}
 	return nil
 }
 

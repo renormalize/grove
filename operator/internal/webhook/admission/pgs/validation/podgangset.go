@@ -29,15 +29,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
-var (
-	allowedStartupTypes          = sets.New(grovecorev1alpha1.CliqueStartupTypeInOrder, grovecorev1alpha1.CliqueStartupTypeAnyOrder, grovecorev1alpha1.CliqueStartupTypeExplicit)
-	allowedNetworkPackStrategies = sets.New(grovecorev1alpha1.BestEffort, grovecorev1alpha1.Strict)
-)
+var allowedStartupTypes = sets.New(grovecorev1alpha1.CliqueStartupTypeInOrder, grovecorev1alpha1.CliqueStartupTypeAnyOrder, grovecorev1alpha1.CliqueStartupTypeExplicit)
 
 type pgsValidator struct {
 	operation admissionv1.Operation
@@ -50,6 +46,8 @@ func newPGSValidator(pgs *grovecorev1alpha1.PodGangSet, operation admissionv1.Op
 		pgs:       pgs,
 	}
 }
+
+// ---------------------------- validate create of PodGangSet -----------------------------------------------
 
 // validate validates the PodGangSet object.
 func (v *pgsValidator) validate() ([]string, error) {
@@ -65,22 +63,11 @@ func (v *pgsValidator) validate() ([]string, error) {
 	return warnings, allErrs.ToAggregate()
 }
 
-// validateUpdate validates the update to a PodGangSet object. It compares the old and new PodGangSet objects and validates that the changes done are allowed/valid.
-func (v *pgsValidator) validateUpdate(oldPgs *grovecorev1alpha1.PodGangSet) error {
-	allErrs := field.ErrorList{}
-	fldPath := field.NewPath("spec")
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(v.pgs.Spec.ReplicaSpreadConstraints, oldPgs.Spec.ReplicaSpreadConstraints, fldPath.Child("replicaSpreadConstraints"))...)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(v.pgs.Spec.PriorityClassName, oldPgs.Spec.PriorityClassName, fldPath.Child("priorityClassName"))...)
-	allErrs = append(allErrs, validatePodGangSetSpecUpdate(&v.pgs.Spec, &oldPgs.Spec, fldPath)...)
-	return allErrs.ToAggregate()
-}
-
 // validatePodGangSetSpec validates the specification of a PodGangSet object.
 func (v *pgsValidator) validatePodGangSetSpec(fldPath *field.Path) ([]string, field.ErrorList) {
 	allErrs := field.ErrorList{}
 
 	allErrs = append(allErrs, apivalidation.ValidateNonnegativeField(int64(v.pgs.Spec.Replicas), fldPath.Child("replicas"))...)
-	allErrs = append(allErrs, v.validateUpdateStrategy(fldPath.Child("updateStrategy"))...)
 	warnings, errs := v.validatePodGangTemplateSpec(fldPath.Child("template"))
 	if len(errs) != 0 {
 		allErrs = append(allErrs, errs...)
@@ -89,58 +76,16 @@ func (v *pgsValidator) validatePodGangSetSpec(fldPath *field.Path) ([]string, fi
 	return warnings, allErrs
 }
 
-func (v *pgsValidator) validateUpdateStrategy(fldPath *field.Path) field.ErrorList {
-	errs := field.ErrorList{}
-	updateStrategy := v.pgs.Spec.UpdateStrategy
-	if updateStrategy == nil {
-		return append(errs, field.Required(fldPath, "field is required"))
-	}
-	return append(errs, v.validateRollingUpdateConfig(fldPath.Child("rollingUpdateConfig"))...)
-}
-
-func (v *pgsValidator) validateRollingUpdateConfig(fldPath *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
-
-	rollingUpdateConfig := v.pgs.Spec.UpdateStrategy.RollingUpdateConfig
-	replicas := int(v.pgs.Spec.Replicas)
-	if rollingUpdateConfig == nil {
-		return append(allErrs, field.Required(fldPath, "field is required"))
-	}
-
-	maxUnavailable, err := intstr.GetScaledValueFromIntOrPercent(rollingUpdateConfig.MaxUnavailable, replicas, false)
-	if err != nil {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("maxUnavailable"), rollingUpdateConfig.MaxUnavailable, err.Error()))
-	}
-	maxSurge, err := intstr.GetScaledValueFromIntOrPercent(rollingUpdateConfig.MaxSurge, replicas, false)
-	if err != nil {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("maxSurge"), rollingUpdateConfig.MaxSurge, err.Error()))
-	}
-
-	// Ensure that MaxUnavailable and MaxSurge are non-negative.
-	allErrs = append(allErrs, apivalidation.ValidateNonnegativeField(int64(maxUnavailable), fldPath.Child("maxUnavailable"))...)
-	allErrs = append(allErrs, apivalidation.ValidateNonnegativeField(int64(maxSurge), fldPath.Child("maxSurge"))...)
-
-	// Ensure that MaxUnavailable is not more than the replicas for the PodGangSet.
-	if maxUnavailable > replicas {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("maxUnavailable"), rollingUpdateConfig.MaxUnavailable, "cannot be greater than replicas"))
-	}
-	// Ensure that both MaxSurge and MaxUnavailable are not zero.
-	if maxSurge == 0 && maxUnavailable == 0 {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("maxUnavailable"), rollingUpdateConfig.MaxUnavailable, "cannot be 0 when maxSurge is 0"))
-	}
-	return allErrs
-}
-
 func (v *pgsValidator) validatePodGangTemplateSpec(fldPath *field.Path) ([]string, field.ErrorList) {
 	allErrs := field.ErrorList{}
 
-	allErrs = append(allErrs, validateEnumType(v.pgs.Spec.TemplateSpec.StartupType, allowedStartupTypes, fldPath.Child("cliqueStartupType"))...)
+	allErrs = append(allErrs, validateEnumType(v.pgs.Spec.Template.StartupType, allowedStartupTypes, fldPath.Child("cliqueStartupType"))...)
 	// validate cliques
 	warnings, errs := v.validatePodCliqueTemplates(fldPath.Child("cliques"))
 	if len(errs) != 0 {
 		allErrs = append(allErrs, errs...)
 	}
-	allErrs = append(allErrs, validatePodGangSchedulingPolicyConfig(v.pgs.Spec.TemplateSpec.SchedulingPolicyConfig, fldPath.Child("schedulingPolicyConfig"))...)
+	allErrs = append(allErrs, v.validatePodGangSchedulingPolicyConfig(v.pgs.Spec.Template.SchedulingPolicyConfig, fldPath.Child("schedulingPolicyConfig"))...)
 	allErrs = append(allErrs, v.validatePodCliqueScalingGroupConfigs(fldPath.Child("podCliqueScalingGroups"))...)
 
 	return warnings, allErrs
@@ -150,7 +95,7 @@ func (v *pgsValidator) validatePodCliqueTemplates(fldPath *field.Path) ([]string
 	allErrs := field.ErrorList{}
 
 	var warnings []string
-	cliqueTemplateSpecs := v.pgs.Spec.TemplateSpec.Cliques
+	cliqueTemplateSpecs := v.pgs.Spec.Template.Cliques
 	if len(cliqueTemplateSpecs) == 0 {
 		allErrs = append(allErrs, field.Required(fldPath, "at least one PodClique must be defined"))
 	}
@@ -192,6 +137,59 @@ func (v *pgsValidator) validatePodCliqueTemplates(fldPath *field.Path) ([]string
 	return warnings, allErrs
 }
 
+func (v *pgsValidator) validatePodGangSchedulingPolicyConfig(schedulingPolicyConfig *grovecorev1alpha1.SchedulingPolicyConfig, fldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+	if schedulingPolicyConfig == nil {
+		return allErrs
+	}
+	if schedulingPolicyConfig.TerminationDelay != nil {
+		allErrs = append(allErrs, mustBeEqualToOrGreaterThanZeroDuration(*schedulingPolicyConfig.TerminationDelay, fldPath.Child("terminationDelay"))...)
+	}
+	if len(schedulingPolicyConfig.NetworkPackGroupConfigs) > 0 {
+		allErrs = append(allErrs, v.validateNetworkPackGroupConfigs(fldPath.Child("networkPackGroupConfigs"))...)
+	}
+	return allErrs
+}
+
+func (v *pgsValidator) validatePodCliqueScalingGroupConfigs(fldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	allPodGangSetCliqueNames := lo.Map(v.pgs.Spec.Template.Cliques, func(cliqueTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, _ int) string {
+		return cliqueTemplateSpec.Name
+	})
+	pclqScalingGroupNames := make([]string, 0, len(v.pgs.Spec.Template.PodCliqueScalingGroupConfigs))
+	var cliqueNamesAcrossAllScalingGroups []string
+
+	for _, scalingGroupConfig := range v.pgs.Spec.Template.PodCliqueScalingGroupConfigs {
+		pclqScalingGroupNames = append(pclqScalingGroupNames, scalingGroupConfig.Name)
+		cliqueNamesAcrossAllScalingGroups = append(cliqueNamesAcrossAllScalingGroups, scalingGroupConfig.CliqueNames...)
+		// validate that scaling groups only contains clique names that are defined in the PodGangSet.
+		allErrs = append(allErrs, validateScalingGroupPodCliqueNames(allPodGangSetCliqueNames, scalingGroupConfig.CliqueNames, fldPath.Child("cliqueNames"))...)
+	}
+
+	// validate that the scaling group names are unique
+	duplicateScalingGroupNames := lo.FindDuplicates(pclqScalingGroupNames)
+	if len(duplicateScalingGroupNames) > 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath.Child("name"), strings.Join(duplicateScalingGroupNames, ","), "PodCliqueScalingGroupConfig names must be unique"))
+	}
+
+	// validate that there should not be any overlapping clique names across scaling groups.
+	overlappingCliqueNames := lo.FindDuplicates(cliqueNamesAcrossAllScalingGroups)
+	if len(overlappingCliqueNames) > 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath.Child("cliqueNames"), strings.Join(overlappingCliqueNames, ","), "clique names must not overlap across scaling groups, every scaling group should have unique clique names"))
+	}
+
+	// validate that for all pod cliques that are part of defined scaling groups, separate AutoScalingConfig is not defined for them.
+	scalingGroupCliqueNames := lo.Uniq(cliqueNamesAcrossAllScalingGroups)
+	for _, cliqueTemplateSpec := range v.pgs.Spec.Template.Cliques {
+		if slices.Contains(scalingGroupCliqueNames, cliqueTemplateSpec.Name) && cliqueTemplateSpec.Spec.ScaleConfig != nil {
+			allErrs = append(allErrs, field.Invalid(fldPath, cliqueTemplateSpec.Name, "AutoScalingConfig is not allowed to be defined for PodClique that is part of scaling group"))
+		}
+	}
+
+	return allErrs
+}
+
 func (v *pgsValidator) validatePodCliqueTemplateSpec(cliqueTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, fldPath *field.Path) ([]string, field.ErrorList) {
 	allErrs := field.ErrorList{}
 
@@ -202,87 +200,6 @@ func (v *pgsValidator) validatePodCliqueTemplateSpec(cliqueTemplateSpec *groveco
 	warnings, errs := v.validatePodCliqueSpec(cliqueTemplateSpec.Name, cliqueTemplateSpec.Spec, fldPath.Child("spec"))
 	if len(errs) != 0 {
 		allErrs = append(allErrs, errs...)
-	}
-
-	return warnings, allErrs
-}
-
-func (v *pgsValidator) validatePodCliqueSpec(name string, cliqueSpec grovecorev1alpha1.PodCliqueSpec, fldPath *field.Path) ([]string, field.ErrorList) {
-	allErrs := field.ErrorList{}
-
-	if cliqueSpec.Replicas <= 0 {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("replicas"), cliqueSpec.Replicas, "must be greater than 0"))
-	}
-
-	// Ideally this should never happen, the defaulting webhook will always set the default value for minReplicas.
-	if cliqueSpec.MinReplicas == nil {
-		allErrs = append(allErrs, field.Required(fldPath.Child("minReplicas"), "field is required"))
-	}
-	if cliqueSpec.MinReplicas != nil && *cliqueSpec.MinReplicas <= 0 {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("minReplicas"), *cliqueSpec.MinReplicas, "must be greater than 0"))
-	}
-	if *cliqueSpec.MinReplicas != cliqueSpec.Replicas {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("minReplicas"), *cliqueSpec.MinReplicas, "minReplicas and replicas must be equal for the initial iteration of grove operator"))
-	}
-
-	if v.isStartupTypeExplicit() && len(cliqueSpec.StartsAfter) > 0 {
-		for _, dep := range cliqueSpec.StartsAfter {
-			if utils.IsEmptyStringType(dep) {
-				allErrs = append(allErrs, field.Required(fldPath.Child("startsAfter"), "clique dependency must not be empty"))
-			}
-			if dep == name {
-				allErrs = append(allErrs, field.Invalid(fldPath.Child("startsAfter"), dep, "clique dependency cannot refer to itself"))
-			}
-		}
-		duplicateStartAfterDeps := lo.FindDuplicates(cliqueSpec.StartsAfter)
-		if len(duplicateStartAfterDeps) > 0 {
-			allErrs = append(allErrs, field.Invalid(fldPath.Child("startsAfter"),
-				strings.Join(duplicateStartAfterDeps, ","), "clique dependencies must be unique"))
-		}
-	}
-
-	if cliqueSpec.ScaleConfig != nil {
-		allErrs = append(allErrs, validateScaleConfig(cliqueSpec.ScaleConfig, *cliqueSpec.MinReplicas, fldPath.Child("autoScalingConfig"))...)
-		if cliqueSpec.ScaleConfig.MaxReplicas < cliqueSpec.Replicas {
-			allErrs = append(allErrs, field.Invalid(fldPath.Child("autoScalingConfig", "maxReplicas"), cliqueSpec.ScaleConfig.MaxReplicas, "must be greater than or equal to replicas"))
-		}
-	}
-
-	warnings, cliquePodSpecErrs := v.validatePodSpec(cliqueSpec.PodSpec, fldPath.Child("podSpec"))
-	if len(cliquePodSpecErrs) != 0 {
-		allErrs = append(allErrs, cliquePodSpecErrs...)
-	}
-
-	return warnings, allErrs
-}
-
-func validateScaleConfig(scaleConfig *grovecorev1alpha1.AutoScalingConfig, minReplicas int32, fldPath *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
-	if scaleConfig.MaxReplicas < minReplicas {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("maxReplicas"), scaleConfig.MaxReplicas, "must be greater than or equal to podCliqueSpec.minReplicas"))
-	}
-	return allErrs
-}
-
-func (v *pgsValidator) validatePodSpec(spec corev1.PodSpec, fldPath *field.Path) ([]string, field.ErrorList) {
-	allErrs := field.ErrorList{}
-	var warnings []string
-
-	if !utils.IsEmptyStringType(spec.RestartPolicy) {
-		warnings = append(warnings, "restartPolicy will be ignored, it will be set to Always")
-	}
-
-	specFldPath := fldPath.Child("spec")
-	if v.operation == admissionv1.Create {
-		if spec.TopologySpreadConstraints != nil {
-			allErrs = append(allErrs, field.Invalid(specFldPath.Child("topologySpreadConstraints"), spec.TopologySpreadConstraints, "must not be set"))
-		}
-		if !utils.IsEmptyStringType(spec.NodeName) {
-			allErrs = append(allErrs, field.Invalid(specFldPath.Child("nodeName"), spec.NodeName, "must not be set"))
-		}
-	}
-	if spec.NodeSelector != nil {
-		allErrs = append(allErrs, field.Invalid(specFldPath.Child("nodeSelector"), spec.NodeSelector, "must not be set"))
 	}
 
 	return warnings, allErrs
@@ -313,50 +230,51 @@ func validateCliqueDependencies(cliques []*grovecorev1alpha1.PodCliqueTemplateSp
 	return allErrs
 }
 
-func validatePodGangSchedulingPolicyConfig(config *grovecorev1alpha1.SchedulingPolicyConfig, fldPath *field.Path) field.ErrorList {
+func (v *pgsValidator) validateNetworkPackGroupConfigs(fldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
-	if config != nil {
-		allErrs = append(allErrs, validateEnumType(config.NetworkPackStrategy, allowedNetworkPackStrategies, fldPath.Child("networkPackStrategy"))...)
-	}
+	allErrs = append(allErrs, v.checkNetworkPackGroupConfigsForDuplicates(fldPath)...)
+	allErrs = append(allErrs, v.checkNetworkPackGroupConfigsForPartialPCSGInclusions(fldPath)...)
 	return allErrs
 }
 
-func (v *pgsValidator) validatePodCliqueScalingGroupConfigs(fldPath *field.Path) field.ErrorList {
+func (v *pgsValidator) checkNetworkPackGroupConfigsForDuplicates(fldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 
-	allPodGangSetCliqueNames := lo.Map(v.pgs.Spec.TemplateSpec.Cliques, func(cliqueTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, _ int) string {
-		return cliqueTemplateSpec.Name
-	})
-	pclqScalingGroupNames := make([]string, 0, len(v.pgs.Spec.TemplateSpec.PodCliqueScalingGroupConfigs))
-	var cliqueNamesAcrossAllScalingGroups []string
-
-	for _, scalingGroupConfig := range v.pgs.Spec.TemplateSpec.PodCliqueScalingGroupConfigs {
-		pclqScalingGroupNames = append(pclqScalingGroupNames, scalingGroupConfig.Name)
-		cliqueNamesAcrossAllScalingGroups = append(cliqueNamesAcrossAllScalingGroups, scalingGroupConfig.CliqueNames...)
-		// validate that scaling groups only contains clique names that are defined in the PodGangSet.
-		allErrs = append(allErrs, validateScalingGroupPodCliqueNames(allPodGangSetCliqueNames, scalingGroupConfig.CliqueNames, fldPath.Child("cliqueNames"))...)
+	networkPackGroupConfigs := v.pgs.Spec.Template.SchedulingPolicyConfig.NetworkPackGroupConfigs
+	var allCliqueNames []string
+	for _, nwPackGrpConfig := range networkPackGroupConfigs {
+		allCliqueNames = append(allCliqueNames, nwPackGrpConfig.CliqueNames...)
 	}
 
-	// validate that the scaling group names are unique
-	duplicateScalingGroupNames := lo.FindDuplicates(pclqScalingGroupNames)
-	if len(duplicateScalingGroupNames) > 0 {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("name"), strings.Join(duplicateScalingGroupNames, ","), "PodCliqueScalingGroupConfig names must be unique"))
+	// validate that a clique cannot be present in more than one NetworkPackGroupConfig.
+	duplicateCliqueNames := lo.FindDuplicates(allCliqueNames)
+	if len(duplicateCliqueNames) > 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath.Child("cliqueNames"), strings.Join(duplicateCliqueNames, ","), "A PodClique cannot belong to more than one NetworkPackGroupConfig"))
 	}
 
-	// validate that there should not be any overlapping clique names across scaling groups.
-	overlappingCliqueNames := lo.FindDuplicates(cliqueNamesAcrossAllScalingGroups)
-	if len(overlappingCliqueNames) > 0 {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("cliqueNames"), strings.Join(overlappingCliqueNames, ","), "clique names must not overlap across scaling groups, every scaling group should have unique clique names"))
-	}
+	return allErrs
+}
 
-	// validate that for all pod cliques that are part of defined scaling groups, separate AutoScalingConfig is not defined for them.
-	scalingGroupCliqueNames := lo.Uniq(cliqueNamesAcrossAllScalingGroups)
-	for _, cliqueTemplateSpec := range v.pgs.Spec.TemplateSpec.Cliques {
-		if slices.Contains(scalingGroupCliqueNames, cliqueTemplateSpec.Name) && cliqueTemplateSpec.Spec.ScaleConfig != nil {
-			allErrs = append(allErrs, field.Invalid(fldPath, cliqueTemplateSpec.Name, "AutoScalingConfig is not allowed to be defined for PodClique that is part of scaling group"))
+func (v *pgsValidator) checkNetworkPackGroupConfigsForPartialPCSGInclusions(fldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+	pcsgConfigs := v.pgs.Spec.Template.PodCliqueScalingGroupConfigs
+	if len(pcsgConfigs) == 0 {
+		return allErrs
+	}
+	for _, nwPackGrpConfig := range v.pgs.Spec.Template.SchedulingPolicyConfig.NetworkPackGroupConfigs {
+		for _, cliqueName := range nwPackGrpConfig.CliqueNames {
+			matchingPCSG, ok := lo.Find(pcsgConfigs, func(pcsg grovecorev1alpha1.PodCliqueScalingGroupConfig) bool {
+				return slices.Contains(pcsg.CliqueNames, cliqueName)
+			})
+			if !ok {
+				continue
+			}
+			absentPCSGCliqueNames, _ := lo.Difference(nwPackGrpConfig.CliqueNames, matchingPCSG.CliqueNames)
+			if len(absentPCSGCliqueNames) > 0 {
+				return append(allErrs, field.Invalid(fldPath.Child("cliqueName"), strings.Join(absentPCSGCliqueNames, ","), "NetworkPackGroupConfig cannot partially include PodCliques that are a part of a PodCliqueScalingGroup"))
+			}
 		}
 	}
-
 	return allErrs
 }
 
@@ -372,13 +290,118 @@ func validateScalingGroupPodCliqueNames(allPclqNames, pclqNameInScalingGrp []str
 	return allErrs
 }
 
-func validatePodGangSetSpecUpdate(newSpec, oldSpec *grovecorev1alpha1.PodGangSetSpec, fldPath *field.Path) field.ErrorList {
+func (v *pgsValidator) validatePodCliqueSpec(name string, cliqueSpec grovecorev1alpha1.PodCliqueSpec, fldPath *field.Path) ([]string, field.ErrorList) {
 	allErrs := field.ErrorList{}
-	allErrs = append(allErrs, validatePodGangTemplateSpecUpdate(&newSpec.TemplateSpec, &oldSpec.TemplateSpec, fldPath.Child("template"))...)
+
+	if cliqueSpec.Replicas <= 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath.Child("replicas"), cliqueSpec.Replicas, "must be greater than 0"))
+	}
+
+	// Ideally this should never happen, the defaulting webhook will always set the default value for minAvailable.
+	if cliqueSpec.MinAvailable == nil {
+		allErrs = append(allErrs, field.Required(fldPath.Child("minAvailable"), "field is required"))
+	}
+	if *cliqueSpec.MinAvailable <= 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath.Child("minAvailable"), *cliqueSpec.MinAvailable, "must be greater than 0"))
+	}
+	if *cliqueSpec.MinAvailable > cliqueSpec.Replicas {
+		allErrs = append(allErrs, field.Invalid(fldPath.Child("minAvailable"), *cliqueSpec.MinAvailable, "minAvailable must not be greater than replicas"))
+	}
+
+	if v.isStartupTypeExplicit() && len(cliqueSpec.StartsAfter) > 0 {
+		for _, dep := range cliqueSpec.StartsAfter {
+			if utils.IsEmptyStringType(dep) {
+				allErrs = append(allErrs, field.Required(fldPath.Child("startsAfter"), "clique dependency must not be empty"))
+			}
+			if dep == name {
+				allErrs = append(allErrs, field.Invalid(fldPath.Child("startsAfter"), dep, "clique dependency cannot refer to itself"))
+			}
+		}
+		duplicateStartAfterDeps := lo.FindDuplicates(cliqueSpec.StartsAfter)
+		if len(duplicateStartAfterDeps) > 0 {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("startsAfter"),
+				strings.Join(duplicateStartAfterDeps, ","), "clique dependencies must be unique"))
+		}
+	}
+
+	if cliqueSpec.ScaleConfig != nil {
+		allErrs = append(allErrs, validateScaleConfig(cliqueSpec.ScaleConfig, *cliqueSpec.MinAvailable, fldPath.Child("autoScalingConfig"))...)
+		if cliqueSpec.ScaleConfig.MaxReplicas < cliqueSpec.Replicas {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("autoScalingConfig", "maxReplicas"), cliqueSpec.ScaleConfig.MaxReplicas, "must be greater than or equal to replicas"))
+		}
+	}
+
+	warnings, cliquePodSpecErrs := v.validatePodSpec(cliqueSpec.PodSpec, fldPath.Child("podSpec"))
+	if len(cliquePodSpecErrs) != 0 {
+		allErrs = append(allErrs, cliquePodSpecErrs...)
+	}
+
+	return warnings, allErrs
+}
+
+func (v *pgsValidator) isStartupTypeExplicit() bool {
+	return v.pgs.Spec.Template.StartupType != nil && *v.pgs.Spec.Template.StartupType == grovecorev1alpha1.CliqueStartupTypeExplicit
+}
+
+func validateScaleConfig(scaleConfig *grovecorev1alpha1.AutoScalingConfig, minAvailable int32, fldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+	// This should ideally not happen, the defaulting webhook will always set the default value for minReplicas.
+	if scaleConfig.MinReplicas == nil {
+		allErrs = append(allErrs, field.Required(fldPath.Child("minReplicas"), "field is required"))
+	}
+	// scaleConfig.MinReplicas should be greater than or equal to minAvailable else it will trigger a PodGang termination.
+	if *scaleConfig.MinReplicas < minAvailable {
+		allErrs = append(allErrs, field.Invalid(fldPath.Child("minReplicas"), *scaleConfig.MinReplicas, "must be greater than or equal to podCliqueSpec.minAvailable"))
+	}
+	if scaleConfig.MaxReplicas < *scaleConfig.MinReplicas {
+		allErrs = append(allErrs, field.Invalid(fldPath.Child("maxReplicas"), scaleConfig.MaxReplicas, "must be greater than or equal to podCliqueSpec.minReplicas"))
+	}
 	return allErrs
 }
 
-func validatePodGangTemplateSpecUpdate(newSpec, oldSpec *grovecorev1alpha1.PodGangTemplateSpec, fldPath *field.Path) field.ErrorList {
+func (v *pgsValidator) validatePodSpec(spec corev1.PodSpec, fldPath *field.Path) ([]string, field.ErrorList) {
+	allErrs := field.ErrorList{}
+	var warnings []string
+
+	if !utils.IsEmptyStringType(spec.RestartPolicy) {
+		warnings = append(warnings, "restartPolicy will be ignored, it will be set to Always")
+	}
+
+	specFldPath := fldPath.Child("spec")
+	if v.operation == admissionv1.Create {
+		if spec.TopologySpreadConstraints != nil {
+			allErrs = append(allErrs, field.Invalid(specFldPath.Child("topologySpreadConstraints"), spec.TopologySpreadConstraints, "must not be set"))
+		}
+		if !utils.IsEmptyStringType(spec.NodeName) {
+			allErrs = append(allErrs, field.Invalid(specFldPath.Child("nodeName"), spec.NodeName, "must not be set"))
+		}
+	}
+	if spec.NodeSelector != nil {
+		allErrs = append(allErrs, field.Invalid(specFldPath.Child("nodeSelector"), spec.NodeSelector, "must not be set"))
+	}
+
+	return warnings, allErrs
+}
+
+// ---------------------------- validate update of PodGangSet -----------------------------------------------
+
+// validateUpdate validates the update to a PodGangSet object. It compares the old and new PodGangSet objects and validates that the changes done are allowed/valid.
+func (v *pgsValidator) validateUpdate(oldPgs *grovecorev1alpha1.PodGangSet) error {
+	allErrs := field.ErrorList{}
+	fldPath := field.NewPath("spec")
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(v.pgs.Spec.ReplicaSpreadConstraints, oldPgs.Spec.ReplicaSpreadConstraints, fldPath.Child("replicaSpreadConstraints"))...)
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(v.pgs.Spec.Template.PriorityClassName, oldPgs.Spec.Template.PriorityClassName, fldPath.Child("priorityClassName"))...)
+	allErrs = append(allErrs, validatePodGangSetSpecUpdate(&v.pgs.Spec, &oldPgs.Spec, fldPath)...)
+	return allErrs.ToAggregate()
+}
+
+func validatePodGangSetSpecUpdate(newSpec, oldSpec *grovecorev1alpha1.PodGangSetSpec, fldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+	allErrs = append(allErrs, validatePodGangTemplateSpecUpdate(&newSpec.Template, &oldSpec.Template, fldPath.Child("template"))...)
+	return allErrs
+}
+
+func validatePodGangTemplateSpecUpdate(newSpec, oldSpec *grovecorev1alpha1.PodGangSetTemplateSpec, fldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	allErrs = append(allErrs, validatePodCliqueUpdate(newSpec.Cliques, oldSpec.Cliques, fldPath.Child("cliques"))...)
@@ -447,8 +470,4 @@ func clearContainerImages(containers []corev1.Container) {
 	for i := range containers {
 		containers[i].Image = ""
 	}
-}
-
-func (v *pgsValidator) isStartupTypeExplicit() bool {
-	return v.pgs.Spec.TemplateSpec.StartupType != nil && *v.pgs.Spec.TemplateSpec.StartupType == grovecorev1alpha1.CliqueStartupTypeExplicit
 }
