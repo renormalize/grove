@@ -58,3 +58,26 @@ add-license-headers:
 .PHONY: generate-api-docs
 generate-api-docs: $(CRD_REF_DOCS)
 	@$(REPO_HACK_DIR)/generate-api-docs.sh
+
+# Runs unit tests for the entire codebase (all modules)
+.PHONY: test
+test:
+	@echo "> Running tests for operator"
+	@make --directory=operator test-unit
+	@echo "> Running tests for scheduler"
+	@make --directory=scheduler test-unit
+
+.PHONY: test-cover
+test-cover:
+	@echo "> Running tests with coverage for operator"
+	@make --directory=operator test-cover
+	@echo "> Running tests with coverage for scheduler"
+	@make --directory=scheduler test-cover
+
+# Generates HTML coverage reports for the entire codebase (all modules)
+.PHONY: cover-html
+cover-html:
+	@echo "> Generating HTML coverage report for operator"
+	@make --directory=operator cover-html
+	@echo "> Generating HTML coverage report for scheduler"
+	@make --directory=scheduler cover-html

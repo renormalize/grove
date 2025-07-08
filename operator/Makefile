@@ -76,6 +76,17 @@ add-license-headers: $(GO_ADD_LICENSE)
 test-unit:
 	@go test ./...
 
+# Run all unit tests with code coverage
+.PHONY: test-cover
+test-cover:
+	@go test ./... -coverprofile=coverage.out
+
+# Generate HTML coverage report
+.PHONY: cover-html
+cover-html: test-cover
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated at coverage.html"
+
 # Make targets for local development and testing
 # -------------------------------------------------------------
 # Starts a local k8s cluster using kind.
