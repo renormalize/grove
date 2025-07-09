@@ -23,7 +23,6 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"strings"
 
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
@@ -37,7 +36,6 @@ import (
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -46,24 +44,28 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 		ctx:  ctx,
 		pclq: pclq,
 	}
-	pgs, err := r.getOwnerPodGangSet(ctx, pclq.ObjectMeta)
+	pgs, err := componentutils.GetOwnerPodGangSet(ctx, r.client, pclq.ObjectMeta)
 	if err != nil {
-		return nil, err
+		return nil, groveerr.WrapError(err,
+			errCodeGetPodGangSet,
+			component.OperationSync,
+			fmt.Sprintf("failed to get owner PodGangSet %s ", pgs.Name),
+		)
+
 	}
 	sc.pgs = pgs
 
-	expectedPodGangNames, err := r.getExpectedPodGangNamesAssociatedWithPCLQ(ctx, pgs, pclq.ObjectMeta)
+	associatedPodGangName, err := r.getAssociatedPodGangName(pclq.ObjectMeta)
 	if err != nil {
 		return nil, err
 	}
-	sc.expectedPodGangNames = expectedPodGangNames
+	sc.associatedPodGangName = associatedPodGangName
 
-	existingPodGangsForPCLQ, err := r.getExistingPodGangsAssociatedWithPCLQ(ctx, pgs.ObjectMeta, pclq.ObjectMeta, expectedPodGangNames)
+	existingPodGang, err := r.getAssociatedPodGang(ctx, associatedPodGangName, pclq.Namespace)
 	if err != nil {
 		return nil, err
 	}
-	sc.existingPodGangsForPCLQ = existingPodGangsForPCLQ
-	sc.podNamesUpdatedInPCLQPodGangs = getPodNamesUpdatedInAssociatedPodGangs(existingPodGangsForPCLQ)
+	sc.podNamesUpdatedInPCLQPodGangs = r.getPodNamesUpdatedInAssociatedPodGang(existingPodGang, pclq.Name)
 
 	existingPCLQPods, err := componentutils.GetPCLQPods(ctx, r.client, pgs.Name, pclq)
 	if err != nil {
@@ -79,53 +81,15 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 	return sc, nil
 }
 
-// getOwnerPodGangSet gets the owner PodGangSet object for the PodClique.
-func (r _resource) getOwnerPodGangSet(ctx context.Context, pclqObjectMeta metav1.ObjectMeta) (*grovecorev1alpha1.PodGangSet, error) {
-	pgsName := k8sutils.GetFirstOwnerName(pclqObjectMeta)
-	pgs := &grovecorev1alpha1.PodGangSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      pgsName,
-			Namespace: pclqObjectMeta.Namespace,
-		},
-	}
-	if err := r.client.Get(ctx, client.ObjectKeyFromObject(pgs), pgs); err != nil {
-		return nil, groveerr.WrapError(err,
-			errCodeGetPodGangSet,
+func (r _resource) getAssociatedPodGangName(pclqObjectMeta metav1.ObjectMeta) (string, error) {
+	podGangName, ok := pclqObjectMeta.GetLabels()[grovecorev1alpha1.LabelPodGangName]
+	if !ok {
+		return "", groveerr.New(errCodeMissingPodGangLabelOnPCLQ,
 			component.OperationSync,
-			fmt.Sprintf("failed to get owner PodGangSet %s ", pgsName),
+			fmt.Sprintf("PodClique: %v is missing required label: %s", k8sutils.GetObjectKeyFromObjectMeta(pclqObjectMeta), grovecorev1alpha1.LabelPodGangName),
 		)
 	}
-	return pgs, nil
-}
-
-func (r _resource) getExpectedPodGangNamesAssociatedWithPCLQ(ctx context.Context, pgs *grovecorev1alpha1.PodGangSet, pclqObjectMeta metav1.ObjectMeta) ([]string, error) {
-	var expectedPodGangNames []string
-	pgsReplica, err := getPGSReplicaIndexForPCLQ(pclqObjectMeta)
-	if err != nil {
-		return nil, err
-	}
-	pgsReplicaPodGangName := grovecorev1alpha1.GeneratePodGangName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplica}, nil)
-	expectedPodGangNames = append(expectedPodGangNames, pgsReplicaPodGangName)
-
-	// check if the PCLQ is associated to a PCSG
-	pcsgFQN, ok := pclqObjectMeta.GetLabels()[grovecorev1alpha1.LabelPodCliqueScalingGroup]
-	if !ok {
-		return expectedPodGangNames, nil
-	}
-
-	pcsgReplicas, err := r.getPCSGReplicasAssociatedWithPCLQ(ctx, pcsgFQN, pclqObjectMeta.Namespace)
-	if err != nil {
-		return nil, err
-	}
-
-	if pcsgReplicas > 1 {
-		matchingPCSGConfig := componentutils.FindMatchingPCSGConfig(pgs, pcsgFQN)
-		for replica := 1; replica < int(pcsgReplicas); replica++ {
-			pcsgReplicaPodGangName := grovecorev1alpha1.GeneratePodGangName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplica}, &grovecorev1alpha1.ResourceNameReplica{Name: matchingPCSGConfig.Name, Replica: replica - 1})
-			expectedPodGangNames = append(expectedPodGangNames, pcsgReplicaPodGangName)
-		}
-	}
-	return expectedPodGangNames, nil
+	return podGangName, nil
 }
 
 func getPGSReplicaIndexForPCLQ(pclqObjectMeta metav1.ObjectMeta) (int, error) {
@@ -160,36 +124,35 @@ func (r _resource) getPCSGReplicasAssociatedWithPCLQ(ctx context.Context, pcsgNa
 	return pcsg.Spec.Replicas, nil
 }
 
-func (r _resource) getExistingPodGangsAssociatedWithPCLQ(ctx context.Context, pgsObjectMeta metav1.ObjectMeta, pclqObjectMeta metav1.ObjectMeta, expectedPodGangNames []string) ([]*groveschedulerv1alpha1.PodGang, error) {
-	podGangList := &groveschedulerv1alpha1.PodGangList{}
-	if err := r.client.List(ctx,
-		podGangList,
-		client.InNamespace(pclqObjectMeta.Namespace),
-		client.MatchingLabels(componentutils.GetPodGangSelectorLabels(pgsObjectMeta)),
-	); err != nil {
+func (r _resource) getAssociatedPodGang(ctx context.Context, podGangName, namespace string) (*groveschedulerv1alpha1.PodGang, error) {
+	podGang := &groveschedulerv1alpha1.PodGang{}
+	podGangObjectKey := client.ObjectKey{Namespace: namespace, Name: podGangName}
+	if err := r.client.Get(ctx, podGangObjectKey, podGang); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			return nil, nil
+		}
 		return nil, groveerr.WrapError(err,
-			errCodeListPodGang,
+			errCodeGetPodGang,
 			component.OperationSync,
-			"failed to list Podgangs",
+			fmt.Sprintf("failed to get Podgang: %v", podGangObjectKey),
 		)
 	}
-	podGangsAssociatedWithPCLQ := lo.FilterMap(podGangList.Items, func(pg groveschedulerv1alpha1.PodGang, _ int) (*groveschedulerv1alpha1.PodGang, bool) {
-		return &pg, slices.Contains(expectedPodGangNames, pg.Name)
-	})
-	return podGangsAssociatedWithPCLQ, nil
+	return podGang, nil
 }
 
-func getPodNamesUpdatedInAssociatedPodGangs(existingPodGangsForPCLQ []*groveschedulerv1alpha1.PodGang) []string {
-	updatedPodNames := sets.New[string]()
-	for _, pg := range existingPodGangsForPCLQ {
-		pgPodNames := lo.FlatMap(pg.Spec.PodGroups, func(podGroup groveschedulerv1alpha1.PodGroup, _ int) []string {
-			return lo.Map(podGroup.PodReferences, func(nsName groveschedulerv1alpha1.NamespacedName, _ int) string {
-				return nsName.Name
-			})
-		})
-		updatedPodNames.Insert(pgPodNames...)
+func (r _resource) getPodNamesUpdatedInAssociatedPodGang(existingPodGang *groveschedulerv1alpha1.PodGang, pclqFQN string) []string {
+	if existingPodGang == nil {
+		return nil
 	}
-	return updatedPodNames.UnsortedList()
+	podGroup, ok := lo.Find(existingPodGang.Spec.PodGroups, func(podGroup groveschedulerv1alpha1.PodGroup) bool {
+		return podGroup.Name == pclqFQN
+	})
+	if !ok {
+		return nil
+	}
+	return lo.Map(podGroup.PodReferences, func(nsName groveschedulerv1alpha1.NamespacedName, _ int) string {
+		return nsName.Name
+	})
 }
 
 func (r _resource) runSyncFlow(sc *syncContext, logger logr.Logger) syncFlowResult {
@@ -197,13 +160,13 @@ func (r _resource) runSyncFlow(sc *syncContext, logger logr.Logger) syncFlowResu
 	diff := len(sc.existingPCLQPods) - int(sc.pclq.Spec.Replicas)
 	if diff < 0 {
 		diff *= -1
-		numScheduleGatedPods, err := r.createPods(sc.ctx, logger, sc.pclq, diff)
+		numScheduleGatedPods, err := r.createPods(sc.ctx, logger, sc.pclq, sc.associatedPodGangName, diff)
 		logger.Info("created unassigned and scheduled gated pods", "numberOfCreatedPods", numScheduleGatedPods)
 		if err != nil {
 			logger.Error(err, "failed to create pods", "pclqObjectKey", client.ObjectKeyFromObject(sc.pclq))
 			result.recordError(err)
 		}
-	} else {
+	} else if diff > 0 {
 		if err := r.deleteExcessPods(sc, logger, diff); err != nil {
 			result.recordError(err)
 		}
@@ -218,7 +181,7 @@ func (r _resource) runSyncFlow(sc *syncContext, logger logr.Logger) syncFlowResu
 }
 
 func (r _resource) deleteExcessPods(sc *syncContext, logger logr.Logger, diff int) error {
-	candidatePodsToDelete := collectCandidatePodsToDelete(sc, logger)
+	candidatePodsToDelete := selectExcessPodsToDelete(sc, logger)
 	numPodsToSelectForDeletion := min(diff, len(candidatePodsToDelete))
 	selectedPodsToDelete := candidatePodsToDelete[:numPodsToSelectForDeletion]
 
@@ -258,65 +221,14 @@ func (r _resource) deleteExcessPods(sc *syncContext, logger logr.Logger, diff in
 	return nil
 }
 
-func collectCandidatePodsToDelete(sc *syncContext, logger logr.Logger) []*corev1.Pod {
+func selectExcessPodsToDelete(sc *syncContext, logger logr.Logger) []*corev1.Pod {
 	var candidatePodsToDelete []*corev1.Pod
-	// First collect the pods whose associated PodGang is no longer existing and is also not expected.
-	candidatePodsToDelete = append(candidatePodsToDelete, findLeftOverPodsAssociatedToNotExpectedPodGangs(sc, logger)...)
-	candidatePodsToDelete = append(candidatePodsToDelete, selectExcessPodsFromExpectedPodGangs(sc, logger)...)
-
-	return candidatePodsToDelete
-}
-
-// findLeftOverPodsAssociatedToNotExpectedPodGangs searches for pods which are associated to a PodGang that is not expected.
-// If a Pod is associated to a PodGang that is no longer expected, this can be due to scale-in's that have reduced the replicas
-// for a PCSG which has resulted in removal of PodGangs. If for some reason the PodGang is removed but the associated Pods are not
-// then this function will collect such pods. This is achieved by checking if the existing Pod associated to a PodGang
-// does not exist, and it is also not in the list of expected PodGangs.
-func findLeftOverPodsAssociatedToNotExpectedPodGangs(sc *syncContext, logger logr.Logger) []*corev1.Pod {
-	existingPodGangNames := lo.Map(sc.existingPodGangsForPCLQ, func(pg *groveschedulerv1alpha1.PodGang, _ int) string {
-		return pg.Name
-	})
-	nonExistingPodGangNames := make([]string, 0, len(sc.expectedPodGangNames))
-	candidatePodsToDelete := lo.Filter(sc.existingPCLQPods, func(p *corev1.Pod, _ int) bool {
-		podGangLabelValue, ok := p.GetLabels()[grovecorev1alpha1.LabelPodGangName]
-		shouldDeletePod := ok && !slices.Contains(existingPodGangNames, podGangLabelValue) && !slices.Contains(sc.expectedPodGangNames, podGangLabelValue)
-		if shouldDeletePod {
-			nonExistingPodGangNames = append(nonExistingPodGangNames, podGangLabelValue)
-		}
-		return shouldDeletePod
-	})
-
-	if len(candidatePodsToDelete) > 0 {
-		candidatePodNames := lo.Map(candidatePodsToDelete, func(pod *corev1.Pod, _ int) string { return pod.Name })
-		logger.Info("found pods that are associated to PodGangs that do not exist and are no longer expected", "podGangNames", nonExistingPodGangNames, "podNames", candidatePodNames)
-	} else {
-		logger.V(4).Info("no pod found that is associated to PodGangs that do not exist and are no longer expected")
+	if diff := len(sc.existingPCLQPods) - int(sc.pclq.Spec.Replicas); diff > 0 {
+		logger.Info("found excess pods for PodClique", "pclqObjectKey", client.ObjectKeyFromObject(sc.pclq), "numExcessPods", diff)
+		sort.Sort(DeletionSorter(sc.existingPCLQPods))
+		candidatePodsToDelete = append(candidatePodsToDelete, sc.existingPCLQPods[:diff]...)
 	}
 	return candidatePodsToDelete
-}
-
-func selectExcessPodsFromExpectedPodGangs(sc *syncContext, logger logr.Logger) []*corev1.Pod {
-	var candidatePodsToDelete []*corev1.Pod
-	expectedPodGangReplicas := computeExpectedPodGangReplicas(sc.pgs, sc.pclq)
-	for podGangName, pods := range sc.getExistingPodsByExpectedPodGangName() {
-		if len(pods) > expectedPodGangReplicas {
-			numExcessPods := len(pods) - expectedPodGangReplicas
-			logger.Info("found excess pods for PodGang", "podGangName", podGangName, "numExcessPods", len(pods), "expectedPodGangReplicasFromThisPCLQ", expectedPodGangReplicas)
-			sort.Sort(DeletionSorter(pods))
-			candidatePodsToDelete = append(candidatePodsToDelete, pods[:numExcessPods]...)
-		}
-	}
-	return candidatePodsToDelete
-}
-
-func computeExpectedPodGangReplicas(pgs *grovecorev1alpha1.PodGangSet, pclq *grovecorev1alpha1.PodClique) int {
-	if metav1.HasLabel(pclq.ObjectMeta, grovecorev1alpha1.LabelPodCliqueScalingGroup) {
-		cliqueTemplateSpec, _ := lo.Find(pgs.Spec.Template.Cliques, func(cliqueTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec) bool {
-			return strings.Contains(pclq.Name, cliqueTemplateSpec.Name)
-		})
-		return int(cliqueTemplateSpec.Spec.Replicas)
-	}
-	return int(pclq.Spec.Replicas)
 }
 
 func (r _resource) checkAndRemovePodSchedulingGates(sc *syncContext, logger logr.Logger) ([]string, error) {
@@ -366,14 +278,14 @@ func hasPodGangSchedulingGate(pod *corev1.Pod) bool {
 	})
 }
 
-func (r _resource) createPods(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique, numPods int) (int, error) {
+func (r _resource) createPods(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique, podGangName string, numPods int) (int, error) {
 	createTasks := make([]utils.Task, 0, numPods)
 	for i := range numPods {
 		createTask := utils.Task{
 			Name: fmt.Sprintf("CreatePod-%s-%d", pclq.Name, i),
 			Fn: func(ctx context.Context) error {
 				pod := &corev1.Pod{}
-				if err := r.buildResource(pclq, pod); err != nil {
+				if err := r.buildResource(pclq, podGangName, pod); err != nil {
 					return groveerr.WrapError(err,
 						errCodeSyncPod,
 						component.OperationSync,
@@ -417,22 +329,9 @@ type syncContext struct {
 	ctx                           context.Context
 	pgs                           *grovecorev1alpha1.PodGangSet
 	pclq                          *grovecorev1alpha1.PodClique
-	existingPodGangsForPCLQ       []*groveschedulerv1alpha1.PodGang
-	expectedPodGangNames          []string
+	associatedPodGangName         string
 	existingPCLQPods              []*corev1.Pod
 	podNamesUpdatedInPCLQPodGangs []string
-}
-
-func (sc *syncContext) getExistingPodsByExpectedPodGangName() map[string][]*corev1.Pod {
-	podGangNameToPods := make(map[string][]*corev1.Pod)
-	for _, existingPod := range sc.existingPCLQPods {
-		podGangLabelValue, ok := existingPod.GetLabels()[grovecorev1alpha1.LabelPodGangName]
-		if !ok && !slices.Contains(sc.expectedPodGangNames, podGangLabelValue) {
-			continue
-		}
-		podGangNameToPods[podGangLabelValue] = append(podGangNameToPods[podGangLabelValue], existingPod)
-	}
-	return podGangNameToPods
 }
 
 // syncFlowResult captures the result of a sync flow run.

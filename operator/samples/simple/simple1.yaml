@@ -17,6 +17,7 @@ spec:
     cliques:
       - name: pca
         spec:
+          roleName: rolea
           replicas: 3
           podSpec:
             containers:
@@ -36,6 +37,7 @@ spec:
                     averageUtilization: 80
       - name: pcb
         spec:
+          roleName: roleb
           replicas: 2
           podSpec:
             containers:
@@ -46,6 +48,7 @@ spec:
                     cpu: 10m
       - name: pcc
         spec:
+          roleName: rolec
           replicas: 2
           podSpec:
             containers:
@@ -56,6 +59,7 @@ spec:
                     cpu: 10m
       - name: pcd
         spec:
+          roleName: roled
           replicas: 2
           podSpec:
             containers:

@@ -43,13 +43,14 @@ const (
 	errCodeSyncPod                            grovecorev1alpha1.ErrorCode = "ERR_SYNC_POD"
 	errCodeDeletePod                          grovecorev1alpha1.ErrorCode = "ERR_DELETE_POD"
 	errCodeGetPodGangSet                      grovecorev1alpha1.ErrorCode = "ERR_GET_PODGANGSET"
-	errCodeListPodGang                        grovecorev1alpha1.ErrorCode = "ERR_LIST_PODGANG"
+	errCodeGetPodGang                         grovecorev1alpha1.ErrorCode = "ERR_GET_PODGANG"
 	errCodeListPod                            grovecorev1alpha1.ErrorCode = "ERR_LIST_POD"
 	errCodeGetPodCliqueScalingGroup           grovecorev1alpha1.ErrorCode = "ERR_GET_PODCLIQUESCALINGGROUP"
 	errCodeMissingPodGangSetReplicaIndexLabel grovecorev1alpha1.ErrorCode = "ERR_MISSING_PODGANGSET_REPLICA_INDEX_LABEL"
 	errCodeInvalidPodGangSetReplicaLabelValue grovecorev1alpha1.ErrorCode = "ERR_INVALID_PODGANGSET_REPLICA_LABEL_VALUE"
 	errCodeRemovePodSchedulingGate            grovecorev1alpha1.ErrorCode = "ERR_REMOVE_POD_SCHEDULING_GATE"
 	errCodeCreatePods                         grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODS"
+	errCodeMissingPodGangLabelOnPCLQ          grovecorev1alpha1.ErrorCode = "ERR_MISSING_PODGANG_LABEL_ON_PODCLIQUE"
 )
 
 // constants used for pod events
@@ -83,14 +84,14 @@ func New(client client.Client, scheme *runtime.Scheme, eventRecorder record.Even
 // NOTE: Since we do not currently support Jobs, therefore we do not have to filter the pods that are reached their final state.
 // Pods created for Jobs can reach corev1.PodSucceeded state or corev1.PodFailed state but these are not relevant for us at the moment.
 // In future when these states become relevant then we have to list the pods and filter on their status.Phase.
-func (r _resource) GetExistingResourceNames(ctx context.Context, _ logr.Logger, pclq *grovecorev1alpha1.PodClique) ([]string, error) {
-	podNames := make([]string, 0, pclq.Spec.Replicas)
+func (r _resource) GetExistingResourceNames(ctx context.Context, _ logr.Logger, pclqObjMeta metav1.ObjectMeta) ([]string, error) {
+	var podNames []string
 	objMetaList := &metav1.PartialObjectMetadataList{}
 	objMetaList.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Pod"))
 	if err := r.client.List(ctx,
 		objMetaList,
-		client.InNamespace(pclq.Namespace),
-		client.MatchingLabels(getSelectorLabelsForPods(pclq.ObjectMeta)),
+		client.InNamespace(pclqObjMeta.Namespace),
+		client.MatchingLabels(getSelectorLabelsForPods(pclqObjMeta)),
 	); err != nil {
 		return podNames, groveerr.WrapError(err,
 			errCodeGetPod,
@@ -99,7 +100,7 @@ func (r _resource) GetExistingResourceNames(ctx context.Context, _ logr.Logger, 
 		)
 	}
 	for _, pod := range objMetaList.Items {
-		if metav1.IsControlledBy(&pod, &pclq.ObjectMeta) {
+		if metav1.IsControlledBy(&pod, &pclqObjMeta) {
 			podNames = append(podNames, pod.Name)
 		}
 	}
@@ -124,8 +125,8 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pclq *grovecore
 	return nil
 }
 
-func (r _resource) buildResource(pclq *grovecorev1alpha1.PodClique, pod *corev1.Pod) error {
-	labels, err := getLabels(pclq.ObjectMeta)
+func (r _resource) buildResource(pclq *grovecorev1alpha1.PodClique, podGangName string, pod *corev1.Pod) error {
+	labels, err := getLabels(pclq.ObjectMeta, podGangName)
 	if err != nil {
 		return groveerr.WrapError(err,
 			errCodeSyncPod,
@@ -177,7 +178,7 @@ func getSelectorLabelsForPods(pclqObjectMeta metav1.ObjectMeta) map[string]strin
 	)
 }
 
-func getLabels(pclqObjectMeta metav1.ObjectMeta) (map[string]string, error) {
+func getLabels(pclqObjectMeta metav1.ObjectMeta, podGangName string) (map[string]string, error) {
 	pgsName := k8sutils.GetFirstOwnerName(pclqObjectMeta)
 	pgsReplicaIndex, err := utils.GetPodGangSetReplicaIndexFromPodCliqueFQN(pgsName, pclqObjectMeta.Name)
 	if err != nil {
@@ -189,5 +190,6 @@ func getLabels(pclqObjectMeta metav1.ObjectMeta) (map[string]string, error) {
 		map[string]string{
 			grovecorev1alpha1.LabelPodCliqueName:          pclqObjectMeta.Name,
 			grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
+			grovecorev1alpha1.LabelPodGangName:            podGangName,
 		}), nil
 }

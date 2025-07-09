@@ -50,8 +50,8 @@ func GeneratePodServiceAccountName(pgsName string) string {
 }
 
 // GeneratePodCliqueName generates a PodClique name based on the PodGangSet name, replica index, and PodCliqueTemplate name.
-func GeneratePodCliqueName(pgsNameReplica ResourceNameReplica, pclqTemplateName string) string {
-	return fmt.Sprintf("%s-%d-%s", pgsNameReplica.Name, pgsNameReplica.Replica, pclqTemplateName)
+func GeneratePodCliqueName(ownerNameReplica ResourceNameReplica, pclqTemplateName string) string {
+	return fmt.Sprintf("%s-%d-%s", ownerNameReplica.Name, ownerNameReplica.Replica, pclqTemplateName)
 }
 
 // GeneratePodName generates a Pod name based on the PodClique name and replica index.
@@ -67,11 +67,10 @@ func GeneratePodCliqueScalingGroupName(pgsNameReplica ResourceNameReplica, pclqS
 
 // GeneratePodGangName generates a PodGang name based on pgs and pcsg name and replicas.
 func GeneratePodGangName(pgsNameReplica ResourceNameReplica, pcsgNameReplica *ResourceNameReplica) string {
-	if pcsgNameReplica == nil {
+	if pcsgNameReplica == nil || pcsgNameReplica.Replica == 1 {
 		return fmt.Sprintf("%s-%d", pgsNameReplica.Name, pgsNameReplica.Replica)
-	} else {
-		return fmt.Sprintf("%s%d", GeneratePCSGPodGangNamePrefix(pgsNameReplica, pcsgNameReplica.Name), pcsgNameReplica.Replica)
 	}
+	return fmt.Sprintf("%s%d", GeneratePCSGPodGangNamePrefix(pgsNameReplica, pcsgNameReplica.Name), pcsgNameReplica.Replica-1)
 }
 
 // GeneratePCSGPodGangNamePrefix generates a PodGang name prefix for Podgangs created due to PCSG replica scale-out.

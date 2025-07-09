@@ -18,11 +18,10 @@ package podclique
 
 import (
 	"context"
-
 	configv1alpha1 "github.com/NVIDIA/grove/operator/api/config/v1alpha1"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
-	pclqComponent "github.com/NVIDIA/grove/operator/internal/component/pclq"
+	pclqcomponent "github.com/NVIDIA/grove/operator/internal/component/podclique"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
 
@@ -50,7 +49,7 @@ func NewReconciler(mgr ctrl.Manager, controllerCfg configv1alpha1.PodCliqueContr
 		client:                  mgr.GetClient(),
 		eventRecorder:           eventRecorder,
 		reconcileStatusRecorder: ctrlcommon.NewReconcileStatusRecorder(mgr.GetClient(), mgr.GetEventRecorderFor(controllerName)),
-		operatorRegistry:        pclqComponent.CreateOperatorRegistry(mgr, eventRecorder),
+		operatorRegistry:        pclqcomponent.CreateOperatorRegistry(mgr, eventRecorder),
 	}
 }
 
@@ -76,12 +75,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		specLog := logger.WithValues("operation", "specReconcile")
 		deletionOrSpecReconcileFlowResult = r.reconcileSpec(ctx, specLog, pclq)
 	}
-	if ctrlcommon.ShortCircuitReconcileFlow(deletionOrSpecReconcileFlowResult) {
-		return deletionOrSpecReconcileFlowResult.Result()
-	}
 
 	if statusReconcileResult := r.reconcileStatus(ctx, logger, pclq); ctrlcommon.ShortCircuitReconcileFlow(statusReconcileResult) {
 		return statusReconcileResult.Result()
+	}
+
+	if ctrlcommon.ShortCircuitReconcileFlow(deletionOrSpecReconcileFlowResult) {
+		return deletionOrSpecReconcileFlowResult.Result()
 	}
 
 	return ctrlcommon.DoNotRequeue().Result()
