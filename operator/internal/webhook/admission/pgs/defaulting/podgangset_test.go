@@ -18,6 +18,7 @@ package defaulting
 
 import (
 	"testing"
+	"time"
 
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
@@ -53,6 +54,7 @@ func TestDefaultPodGangSet(t *testing.T) {
 				HeadlessServiceConfig: &grovecorev1alpha1.HeadlessServiceConfig{
 					PublishNotReadyAddresses: true,
 				},
+				TerminationDelay: &metav1.Duration{Duration: time.Second * 30},
 			},
 		},
 	}
