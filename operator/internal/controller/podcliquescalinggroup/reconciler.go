@@ -18,7 +18,6 @@ package podcliquescalinggroup
 
 import (
 	"context"
-	"errors"
 
 	groveconfigv1alpha1 "github.com/NVIDIA/grove/operator/api/config/v1alpha1"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -27,6 +26,7 @@ import (
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
 	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
+
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -35,8 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllogger "sigs.k8s.io/controller-runtime/pkg/log"
 )
-
-var errUndefinedPodCliqueName = errors.New("podclique is not defined in PodGangSet")
 
 // Reconciler reconciles PodCliqueScalingGroup objects.
 type Reconciler struct {
