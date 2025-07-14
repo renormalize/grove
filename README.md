@@ -10,7 +10,7 @@ Grove was originally motivated by the challenges of orchestrating multinode, dis
 
 ## Why Grove?
 
-Modern inference systems are often no longer single-pod workloads. They involve multiple components running across many nodes, often requiring coordination, colocation, custom roles, and precise startup ordering. Inference workloads also need better scheduler coordination to achieve key performance SLAs with features such as network topology-aware gang-scheduling, auto-scaling, rolling upgrades and more. The Grove project was created so that AI developers can define their workload in a declarative manner and influence scheduler level optimizations with easy-to-use, high-level, Grove scheduling APIs.
+Modern inference systems are often no longer single-pod workloads. They involve multiple components running across many nodes, often requiring coordination, colocation, custom roles, and precise startup ordering. Inference workloads also need better scheduler coordination to achieve key performance SLAs with features such as network topology-aware gang-scheduling, auto-scaling, rolling updates and more. The Grove project was created so that AI developers can define their workload in a declarative manner and influence scheduler level optimizations with easy-to-use, high-level, Grove scheduling APIs.
 
 
 ## Core Concepts
@@ -37,8 +37,8 @@ The Grove API consists of a user API and a scheduling API. While the user API (`
   Allows specifying network topology pack and spread constraints to optimize for both network performance and service availability.
 - **Custom Startup Dependencies**
   Prescribe the order in which the `PodClique`s must start in a declarative specification. Pod startup is decoupled from pod creation or scheduling.
-- **Resource-Aware Rolling Upgrades**
-  Supports reuse of resource reservations of `Pod`s during upgrades in order to preserve topology-optimized placement.
+- **Resource-Aware Rolling Updates**
+  Supports reuse of resource reservations of `Pod`s during updates in order to preserve topology-optimized placement.
 
 ## Example Use Cases
 
