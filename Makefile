@@ -18,6 +18,19 @@ REPO_HACK_DIR       := $(REPO_ROOT)/hack
 
 include $(REPO_HACK_DIR)/tools.mk
 
+# Validates the entire codebase by running lints, tests, and checking for uncommitted changes
+.PHONY: validate
+validate: lint test-unit generate add-license-headers format generate-api-docs
+	@echo "> Checking for uncommitted changes"
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "ERROR: Git tree is dirty after running validation steps."; \
+		echo "Please check the diff to identify the step that dirtied the tree."; \
+		git status; \
+		git diff; \
+		exit 1; \
+	fi
+	@echo "> Validation complete"
+
 .PHONY: build
 build:
 	@echo "> Building Grove Operator"

@@ -37,22 +37,5 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: "1.24.5"
-      - name: lint
-        run: make lint
-      - name: generate
-        run: make generate
-      - name: license
-        run: make add-license-headers
-      - name: format
-        run: make format
-      - name: api-docs
-        run: make generate-api-docs
-      - name: fail if git tree is dirty
-        run: |
-          if [[ -n "$(git status --porcelain)" ]]; then
-            echo "ERROR: Git tree is dirty after running the check step."
-            echo "Please check the diff to identify the step that dirtied the tree."
-            git status
-            git diff
-            exit 1
-          fi
+      - name: validate
+        run: make validate
