@@ -51,6 +51,24 @@ The Grove API consists of a user API and a scheduling API. While the user API (`
 
 You can get started with Grove operator by following along to our [getting started guide](docs/getting-started.md).
 
+## Roadmap
+
+### 2025 Priorities
+
+**Release v0.1.0** *(ETA: 8/1/2025)*
+- Grove v1alpha1 API
+- Hierarchical Gang Scheduling and Gang Termination
+- Multi-Level Horizontal Auto-Scaling
+- Startup Ordering
+- Rolling Updates
+
+**Release v0.2.0** *(ETA: 9/1/2025)*
+- Topology-Aware Scheduling
+- Resource-Optimized Rolling Updates
+
+**Release v0.3.0** *(ETA: 11/1/2025)*
+- Multi-Node NVLink Auto-Scaling Support
+
 ## Contributions
 
 :construction:
