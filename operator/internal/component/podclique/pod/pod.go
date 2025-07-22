@@ -39,18 +39,14 @@ import (
 
 // constants for error codes
 const (
-	errCodeGetPod                             grovecorev1alpha1.ErrorCode = "ERR_GET_POD"
-	errCodeSyncPod                            grovecorev1alpha1.ErrorCode = "ERR_SYNC_POD"
-	errCodeDeletePod                          grovecorev1alpha1.ErrorCode = "ERR_DELETE_POD"
-	errCodeGetPodGangSet                      grovecorev1alpha1.ErrorCode = "ERR_GET_PODGANGSET"
-	errCodeGetPodGang                         grovecorev1alpha1.ErrorCode = "ERR_GET_PODGANG"
-	errCodeListPod                            grovecorev1alpha1.ErrorCode = "ERR_LIST_POD"
-	errCodeGetPodCliqueScalingGroup           grovecorev1alpha1.ErrorCode = "ERR_GET_PODCLIQUESCALINGGROUP"
-	errCodeMissingPodGangSetReplicaIndexLabel grovecorev1alpha1.ErrorCode = "ERR_MISSING_PODGANGSET_REPLICA_INDEX_LABEL"
-	errCodeInvalidPodGangSetReplicaLabelValue grovecorev1alpha1.ErrorCode = "ERR_INVALID_PODGANGSET_REPLICA_LABEL_VALUE"
-	errCodeRemovePodSchedulingGate            grovecorev1alpha1.ErrorCode = "ERR_REMOVE_POD_SCHEDULING_GATE"
-	errCodeCreatePods                         grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODS"
-	errCodeMissingPodGangLabelOnPCLQ          grovecorev1alpha1.ErrorCode = "ERR_MISSING_PODGANG_LABEL_ON_PODCLIQUE"
+	errCodeGetPod                    grovecorev1alpha1.ErrorCode = "ERR_GET_POD"
+	errCodeSyncPod                   grovecorev1alpha1.ErrorCode = "ERR_SYNC_POD"
+	errCodeDeletePod                 grovecorev1alpha1.ErrorCode = "ERR_DELETE_POD"
+	errCodeGetPodGang                grovecorev1alpha1.ErrorCode = "ERR_GET_PODGANG"
+	errCodeListPod                   grovecorev1alpha1.ErrorCode = "ERR_LIST_POD"
+	errCodeRemovePodSchedulingGate   grovecorev1alpha1.ErrorCode = "ERR_REMOVE_POD_SCHEDULING_GATE"
+	errCodeCreatePods                grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODS"
+	errCodeMissingPodGangLabelOnPCLQ grovecorev1alpha1.ErrorCode = "ERR_MISSING_PODGANG_LABEL_ON_PODCLIQUE"
 )
 
 // constants used for pod events
@@ -173,7 +169,7 @@ func getSelectorLabelsForPods(pclqObjectMeta metav1.ObjectMeta) map[string]strin
 	return lo.Assign(
 		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		map[string]string{
-			grovecorev1alpha1.LabelPodCliqueName: pclqObjectMeta.Name,
+			grovecorev1alpha1.LabelPodClique: pclqObjectMeta.Name,
 		},
 	)
 }
@@ -188,8 +184,8 @@ func getLabels(pclqObjectMeta metav1.ObjectMeta, podGangName string) (map[string
 		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		pclqObjectMeta.Labels,
 		map[string]string{
-			grovecorev1alpha1.LabelPodCliqueName:          pclqObjectMeta.Name,
+			grovecorev1alpha1.LabelPodClique:              pclqObjectMeta.Name,
 			grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
-			grovecorev1alpha1.LabelPodGangName:            podGangName,
+			grovecorev1alpha1.LabelPodGang:                podGangName,
 		}), nil
 }

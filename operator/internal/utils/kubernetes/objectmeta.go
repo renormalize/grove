@@ -17,20 +17,10 @@
 package kubernetes
 
 import (
-	"github.com/NVIDIA/grove/operator/api/core/v1alpha1"
-
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-// GetDefaultLabelsForPodGangSetManagedResources gets the default labels for resources managed by PodGangset.
-func GetDefaultLabelsForPodGangSetManagedResources(pgsName string) map[string]string {
-	return map[string]string{
-		v1alpha1.LabelManagedByKey: v1alpha1.LabelManagedByValue,
-		v1alpha1.LabelPartOfKey:    pgsName,
-	}
-}
 
 // FilterMapOwnedResourceNames filters the candidate resources and returns the names of those that are owned by the given owner object meta.
 func FilterMapOwnedResourceNames(ownerObjMeta metav1.ObjectMeta, candidateResources []metav1.PartialObjectMetadata) []string {
@@ -56,4 +46,9 @@ func GetObjectKeyFromObjectMeta(objMeta metav1.ObjectMeta) client.ObjectKey {
 		Namespace: objMeta.Namespace,
 		Name:      objMeta.Name,
 	}
+}
+
+// IsResourceTerminating checks if a deletion timestamp is set. If it is set it returns true else false.
+func IsResourceTerminating(objMeta metav1.ObjectMeta) bool {
+	return objMeta.DeletionTimestamp != nil
 }

@@ -43,15 +43,8 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 		ctx:  ctx,
 		pclq: pclq,
 	}
-	pgs, err := componentutils.GetOwnerPodGangSet(ctx, r.client, pclq.ObjectMeta)
-	if err != nil {
-		return nil, groveerr.WrapError(err,
-			errCodeGetPodGangSet,
-			component.OperationSync,
-			fmt.Sprintf("failed to get owner PodGangSet %s ", pgs.Name),
-		)
-	}
-	sc.pgs = pgs
+
+	pgsName := componentutils.GetPodGangSetName(pclq.ObjectMeta)
 
 	associatedPodGangName, err := r.getAssociatedPodGangName(pclq.ObjectMeta)
 	if err != nil {
@@ -65,7 +58,7 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 	}
 	sc.podNamesUpdatedInPCLQPodGangs = r.getPodNamesUpdatedInAssociatedPodGang(existingPodGang, pclq.Name)
 
-	existingPCLQPods, err := componentutils.GetPCLQPods(ctx, r.client, pgs.Name, pclq)
+	existingPCLQPods, err := componentutils.GetPCLQPods(ctx, r.client, pgsName, pclq)
 	if err != nil {
 		logger.Error(err, "Failed to list pods that belong to PodClique", "pclqObjectKey", client.ObjectKeyFromObject(pclq))
 		return nil, groveerr.WrapError(err,
@@ -80,11 +73,11 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 }
 
 func (r _resource) getAssociatedPodGangName(pclqObjectMeta metav1.ObjectMeta) (string, error) {
-	podGangName, ok := pclqObjectMeta.GetLabels()[grovecorev1alpha1.LabelPodGangName]
+	podGangName, ok := pclqObjectMeta.GetLabels()[grovecorev1alpha1.LabelPodGang]
 	if !ok {
 		return "", groveerr.New(errCodeMissingPodGangLabelOnPCLQ,
 			component.OperationSync,
-			fmt.Sprintf("PodClique: %v is missing required label: %s", k8sutils.GetObjectKeyFromObjectMeta(pclqObjectMeta), grovecorev1alpha1.LabelPodGangName),
+			fmt.Sprintf("PodClique: %v is missing required label: %s", k8sutils.GetObjectKeyFromObjectMeta(pclqObjectMeta), grovecorev1alpha1.LabelPodGang),
 		)
 	}
 	return podGangName, nil
@@ -125,6 +118,7 @@ func (r _resource) runSyncFlow(sc *syncContext, logger logr.Logger) syncFlowResu
 	result := syncFlowResult{}
 	diff := len(sc.existingPCLQPods) - int(sc.pclq.Spec.Replicas)
 	if diff < 0 {
+		logger.Info("found fewer pods than desired", "pclq", client.ObjectKeyFromObject(sc.pclq), "specReplicas", sc.pclq.Spec.Replicas, "delta", diff)
 		diff *= -1
 		numScheduleGatedPods, err := r.createPods(sc.ctx, logger, sc.pclq, sc.associatedPodGangName, diff)
 		logger.Info("created unassigned and scheduled gated pods", "numberOfCreatedPods", numScheduleGatedPods)
@@ -293,7 +287,6 @@ func (r _resource) createPods(ctx context.Context, logger logr.Logger, pclq *gro
 // syncContext holds the relevant state required during the sync flow run.
 type syncContext struct {
 	ctx                           context.Context
-	pgs                           *grovecorev1alpha1.PodGangSet
 	pclq                          *grovecorev1alpha1.PodClique
 	associatedPodGangName         string
 	existingPCLQPods              []*corev1.Pod

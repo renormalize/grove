@@ -28,6 +28,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,30 +36,27 @@ import (
 
 func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
 	pgsName := componentutils.GetPodGangSetName(pclq.ObjectMeta)
-	if pgsName == nil {
-		logger.Error(nil, "PodClique does not have required label", "label", grovecorev1alpha1.LabelPartOfKey, "pclqObjectKey", client.ObjectKeyFromObject(pclq))
-		return ctrlcommon.ReconcileWithErrors(
-			"PodClique does not have the required label to determine parent PodGangSet name",
-			fmt.Errorf("PodClique %v does not have required label %v", client.ObjectKeyFromObject(pclq), grovecorev1alpha1.LabelPartOfKey))
-	}
-	pods, err := componentutils.GetPCLQPods(ctx, r.client, *pgsName, pclq)
-	if err != nil {
-		logger.Error(err, "failed to get pod list for PodClique")
-		ctrlcommon.ReconcileWithErrors(fmt.Sprintf("failed to list pods for PodClique %v", client.ObjectKeyFromObject(pclq)), err)
+
+	// mutate PodClique Status Replicas, ReadyReplicas, ScheduleGatedReplicas and UpdatedReplicas.
+	if err := r.mutateStatusReplicaCounts(ctx, logger, pgsName, pclq); err != nil {
+		logger.Error(err, "failed to mutate PodClique status with replica counts")
+		return ctrlcommon.ReconcileWithErrors("failed to mutate PodClique status with replica counts", err)
 	}
 
-	pclq.Status.Replicas = int32(len(pods))
-	readyPods, scheduleGatedPods := getReadyAndScheduleGatedPods(pods)
-	pclq.Status.ReadyReplicas = int32(len(readyPods))
-	pclq.Status.ScheduleGatedReplicas = int32(len(scheduleGatedPods))
+	// mutate the grovecorev1alpha1.ConditionTypeMinAvailableBreached condition based on the number of ready pods.
+	// Only do this if the PodClique has been successfully reconciled at least once. This prevents prematurely setting
+	// incorrect MinAvailable breached condition.
+	if pclq.Status.ObservedGeneration != nil {
+		mutateMinAvailableBreachedCondition(pclq)
+	}
 
-	// TODO: change this when rolling update is implemented
-	pclq.Status.UpdatedReplicas = int32(len(pods))
-	if err := updateSelector(*pgsName, pclq); err != nil {
+	// mutate the selector that will be used by an autoscaler.
+	if err := mutateSelector(pgsName, pclq); err != nil {
 		logger.Error(err, "failed to update selector for PodClique")
-		ctrlcommon.ReconcileWithErrors("failed to set selector for PodClique", err)
+		return ctrlcommon.ReconcileWithErrors("failed to set selector for PodClique", err)
 	}
 
+	// update the PodClique status.
 	if err := r.client.Status().Update(ctx, pclq); err != nil {
 		logger.Error(err, "failed to update PodClique status")
 		return ctrlcommon.ReconcileWithErrors("failed to update PodClique status", err)
@@ -66,15 +64,36 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pc
 	return ctrlcommon.ContinueReconcile()
 }
 
-func updateSelector(pgsName string, pclq *grovecorev1alpha1.PodClique) error {
+func (r *Reconciler) mutateStatusReplicaCounts(ctx context.Context, logger logr.Logger, pgsName string, pclq *grovecorev1alpha1.PodClique) error {
+	pods, err := componentutils.GetPCLQPods(ctx, r.client, pgsName, pclq)
+	if err != nil {
+		logger.Error(err, "failed to list pods for PodClique")
+		return err
+	}
+
+	nonTerminatingPods := lo.Filter(pods, func(pod *corev1.Pod, _ int) bool {
+		return !k8sutils.IsResourceTerminating(pod.ObjectMeta)
+	})
+
+	// mutate the PCLQ status with current number of schedule gated, ready pods and updated pods.
+	pclq.Status.Replicas = int32(len(nonTerminatingPods))
+	readyPods, scheduleGatedPods := getReadyAndScheduleGatedPods(nonTerminatingPods)
+	pclq.Status.ReadyReplicas = int32(len(readyPods))
+	pclq.Status.ScheduleGatedReplicas = int32(len(scheduleGatedPods))
+	// TODO: change this when rolling update is implemented
+	pclq.Status.UpdatedReplicas = int32(len(nonTerminatingPods))
+
+	return nil
+}
+
+func mutateSelector(pgsName string, pclq *grovecorev1alpha1.PodClique) error {
 	if pclq.Spec.ScaleConfig == nil {
 		return nil
 	}
-
 	labels := lo.Assign(
 		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		map[string]string{
-			grovecorev1alpha1.LabelPodCliqueName: pclq.Name,
+			grovecorev1alpha1.LabelPodClique: pclq.Name,
 		},
 	)
 	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: labels})
@@ -83,6 +102,13 @@ func updateSelector(pgsName string, pclq *grovecorev1alpha1.PodClique) error {
 	}
 	pclq.Status.Selector = ptr.To(selector.String())
 	return nil
+}
+
+func mutateMinAvailableBreachedCondition(pclq *grovecorev1alpha1.PodClique) {
+	newCondition := computeMinAvailableBreachedCondition(pclq)
+	if k8sutils.HasConditionChanged(pclq.Status.Conditions, newCondition) {
+		meta.SetStatusCondition(&pclq.Status.Conditions, newCondition)
+	}
 }
 
 func getReadyAndScheduleGatedPods(pods []*corev1.Pod) (readyPods []*corev1.Pod, scheduleGatedPods []*corev1.Pod) {
@@ -96,4 +122,36 @@ func getReadyAndScheduleGatedPods(pods []*corev1.Pod) (readyPods []*corev1.Pod, 
 		}
 	}
 	return
+}
+
+func computeMinAvailableBreachedCondition(pclq *grovecorev1alpha1.PodClique) metav1.Condition {
+	readyPods := pclq.Status.ReadyReplicas
+	minAvailable := pclq.Spec.MinAvailable
+	now := metav1.Now()
+
+	if minAvailable == nil {
+		return metav1.Condition{
+			Type:               grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+			Status:             metav1.ConditionUnknown,
+			Reason:             "MinAvailableNil",
+			Message:            "MinAvailable is nil, cannot determine if the condition is breached",
+			LastTransitionTime: now,
+		}
+	}
+	if readyPods < *minAvailable {
+		return metav1.Condition{
+			Type:               grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+			Status:             metav1.ConditionTrue,
+			Reason:             "InsufficientReadyPods",
+			Message:            fmt.Sprintf("Insufficient ready pods. expected at least: %d, found: %d", *minAvailable, readyPods),
+			LastTransitionTime: now,
+		}
+	}
+	return metav1.Condition{
+		Type:               grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+		Status:             metav1.ConditionFalse,
+		Reason:             "SufficientReadyPods",
+		Message:            fmt.Sprintf("Sufficient ready pods found. expected at least: %d, found: %d", *minAvailable, readyPods),
+		LastTransitionTime: now,
+	}
 }

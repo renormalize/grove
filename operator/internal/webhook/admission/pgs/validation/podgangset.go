@@ -146,7 +146,7 @@ func (v *pgsValidator) validatePodCliqueTemplates(fldPath *field.Path) ([]string
 	return warnings, allErrs
 }
 
-func (v *pgsValidator) validatePodCliqueNameConstrains(fldPath *field.Path, cliqueTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, scalingGroupCliqueNames sets.Set[string]) field.ErrorList {
+func (v *pgsValidator) validatePodCliqueNameConstraints(fldPath *field.Path, cliqueTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, scalingGroupCliqueNames sets.Set[string]) field.ErrorList {
 	allErrs := field.ErrorList{}
 	if err := apivalidation.NameIsDNSSubdomain(cliqueTemplateSpec.Name, false); err != nil {
 		allErrs = append(allErrs, field.Invalid(fldPath.Child("name"), cliqueTemplateSpec.Name,
@@ -225,11 +225,10 @@ func (v *pgsValidator) validateTerminationDelay(fldPath *field.Path) field.Error
 
 	// This should ideally not happen, the defaulting webhook will always set the default value for terminationDelay.
 	if v.pgs.Spec.Template.TerminationDelay == nil {
-		allErrs = append(allErrs, field.Required(fldPath, "terminationDelay is required"))
-	} else {
-		if v.pgs.Spec.Template.TerminationDelay.Duration <= 0 {
-			allErrs = append(allErrs, field.Invalid(fldPath, v.pgs.Spec.Template.TerminationDelay, "terminationDelay must be greater than 0"))
-		}
+		return append(allErrs, field.Required(fldPath, "terminationDelay is required"))
+	}
+	if v.pgs.Spec.Template.TerminationDelay.Duration <= 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath, v.pgs.Spec.Template.TerminationDelay, "terminationDelay must be greater than 0"))
 	}
 
 	return allErrs
@@ -247,7 +246,7 @@ func (v *pgsValidator) validatePodCliqueTemplateSpec(cliqueTemplateSpec *groveco
 	if len(errs) != 0 {
 		allErrs = append(allErrs, errs...)
 	}
-	allErrs = append(allErrs, v.validatePodCliqueNameConstrains(fldPath, cliqueTemplateSpec, scalingGroupCliqueNames)...)
+	allErrs = append(allErrs, v.validatePodCliqueNameConstraints(fldPath, cliqueTemplateSpec, scalingGroupCliqueNames)...)
 
 	return warnings, allErrs
 }
