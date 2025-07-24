@@ -5,7 +5,6 @@ import (
 
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/stretchr/testify/assert"
-	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
@@ -194,121 +193,6 @@ func TestComputeExpectedHPAs(t *testing.T) {
 				assert.Equal(t, expected.minReplicas, result[i].minReplicas,
 					"minReplicas should be correctly computed for %s", expected.targetScaleResourceName)
 			}
-		})
-	}
-}
-
-func TestBuildResource_MinReplicas(t *testing.T) {
-	tests := []struct {
-		name     string
-		hpaInfo  hpaInfo
-		expected *int32
-	}{
-		{
-			name: "PodClique HPA with minReplicas",
-			hpaInfo: hpaInfo{
-				minReplicas: 3,
-				scaleConfig: grovecorev1alpha1.AutoScalingConfig{
-					MaxReplicas: 5,
-				},
-			},
-			expected: ptr.To(int32(3)),
-		},
-		{
-			name: "PodCliqueScalingGroup HPA with minReplicas",
-			hpaInfo: hpaInfo{
-				minReplicas: 2,
-				scaleConfig: grovecorev1alpha1.AutoScalingConfig{
-					MaxReplicas: 4,
-				},
-			},
-			expected: ptr.To(int32(2)),
-		},
-		{
-			name: "Edge case: minReplicas 1",
-			hpaInfo: hpaInfo{
-				minReplicas: 1,
-				scaleConfig: grovecorev1alpha1.AutoScalingConfig{
-					MaxReplicas: 10,
-				},
-			},
-			expected: ptr.To(int32(1)),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Test just the minReplicas and maxReplicas setting, not the full buildResource
-			hpa := &autoscalingv2.HorizontalPodAutoscaler{}
-
-			// Simulate the key parts of buildResource that we care about
-			hpa.Spec.MinReplicas = &tt.hpaInfo.minReplicas
-			hpa.Spec.MaxReplicas = tt.hpaInfo.scaleConfig.MaxReplicas
-
-			assert.Equal(t, tt.expected, hpa.Spec.MinReplicas,
-				"HPA minReplicas should be correctly set")
-			assert.Equal(t, tt.hpaInfo.scaleConfig.MaxReplicas, hpa.Spec.MaxReplicas,
-				"HPA maxReplicas should be correctly set")
-		})
-	}
-}
-
-func TestMinReplicasValidation(t *testing.T) {
-	// Test that our logic never produces invalid minReplicas (< 1)
-	testCases := []struct {
-		name             string
-		templateReplicas int32
-		configReplicas   *int32
-		explicitMin      *int32
-		expectedMin      int32
-	}{
-		{
-			name:             "template replicas only",
-			templateReplicas: 3,
-			expectedMin:      3,
-		},
-		{
-			name:             "config replicas only",
-			templateReplicas: 3,
-			configReplicas:   ptr.To(int32(5)),
-			expectedMin:      5,
-		},
-		{
-			name:             "explicit min overrides",
-			templateReplicas: 3,
-			configReplicas:   ptr.To(int32(5)),
-			explicitMin:      ptr.To(int32(2)),
-			expectedMin:      2,
-		},
-		{
-			name:             "edge case: all 1",
-			templateReplicas: 1,
-			configReplicas:   ptr.To(int32(1)),
-			explicitMin:      ptr.To(int32(1)),
-			expectedMin:      1,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Test PodClique logic
-			pclqMinReplicas := tc.templateReplicas
-			if tc.explicitMin != nil {
-				pclqMinReplicas = *tc.explicitMin
-			}
-			assert.GreaterOrEqual(t, pclqMinReplicas, int32(1),
-				"PodClique minReplicas should be >= 1")
-
-			// Test PodCliqueScalingGroup logic
-			pcsgMinReplicas := tc.templateReplicas
-			if tc.configReplicas != nil {
-				pcsgMinReplicas = *tc.configReplicas
-			}
-			if tc.explicitMin != nil {
-				pcsgMinReplicas = *tc.explicitMin
-			}
-			assert.GreaterOrEqual(t, pcsgMinReplicas, int32(1),
-				"PodCliqueScalingGroup minReplicas should be >= 1")
 		})
 	}
 }

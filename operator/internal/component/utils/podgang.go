@@ -67,11 +67,13 @@ func DeterminePodGangNameForPodClique(pgs *grovecorev1alpha1.PodGangSet, pgsRepl
 
 				// Apply the same logic as PodGang creation:
 				// Replicas 0..(minAvailable-1) → PGS replica PodGang
-				// Replicas minAvailable+ → Individual PodGangs
+				// Replicas minAvailable+ → Individual PodGangs (0-based indexing)
 				if info.sgReplicaIndex < int(minAvailable) {
 					return grovecorev1alpha1.GeneratePodGangName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplica}, nil)
 				} else {
-					return CreatePodGangNameForPCSG(pgs.Name, pgsReplica, info.scalingGroupName, info.sgReplicaIndex)
+					// Convert scaling group replica index to 0-based individual PodGang index
+					individualPodGangIndex := info.sgReplicaIndex - int(minAvailable)
+					return CreatePodGangNameForPCSG(pgs.Name, pgsReplica, info.scalingGroupName, individualPodGangIndex)
 				}
 			}
 		}

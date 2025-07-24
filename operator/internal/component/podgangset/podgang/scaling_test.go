@@ -30,9 +30,9 @@ func TestMinAvailableWithHPAScaling(t *testing.T) {
 			scaledReplicas:      4,
 			expectedBasePodGang: "test-pgs-0", // Contains replicas 0 to (minAvailable-1) = 0
 			expectedIndividualPodGangs: []string{
-				"test-pgs-0-test-sg-1", // replica 1
-				"test-pgs-0-test-sg-2", // replica 2
-				"test-pgs-0-test-sg-3", // replica 3
+				"test-pgs-0-test-sg-0", // individual PodGang 0 (scaling group replica 1)
+				"test-pgs-0-test-sg-1", // individual PodGang 1 (scaling group replica 2)
+				"test-pgs-0-test-sg-2", // individual PodGang 2 (scaling group replica 3)
 			},
 		},
 		{
@@ -42,10 +42,10 @@ func TestMinAvailableWithHPAScaling(t *testing.T) {
 			scaledReplicas:      6,
 			expectedBasePodGang: "test-pgs-0", // Contains replicas 0-1
 			expectedIndividualPodGangs: []string{
-				"test-pgs-0-test-sg-2", // replica 2
-				"test-pgs-0-test-sg-3", // replica 3
-				"test-pgs-0-test-sg-4", // replica 4
-				"test-pgs-0-test-sg-5", // replica 5
+				"test-pgs-0-test-sg-0", // individual PodGang 0 (scaling group replica 2)
+				"test-pgs-0-test-sg-1", // individual PodGang 1 (scaling group replica 3)
+				"test-pgs-0-test-sg-2", // individual PodGang 2 (scaling group replica 4)
+				"test-pgs-0-test-sg-3", // individual PodGang 3 (scaling group replica 5)
 			},
 		},
 		{
@@ -55,9 +55,9 @@ func TestMinAvailableWithHPAScaling(t *testing.T) {
 			scaledReplicas:      3,
 			expectedBasePodGang: "test-pgs-0", // Contains replica 0 (unchanged)
 			expectedIndividualPodGangs: []string{
-				"test-pgs-0-test-sg-1", // replica 1
-				"test-pgs-0-test-sg-2", // replica 2
-				// replicas 3-4 should be deleted
+				"test-pgs-0-test-sg-0", // individual PodGang 0 (scaling group replica 1)
+				"test-pgs-0-test-sg-1", // individual PodGang 1 (scaling group replica 2)
+				// scaling group replicas 3-4 should be deleted
 			},
 		},
 		{

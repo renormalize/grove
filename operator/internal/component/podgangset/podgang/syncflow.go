@@ -159,8 +159,10 @@ func (r _resource) getExpectedPodGangsForPCSG(ctx context.Context, logger logr.L
 
 		// Create individual PodGangs for replicas starting from minAvailable
 		// The first 0..(minAvailable-1) replicas are handled by the PGS replica PodGang
+		// Individual PodGangs use 0-based indexing regardless of minAvailable value
+		individualPodGangIndex := 0
 		for pcsgReplicaIndex := int(minAvailable); pcsgReplicaIndex < int(pcsg.Spec.Replicas); pcsgReplicaIndex++ {
-			podGangName := componentutils.CreatePodGangNameForPCSGFromFQN(pcsg.Name, pcsgReplicaIndex)
+			podGangName := componentutils.CreatePodGangNameForPCSGFromFQN(pcsg.Name, individualPodGangIndex)
 			expectedPodGangs = append(expectedPodGangs, podGangInfo{
 				fqn:   podGangName,
 				pclqs: identifyConstituentPCLQsForPCSGPodGang(logger, &pcsg, pcsgReplicaIndex, pgs),
@@ -169,8 +171,10 @@ func (r _resource) getExpectedPodGangsForPCSG(ctx context.Context, logger logr.L
 			logger.Info("Created individual PodGang for scaling group replica",
 				"podGangName", podGangName,
 				"scalingGroup", pcsg.Name,
-				"replicaIndex", pcsgReplicaIndex,
+				"scalingGroupReplicaIndex", pcsgReplicaIndex,
+				"individualPodGangIndex", individualPodGangIndex,
 				"minAvailable", minAvailable)
+			individualPodGangIndex++
 		}
 	}
 	return expectedPodGangs, nil
