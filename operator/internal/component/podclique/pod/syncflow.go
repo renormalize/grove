@@ -208,7 +208,6 @@ func (r _resource) checkAndRemovePodSchedulingGates(sc *syncContext, logger logr
 				skippedScheduleGatedPods = append(skippedScheduleGatedPods, p.Name)
 				continue
 			}
-
 			// Check if this pod belongs to an individual PodGang and if base PodGang is ready
 			podGangName, ok := p.GetLabels()[grovecorev1alpha1.LabelPodGangName]
 			if ok && isIndividualPodGang(podGangName) {
