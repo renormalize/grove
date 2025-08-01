@@ -45,6 +45,7 @@ const (
 	errCodeDeletePod grovecorev1alpha1.ErrorCode = "ERR_DELETE_POD"
 
 	errCodeGetPodGang                grovecorev1alpha1.ErrorCode = "ERR_GET_PODGANG"
+	errCodeGetPodClique              grovecorev1alpha1.ErrorCode = "ERR_GET_PODCLIQUE"
 	errCodeListPod                   grovecorev1alpha1.ErrorCode = "ERR_LIST_POD"
 	errCodeRemovePodSchedulingGate   grovecorev1alpha1.ErrorCode = "ERR_REMOVE_POD_SCHEDULING_GATE"
 	errCodeCreatePods                grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODS"

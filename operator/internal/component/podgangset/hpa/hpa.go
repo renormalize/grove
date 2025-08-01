@@ -121,7 +121,6 @@ type hpaInfo struct {
 	objectKey               client.ObjectKey
 	targetScaleResourceKind string
 	targetScaleResourceName string
-	minReplicas             int32
 	scaleConfig             grovecorev1alpha1.AutoScalingConfig
 }
 
@@ -158,7 +157,6 @@ func (r _resource) computeExpectedHPAs(pgs *grovecorev1alpha1.PodGangSet) []hpaI
 				objectKey:               hpaObjectKey,
 				targetScaleResourceKind: grovecorev1alpha1.PodCliqueScalingGroupKind,
 				targetScaleResourceName: pcsgFQN,
-				minReplicas:             1,
 				scaleConfig:             *pcsgConfig.ScaleConfig,
 			})
 		}
@@ -241,6 +239,7 @@ func (r _resource) doDeleteHPA(ctx context.Context, logger logr.Logger, pgsObjec
 }
 
 func (r _resource) buildResource(pgs *grovecorev1alpha1.PodGangSet, hpa *autoscalingv2.HorizontalPodAutoscaler, expectedHPAInfo hpaInfo) error {
+	// MinReplicas is always set by defaulting webhook
 	hpa.Spec.MinReplicas = expectedHPAInfo.scaleConfig.MinReplicas
 	hpa.Spec.MaxReplicas = expectedHPAInfo.scaleConfig.MaxReplicas
 	hpa.Spec.ScaleTargetRef = autoscalingv2.CrossVersionObjectReference{

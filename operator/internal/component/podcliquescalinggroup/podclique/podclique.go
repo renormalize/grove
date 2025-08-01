@@ -97,6 +97,7 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 			fmt.Sprintf("failed to get owner PodGangSet for PodCliqueScalingGroup %s", client.ObjectKeyFromObject(pcsg)),
 		)
 	}
+
 	existingPCLQs, err := r.getExistingPCLQs(ctx, pcsg)
 	if err != nil {
 		return err
@@ -382,7 +383,7 @@ func (r _resource) doCreate(ctx context.Context, logger logr.Logger, pgs *grovec
 			fmt.Sprintf("Error creating PodClique: %v for PodCliqueScalingGroup: %v", pclqObjectKey, pcsgObjKey),
 		)
 	}
-	logger.Info("triggered create of PodClique For PodCliqueScalingGroup", "pcsg", pcsgObjKey, "pclqObjectKey", pclqObjectKey)
+	logger.Info("Successfully created PodClique", "pclqObjectKey", pclqObjectKey)
 	return nil
 }
 
@@ -408,19 +409,22 @@ func (r _resource) buildResource(logger logr.Logger, pgs *grovecorev1alpha1.PodG
 			fmt.Sprintf("Error setting controller reference for PodClique: %v", client.ObjectKeyFromObject(pclq)),
 		)
 	}
-	pgsReplica, err := getPGSReplicaFromPCSG(pcsg)
+
+	pgsReplicaIndex, err := getPGSReplicaFromPCSG(pcsg)
 	if err != nil {
 		return err
 	}
-	pclq.Labels = getLabels(pgs.Name, pgsReplica, pcsg.Name, pcsgReplicaIndex, pclqObjectKey, pclqTemplateSpec)
 
+	podGangName := grovecorev1alpha1.GeneratePodGangNameForPodCliqueOwnedByPCSG(pgs, pgsReplicaIndex, pcsg, pcsgReplicaIndex)
+
+	pclq.Labels = getLabels(pgs, pgsReplicaIndex, pcsg, pcsgReplicaIndex, pclqObjectKey, pclqTemplateSpec, podGangName)
 	pclq.Annotations = pclqTemplateSpec.Annotations
 	// set PodCliqueSpec
 	// ------------------------------------
 	pclq.Spec = pclqTemplateSpec.Spec
 	pcsgTemplateNumPods := r.getPCSGTemplateNumPods(pgs, pcsg)
 	r.addEnvironmentVariablesToPodContainerSpecs(pclq, pcsgTemplateNumPods)
-	dependentPclqNames, err := identifyFullyQualifiedStartupDependencyNames(pgs, pclq, pgsReplica, foundAtIndex)
+	dependentPclqNames, err := identifyFullyQualifiedStartupDependencyNames(pgs, pgsReplicaIndex, pclq, foundAtIndex)
 	if err != nil {
 		return err
 	}
@@ -486,7 +490,7 @@ func getPGSReplicaFromPCSG(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) (int, 
 	return pgsReplica, nil
 }
 
-func identifyFullyQualifiedStartupDependencyNames(pgs *grovecorev1alpha1.PodGangSet, pclq *grovecorev1alpha1.PodClique, pgsReplicaIndex, foundAtIndex int) ([]string, error) {
+func identifyFullyQualifiedStartupDependencyNames(pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int, pclq *grovecorev1alpha1.PodClique, foundAtIndex int) ([]string, error) {
 	cliqueStartupType := pgs.Spec.Template.StartupType
 	if cliqueStartupType == nil {
 		// Ideally this should never happen as the defaulting webhook should set it v1alpha1.CliqueStartupTypeInOrder as the default value.
@@ -532,18 +536,28 @@ func getPodCliqueSelectorLabels(pcsgObjectMeta metav1.ObjectMeta) map[string]str
 	)
 }
 
-func getLabels(pgsName string, pgsReplicaIndex int, pcsgName string, pcsgReplicaIndex int, pclqObjectKey client.ObjectKey, pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec) map[string]string {
-	podGangName := componentutils.CreatePodGangNameForPCSG(pgsName, pgsReplicaIndex, pcsgName, pcsgReplicaIndex)
+func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pcsgReplicaIndex int, pclqObjectKey client.ObjectKey, pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, podGangName string) map[string]string {
 	pclqComponentLabels := map[string]string{
-		grovecorev1alpha1.LabelAppNameKey:            pclqObjectKey.Name,
-		grovecorev1alpha1.LabelComponentKey:          component.NamePCSGPodClique,
-		grovecorev1alpha1.LabelPodCliqueScalingGroup: pcsgName,
-		grovecorev1alpha1.LabelPodGang:               podGangName, grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
+		grovecorev1alpha1.LabelAppNameKey:                        pclqObjectKey.Name,
+		grovecorev1alpha1.LabelComponentKey:                      component.NamePCSGPodClique,
+		grovecorev1alpha1.LabelPodCliqueScalingGroup:             pcsg.Name,
+		grovecorev1alpha1.LabelPodGang:                           podGangName,
+		grovecorev1alpha1.LabelPodGangSetReplicaIndex:            strconv.Itoa(pgsReplicaIndex),
 		grovecorev1alpha1.LabelPodCliqueScalingGroupReplicaIndex: strconv.Itoa(pcsgReplicaIndex),
 	}
+
+	// Add base-podgang label for scaled PodGang pods (beyond minAvailable)
+	basePodGangName := grovecorev1alpha1.GenerateBasePodGangName(
+		grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex},
+	)
+	if podGangName != basePodGangName {
+		// This pod belongs to a scaled PodGang - add the base PodGang label
+		pclqComponentLabels[grovecorev1alpha1.LabelBasePodGang] = basePodGangName
+	}
+
 	return lo.Assign(
 		pclqTemplateSpec.Labels,
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
 		pclqComponentLabels,
 	)
 }

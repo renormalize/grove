@@ -17,14 +17,16 @@
 package utils
 
 import (
-	"fmt"
+	"context"
 
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
 
+	groveschedulerv1alpha1 "github.com/NVIDIA/grove/scheduler/api/core/v1alpha1"
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // GetPodGangSelectorLabels creates the label selector to list all the PodGangs for a PodGangSet.
@@ -36,10 +38,12 @@ func GetPodGangSelectorLabels(pgsObjMeta metav1.ObjectMeta) map[string]string {
 		})
 }
 
-// CreatePodGangNameForPCSG generates the PodGang name for a replica of a PodCliqueScalingGroup.
-func CreatePodGangNameForPCSG(pgsName string, pgsReplicaIndex int, pcsgFQN string, pcsgReplicaIndex int) string {
-	if pcsgReplicaIndex == 0 {
-		return grovecorev1alpha1.GeneratePodGangName(grovecorev1alpha1.ResourceNameReplica{Name: pgsName, Replica: pgsReplicaIndex}, nil)
+// GetPodGang fetches a PodGang by name and namespace.
+func GetPodGang(ctx context.Context, cl client.Client, podGangName, namespace string) (*groveschedulerv1alpha1.PodGang, error) {
+	podGang := &groveschedulerv1alpha1.PodGang{}
+	podGangObjectKey := client.ObjectKey{Namespace: namespace, Name: podGangName}
+	if err := cl.Get(ctx, podGangObjectKey, podGang); err != nil {
+		return nil, err
 	}
-	return fmt.Sprintf("%s-%d", pcsgFQN, pcsgReplicaIndex)
+	return podGang, nil
 }

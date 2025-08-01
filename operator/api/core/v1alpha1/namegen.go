@@ -66,15 +66,46 @@ func GeneratePodCliqueScalingGroupName(pgsNameReplica ResourceNameReplica, pclqS
 	return fmt.Sprintf("%s-%d-%s", pgsNameReplica.Name, pgsNameReplica.Replica, pclqScalingGroupName)
 }
 
-// GeneratePodGangName generates a PodGang name based on pgs and pcsg name and replicas.
-func GeneratePodGangName(pgsNameReplica ResourceNameReplica, pcsgNameReplica *ResourceNameReplica) string {
-	if pcsgNameReplica == nil || pcsgNameReplica.Replica == 1 {
-		return fmt.Sprintf("%s-%d", pgsNameReplica.Name, pgsNameReplica.Replica)
-	}
-	return fmt.Sprintf("%s%d", GeneratePCSGPodGangNamePrefix(pgsNameReplica, pcsgNameReplica.Name), pcsgNameReplica.Replica-1)
+// GenerateBasePodGangName generates a base PodGang name for a PodGangSet replica.
+// This is used for PodGangs that are not part of scaled scaling group replicas.
+func GenerateBasePodGangName(pgsNameReplica ResourceNameReplica) string {
+	return fmt.Sprintf("%s-%d", pgsNameReplica.Name, pgsNameReplica.Replica)
 }
 
-// GeneratePCSGPodGangNamePrefix generates a PodGang name prefix for Podgangs created due to PCSG replica scale-out.
-func GeneratePCSGPodGangNamePrefix(pgsNameReplica ResourceNameReplica, pcsgName string) string {
-	return fmt.Sprintf("%s-%d-%s-", pgsNameReplica.Name, pgsNameReplica.Replica, pcsgName)
+// CreatePodGangNameFromPCSGFQN generates the PodGang name for a replica of a PodCliqueScalingGroup
+// when the PCSG name is already fully qualified.
+func CreatePodGangNameFromPCSGFQN(pcsgFQN string, scaledPodGangIndex int) string {
+	return fmt.Sprintf("%s-%d", pcsgFQN, scaledPodGangIndex)
+}
+
+// GeneratePodGangNameForPodCliqueOwnedByPodGangSet generates the PodGang name for a PodClique
+// that is directly owned by a PodGangSet.
+func GeneratePodGangNameForPodCliqueOwnedByPodGangSet(pgs *PodGangSet, pgsReplicaIndex int) string {
+	return GenerateBasePodGangName(ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex})
+}
+
+// GeneratePodGangNameForPodCliqueOwnedByPCSG generates the PodGang name for a PodClique
+// that is owned by a PodCliqueScalingGroup, using the PCSG object directly (no config lookup needed).
+func GeneratePodGangNameForPodCliqueOwnedByPCSG(pgs *PodGangSet, pgsReplicaIndex int, pcsg *PodCliqueScalingGroup, pcsgReplicaIndex int) string {
+	// MinAvailable should always be non-nil due to kubebuilder default and defaulting webhook
+	minAvailable := *pcsg.Spec.MinAvailable
+
+	// Apply the same logic as PodGang creation:
+	// Replicas 0..(minAvailable-1) → PGS replica PodGang (base PodGang)
+	// Replicas minAvailable+ → Scaled PodGangs (0-based indexing)
+	if pcsgReplicaIndex < int(minAvailable) {
+		return GenerateBasePodGangName(ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex})
+	} else {
+		// Convert scaling group replica index to 0-based scaled PodGang index
+		scaledPodGangIndex := pcsgReplicaIndex - int(minAvailable)
+		// Use the PCSG name directly (it's already the FQN)
+		return CreatePodGangNameFromPCSGFQN(pcsg.Name, scaledPodGangIndex)
+	}
+}
+
+// ExtractScalingGroupNameFromPCSGFQN extracts the scaling group name from a PodCliqueScalingGroup FQN.
+// For example, "simple1-0-sga" with pgsNameReplica="simple1-0" returns "sga".
+func ExtractScalingGroupNameFromPCSGFQN(pcsgFQN string, pgsNameReplica ResourceNameReplica) string {
+	prefix := fmt.Sprintf("%s-%d-", pgsNameReplica.Name, pgsNameReplica.Replica)
+	return pcsgFQN[len(prefix):]
 }
