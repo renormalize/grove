@@ -1,9 +1,11 @@
 # This PodGangSet definition explicitly sets the startup order of the cliques.
 # Startup order is observed amongst the PodCliques that are part of a PodGang that is created for a PodGangSet.
+# PodCliques pcb, pcc, and pcd belong to a PodCliqueScalingGroup sga.
 # In the example below, the following startup order is expected for every PodGang that is created for this PodGangSet.
 # 1. pca (this is the first clique to start)
-# 2. pcb, pcc (these two cliques will start in parallel after pca)
-# 3. pcd (this clique will start after pcb and pcc)
+# 2. pcb, pcc (these two cliques will start in parallel after pca): scaling group PodCliques that start after a non-scaling group PodClique.
+# 3. pcd (this clique will start after pcb and pcc): scaling group PodClique starts after PodCliques in the same scaling group.
+# 3. pce (this clique will start after pcb and pcc): non-scaling group PodClique that starts after PodCliques in a scaling group.
 #
 # To verify the startup order, you can inspect the following:
 # - For each Pod belonging to a PodClique, check the `LastTransitionTime` of the Pod's `Ready` condition.
@@ -13,9 +15,9 @@
 apiVersion: grove.io/v1alpha1
 kind: PodGangSet
 metadata:
-  name: simple2
+  name: simple3
   labels:
-    app: simple2
+    app: simple3
 spec:
   replicas: 1
   template:
@@ -86,3 +88,35 @@ spec:
                 resources:
                   requests:
                     cpu: 10m
+      # pce depends on pcb and pcc, its startsAfter will be set to pcb, pcc
+      - name: pce
+        spec:
+          roleName: rolee
+          startsAfter:
+            - pcb
+            - pcc
+          replicas: 2
+          podSpec:
+            containers:
+              - name: pce
+                image: nginx:latest
+                resources:
+                  requests:
+                    cpu: 10m
+    podCliqueScalingGroups:
+      - name: sga
+        replicas: 3
+        minAvailable: 2
+        cliqueNames:
+          - pcb
+          - pcc
+          - pcd
+        scaleConfig:
+          maxReplicas: 6
+          metrics:
+            - type: Resource
+              resource:
+                name: cpu
+                target:
+                  type: Utilization
+                  averageUtilization: 80

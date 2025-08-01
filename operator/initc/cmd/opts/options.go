@@ -17,51 +17,74 @@
 package opts
 
 import (
-	"flag"
+	"fmt"
+	"strconv"
 	"strings"
 
+	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
+	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
 	"github.com/NVIDIA/grove/operator/internal/version"
+
+	"github.com/spf13/pflag"
 )
 
-// CLIOptions defines the configuration that is passed to the init container
+// Constants for error codes.
+const (
+	errCodeInvalidInput grovecorev1alpha1.ErrorCode = "ERR_INVALID_INPUT"
+)
+
+const (
+	operationParseFlag = "OperationParseFlag"
+)
+
+// CLIOptions defines the configuration that is passed to the init container.
 type CLIOptions struct {
-	// podCliqueFQNs stores comma separated parent fully qualified PodClique names.
-	podCliqueFQNs string
-	// podCliqueNamespace contains the namespace that the parent PodCliques are present in.
-	podCliqueNamespace string
+	// podCliques passed with their minAvailable replicas
+	podCliques []string
 }
 
-// RegisterFlags registers all the flags that are defined for the init container
-func (c *CLIOptions) RegisterFlags(fs *flag.FlagSet) {
-	fs.StringVar(&c.podCliqueFQNs, "pod-cliques", "", "comma separated namespaced names of PodCliques that the init container should wait for to be ready")
-	fs.StringVar(&c.podCliqueNamespace, "pod-clique-namespace", "default", "namespace that the PodClique are deployed in")
+// RegisterFlags registers all the flags that are defined for the init container.
+func (c *CLIOptions) RegisterFlags(fs *pflag.FlagSet) {
+	// --podcliques=<podclique-fqn>:<minAvailable-replicas>
+	// --podcliques=podclique-a:3 --podcliques=podclique-b:4 and so on for each PodClique.
+	pflag.StringArrayVarP(&c.podCliques, "podcliques", "p", nil, "podclique name and minAvailable replicas seperated by comma, repeated for each podclique")
 	version.AddFlags(fs)
 }
 
-// PodCliqueNames returns a slice of PodClique names passed as the argument
-func (c *CLIOptions) PodCliqueNames() []string {
-	var podCliquesNames []string
-	for cliqueFQN := range strings.SplitSeq(c.podCliqueFQNs, ",") {
-		trimmedCliqueFQN := strings.TrimSpace(cliqueFQN)
-		if trimmedCliqueFQN != "" {
-			podCliquesNames = append(podCliquesNames, trimmedCliqueFQN)
-		}
-	}
-	return podCliquesNames
-}
+// GetPodCliqueDependencies returns the PodClique information as a map with the minAvailable associated with each PodClique name.
+func (c *CLIOptions) GetPodCliqueDependencies() (map[string]int, error) {
+	podCliqueDependencies := make(map[string]int)
 
-// PodCliqueNamespace returns the namespace that the PodClique is present in
-func (c *CLIOptions) PodCliqueNamespace() string {
-	return c.podCliqueNamespace
+	for _, pair := range c.podCliques {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+
+		nameAndMinAvailable := strings.Split(pair, ":")
+		if len(nameAndMinAvailable) != 2 {
+			return nil, groveerr.New(errCodeInvalidInput, operationParseFlag, fmt.Sprintf("expected two values per podclique, found %d", len(nameAndMinAvailable)))
+		}
+
+		replicas, err := strconv.Atoi(nameAndMinAvailable[1])
+		if err != nil {
+			return nil, groveerr.WrapError(err, errCodeInvalidInput, operationParseFlag, "failed to convert replicas to int")
+		}
+
+		podCliqueDependencies[strings.TrimSpace(nameAndMinAvailable[0])] = replicas
+	}
+
+	return podCliqueDependencies, nil
 }
 
 // InitializeCLIOptions parses the command line flags into CLIOptions.
 func InitializeCLIOptions() (CLIOptions, error) {
-	config := CLIOptions{}
-	flagSet := flag.CommandLine
+	config := CLIOptions{
+		podCliques: make([]string, 0),
+	}
 
-	config.RegisterFlags(flagSet)
-	flag.Parse()
+	config.RegisterFlags(pflag.CommandLine)
+	pflag.Parse()
 
 	return config, nil
 }
