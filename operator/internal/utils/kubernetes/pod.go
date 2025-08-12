@@ -17,9 +17,13 @@
 package kubernetes
 
 import (
+	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
+	"hash/fnv"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/dump"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -126,6 +130,14 @@ func HasAnyStartedButNotReadyContainer(pod *corev1.Pod) bool {
 		}
 	}
 	return false
+}
+
+// ComputePodSpecHash computes a hash of the PodSpec. This will be used to determine if the PodSpec has changed.
+func ComputePodSpecHash(podSpec *corev1.PodSpec) string {
+	podSpecHasher := fnv.New64a()
+	podSpecHasher.Reset()
+	fmt.Fprintf(podSpecHasher, "%v", dump.ForHash(podSpec))
+	return rand.SafeEncodeString(fmt.Sprint(podSpecHasher.Sum64()))
 }
 
 // GetContainerStatusIfTerminatedErroneously gets the first occurrence of corev1.ContainerStatus (across init, sidecar and main containers)

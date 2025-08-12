@@ -47,7 +47,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 				Build(),
 			expected: []hpaInfo{
 				{
-					targetScaleResourceKind: grovecorev1alpha1.PodCliqueKind,
+					targetScaleResourceKind: grovecorev1alpha1.KindPodClique,
 					targetScaleResourceName: "test-pgs-0-test-clique",
 					scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 						MinReplicas: ptr.To(int32(2)),
@@ -73,7 +73,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 				Build(),
 			expected: []hpaInfo{
 				{
-					targetScaleResourceKind: grovecorev1alpha1.PodCliqueScalingGroupKind,
+					targetScaleResourceKind: grovecorev1alpha1.KindPodCliqueScalingGroup,
 					targetScaleResourceName: "test-pgs-0-test-sg",
 					scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 						MinReplicas: ptr.To(int32(2)),
@@ -106,7 +106,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 				Build(),
 			expected: []hpaInfo{
 				{
-					targetScaleResourceKind: grovecorev1alpha1.PodCliqueKind,
+					targetScaleResourceKind: grovecorev1alpha1.KindPodClique,
 					targetScaleResourceName: "test-pgs-0-individual-clique",
 					scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 						MinReplicas: ptr.To(int32(2)),
@@ -114,7 +114,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 					},
 				},
 				{
-					targetScaleResourceKind: grovecorev1alpha1.PodCliqueScalingGroupKind,
+					targetScaleResourceKind: grovecorev1alpha1.KindPodCliqueScalingGroup,
 					targetScaleResourceName: "test-pgs-0-scaling-group",
 					scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 						MinReplicas: ptr.To(int32(1)),
@@ -152,7 +152,7 @@ func TestBuildResource(t *testing.T) {
 		{
 			name: "Sets HPA spec from scaleConfig",
 			hpaInfo: hpaInfo{
-				targetScaleResourceKind: grovecorev1alpha1.PodCliqueKind,
+				targetScaleResourceKind: grovecorev1alpha1.KindPodClique,
 				targetScaleResourceName: "test-resource",
 				scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 					MinReplicas: ptr.To(int32(2)),

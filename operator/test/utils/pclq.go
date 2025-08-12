@@ -102,7 +102,7 @@ func createDefaultPodCliqueWithoutPodSpec(pgsName string, pgsUID types.UID, pclq
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion:         grovecorev1alpha1.SchemeGroupVersion.String(),
-					Kind:               grovecorev1alpha1.PodGangSetKind,
+					Kind:               grovecorev1alpha1.KindPodGangSet,
 					Name:               pgsName,
 					UID:                pgsUID,
 					Controller:         ptr.To(true),

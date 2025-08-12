@@ -139,7 +139,7 @@ func (r _resource) computeExpectedHPAs(pgs *grovecorev1alpha1.PodGangSet) []hpaI
 			}
 			expectedHPAInfos = append(expectedHPAInfos, hpaInfo{
 				objectKey:               hpaObjectKey,
-				targetScaleResourceKind: grovecorev1alpha1.PodCliqueKind,
+				targetScaleResourceKind: grovecorev1alpha1.KindPodClique,
 				targetScaleResourceName: pclqFQN,
 				scaleConfig:             *pclqTemplateSpec.Spec.ScaleConfig,
 			})
@@ -155,7 +155,7 @@ func (r _resource) computeExpectedHPAs(pgs *grovecorev1alpha1.PodGangSet) []hpaI
 			}
 			expectedHPAInfos = append(expectedHPAInfos, hpaInfo{
 				objectKey:               hpaObjectKey,
-				targetScaleResourceKind: grovecorev1alpha1.PodCliqueScalingGroupKind,
+				targetScaleResourceKind: grovecorev1alpha1.KindPodCliqueScalingGroup,
 				targetScaleResourceName: pcsgFQN,
 				scaleConfig:             *pcsgConfig.ScaleConfig,
 			})

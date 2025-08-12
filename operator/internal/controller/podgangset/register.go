@@ -89,10 +89,10 @@ func podCliquePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(_ event.CreateEvent) bool { return false },
 		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
-			return grovectrlutils.IsManagedPodClique(deleteEvent.Object, grovecorev1alpha1.PodGangSetKind)
+			return grovectrlutils.IsManagedPodClique(deleteEvent.Object, grovecorev1alpha1.KindPodGangSet)
 		},
 		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
-			return grovectrlutils.IsManagedPodClique(updateEvent.ObjectOld, grovecorev1alpha1.PodGangSetKind, grovecorev1alpha1.PodCliqueScalingGroupKind) &&
+			return grovectrlutils.IsManagedPodClique(updateEvent.ObjectOld, grovecorev1alpha1.KindPodGangSet, grovecorev1alpha1.KindPodCliqueScalingGroup) &&
 				(hasSpecChanged(updateEvent) || hasStatusChanged(updateEvent))
 		},
 		GenericFunc: func(_ event.GenericEvent) bool { return false },
