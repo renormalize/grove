@@ -9045,9 +9045,10 @@ spec:
                       If present, create headless service for each PodGang.
                     properties:
                       publishNotReadyAddresses:
-                        description: PublishNotReadyAddresses if set to true will
-                          publish the DNS records of pods even if the pods are not
-                          ready.
+                        default: true
+                        description: |-
+                          PublishNotReadyAddresses if set to true will publish the DNS records of pods even if the pods are not ready.
+                           if not set, it defaults to true.
                         type: boolean
                     required:
                     - publishNotReadyAddresses

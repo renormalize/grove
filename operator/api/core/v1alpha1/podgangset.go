@@ -193,6 +193,8 @@ type PodCliqueScalingGroupConfig struct {
 // HeadlessServiceConfig defines the config options for the headless service.
 type HeadlessServiceConfig struct {
 	// PublishNotReadyAddresses if set to true will publish the DNS records of pods even if the pods are not ready.
+	//  if not set, it defaults to true.
+	// +kubebuilder:default=true
 	PublishNotReadyAddresses bool `json:"publishNotReadyAddresses"`
 }
 

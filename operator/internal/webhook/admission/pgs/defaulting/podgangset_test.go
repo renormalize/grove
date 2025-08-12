@@ -75,9 +75,6 @@ func TestDefaultPodGangSet(t *testing.T) {
 						},
 					},
 				}},
-				HeadlessServiceConfig: &grovecorev1alpha1.HeadlessServiceConfig{
-					PublishNotReadyAddresses: true,
-				},
 			},
 		},
 	}

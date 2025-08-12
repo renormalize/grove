@@ -79,7 +79,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `publishNotReadyAddresses` _boolean_ | PublishNotReadyAddresses if set to true will publish the DNS records of pods even if the pods are not ready. |  |  |
+| `publishNotReadyAddresses` _boolean_ | PublishNotReadyAddresses if set to true will publish the DNS records of pods even if the pods are not ready.<br /> if not set, it defaults to true. | true |  |
 
 
 #### LastError

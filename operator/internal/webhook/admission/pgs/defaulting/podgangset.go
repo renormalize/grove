@@ -53,6 +53,17 @@ func defaultPodGangSetTemplateSpec(spec *grovecorev1alpha1.PodGangSetTemplateSpe
 	if spec.TerminationDelay == nil {
 		spec.TerminationDelay = &metav1.Duration{Duration: defaultTerminationDelay}
 	}
+
+	spec.HeadlessServiceConfig = defaultHeadlessServiceConfig(spec.HeadlessServiceConfig)
+}
+
+func defaultHeadlessServiceConfig(headlessServiceConfig *grovecorev1alpha1.HeadlessServiceConfig) *grovecorev1alpha1.HeadlessServiceConfig {
+	if headlessServiceConfig == nil {
+		headlessServiceConfig = &grovecorev1alpha1.HeadlessServiceConfig{
+			PublishNotReadyAddresses: true,
+		}
+	}
+	return headlessServiceConfig
 }
 
 func defaultPodCliqueTemplateSpecs(cliqueSpecs []*grovecorev1alpha1.PodCliqueTemplateSpec) []*grovecorev1alpha1.PodCliqueTemplateSpec {
