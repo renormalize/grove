@@ -17,6 +17,7 @@
 package hpa
 
 import (
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	"testing"
 
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -47,7 +48,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 				Build(),
 			expected: []hpaInfo{
 				{
-					targetScaleResourceKind: grovecorev1alpha1.PodCliqueKind,
+					targetScaleResourceKind: constants.KindPodClique,
 					targetScaleResourceName: "test-pgs-0-test-clique",
 					scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 						MinReplicas: ptr.To(int32(2)),
@@ -73,7 +74,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 				Build(),
 			expected: []hpaInfo{
 				{
-					targetScaleResourceKind: grovecorev1alpha1.PodCliqueScalingGroupKind,
+					targetScaleResourceKind: constants.KindPodCliqueScalingGroup,
 					targetScaleResourceName: "test-pgs-0-test-sg",
 					scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 						MinReplicas: ptr.To(int32(2)),
@@ -106,7 +107,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 				Build(),
 			expected: []hpaInfo{
 				{
-					targetScaleResourceKind: grovecorev1alpha1.PodCliqueKind,
+					targetScaleResourceKind: constants.KindPodClique,
 					targetScaleResourceName: "test-pgs-0-individual-clique",
 					scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 						MinReplicas: ptr.To(int32(2)),
@@ -114,7 +115,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 					},
 				},
 				{
-					targetScaleResourceKind: grovecorev1alpha1.PodCliqueScalingGroupKind,
+					targetScaleResourceKind: constants.KindPodCliqueScalingGroup,
 					targetScaleResourceName: "test-pgs-0-scaling-group",
 					scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 						MinReplicas: ptr.To(int32(1)),
@@ -152,7 +153,7 @@ func TestBuildResource(t *testing.T) {
 		{
 			name: "Sets HPA spec from scaleConfig",
 			hpaInfo: hpaInfo{
-				targetScaleResourceKind: grovecorev1alpha1.PodCliqueKind,
+				targetScaleResourceKind: constants.KindPodClique,
 				targetScaleResourceName: "test-resource",
 				scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 					MinReplicas: ptr.To(int32(2)),

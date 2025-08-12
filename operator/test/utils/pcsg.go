@@ -19,6 +19,7 @@ package utils
 import (
 	"strconv"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,9 +40,9 @@ func NewPodCliqueScalingGroupBuilder(name, namespace, pgsName string, replicaInd
 				Name:      name,
 				Namespace: namespace,
 				Labels: map[string]string{
-					grovecorev1alpha1.LabelManagedByKey:           grovecorev1alpha1.LabelManagedByValue,
-					grovecorev1alpha1.LabelPartOfKey:              pgsName,
-					grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(replicaIndex),
+					constants.LabelManagedByKey:           constants.LabelManagedByValue,
+					constants.LabelPartOfKey:              pgsName,
+					constants.LabelPodGangSetReplicaIndex: strconv.Itoa(replicaIndex),
 				},
 			},
 			Spec: grovecorev1alpha1.PodCliqueScalingGroupSpec{

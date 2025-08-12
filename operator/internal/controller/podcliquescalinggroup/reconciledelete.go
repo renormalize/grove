@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
@@ -70,13 +71,13 @@ func (r *Reconciler) verifyNoResourcesAwaitsCleanup(ctx context.Context, logger 
 }
 
 func (r *Reconciler) removeFinalizer(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) ctrlcommon.ReconcileStepResult {
-	if !controllerutil.ContainsFinalizer(pcsg, grovecorev1alpha1.FinalizerPodCliqueScalingGroup) {
+	if !controllerutil.ContainsFinalizer(pcsg, constants.FinalizerPodCliqueScalingGroup) {
 		logger.Info("Finalizer not found", "PodCliqueScalingGroup", pcsg)
 		return ctrlcommon.DoNotRequeue()
 	}
-	logger.Info("Removing finalizer", "PodCliqueScalingGroup", pcsg, "finalizerName", grovecorev1alpha1.FinalizerPodCliqueScalingGroup)
-	if err := ctrlutils.RemoveAndPatchFinalizer(ctx, r.client, pcsg, grovecorev1alpha1.FinalizerPodCliqueScalingGroup); err != nil {
-		return ctrlcommon.ReconcileWithErrors("error removing finalizer", fmt.Errorf("failed to remove finalizer: %s from PodCliqueScalingGroup: %v: %w", grovecorev1alpha1.FinalizerPodCliqueScalingGroup, client.ObjectKeyFromObject(pcsg), err))
+	logger.Info("Removing finalizer", "PodCliqueScalingGroup", pcsg, "finalizerName", constants.FinalizerPodCliqueScalingGroup)
+	if err := ctrlutils.RemoveAndPatchFinalizer(ctx, r.client, pcsg, constants.FinalizerPodCliqueScalingGroup); err != nil {
+		return ctrlcommon.ReconcileWithErrors("error removing finalizer", fmt.Errorf("failed to remove finalizer: %s from PodCliqueScalingGroup: %v: %w", constants.FinalizerPodCliqueScalingGroup, client.ObjectKeyFromObject(pcsg), err))
 	}
 	return ctrlcommon.ContinueReconcile()
 }

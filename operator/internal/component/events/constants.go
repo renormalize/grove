@@ -32,8 +32,12 @@ const (
 const (
 	// ReasonPodCliqueCreationSuccessful is an event reason which represents a successful creation of a PodClique.
 	ReasonPodCliqueCreationSuccessful = "PodCliqueCreationSuccessful"
+	// ReasonPodCliqueCreationOrUpdationSuccessful is an event reason which represents a successful creation or updation of a PodClique.
+	ReasonPodCliqueCreationOrUpdationSuccessful = "PodCliqueCreationOrUpdationSuccessful"
 	// ReasonPodCliqueCreationFailed is an event reason which represents that the creation of a PodClique failed.
 	ReasonPodCliqueCreationFailed = "PodCliqueCreationFailed"
+	// ReasonPodCliqueCreationOrUpdationFailed is an event reason which represents that the creation or updation of a PodClique failed.
+	ReasonPodCliqueCreationOrUpdationFailed = "PodCliqueCreationOrUpdationFailed"
 	// ReasonPodCliqueDeletionSuccessful is an event reason which represents a successful deletion of a PodClique.
 	ReasonPodCliqueDeletionSuccessful = "PodCliqueDeletionSuccessful"
 	// ReasonPodCliqueDeletionFailed is an event reason which represents that the deletion of a PodClique failed.

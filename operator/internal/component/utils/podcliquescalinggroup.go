@@ -22,9 +22,10 @@ import (
 	"strconv"
 	"time"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
-
 	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,7 +49,7 @@ func FindScalingGroupConfigForClique(scalingGroupConfigs []grovecorev1alpha1.Pod
 // GetPCSGsForPGSReplicaIndex fetches all PodCliqueScalingGroups for a PodGangSet replica index.
 func GetPCSGsForPGSReplicaIndex(ctx context.Context, cl client.Client, pgsObjKey client.ObjectKey, pgsReplicaIndex int) ([]grovecorev1alpha1.PodCliqueScalingGroup, error) {
 	pcsgList, err := doGetPCSGsForPGS(ctx, cl, pgsObjKey, map[string]string{
-		grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
+		constants.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
 	})
 	if err != nil {
 		return nil, err
@@ -71,7 +72,7 @@ func doGetPCSGsForPGS(ctx context.Context, cl client.Client, pgsObjKey client.Ob
 		pcsgList,
 		client.InNamespace(pgsObjKey.Namespace),
 		client.MatchingLabels(lo.Assign(
-			k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsObjKey.Name),
+			apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjKey.Name),
 			matchingLabels,
 		)),
 	); err != nil {
@@ -86,7 +87,7 @@ func GetMinAvailableBreachedPCSGInfo(pcsgs []grovecorev1alpha1.PodCliqueScalingG
 	pcsgCandidateNames := make([]string, 0, len(pcsgs))
 	waitForDurations := make([]time.Duration, 0, len(pcsgs))
 	for _, pcsg := range pcsgs {
-		cond := meta.FindStatusCondition(pcsg.Status.Conditions, grovecorev1alpha1.ConditionTypeMinAvailableBreached)
+		cond := meta.FindStatusCondition(pcsg.Status.Conditions, constants.ConditionTypeMinAvailableBreached)
 		if cond == nil {
 			continue
 		}
@@ -103,25 +104,30 @@ func GetMinAvailableBreachedPCSGInfo(pcsgs []grovecorev1alpha1.PodCliqueScalingG
 	return pcsgCandidateNames, waitForDurations[0]
 }
 
+// IsPCSGUpdateInProgress checks if PCSG is under rolling update.
+func IsPCSGUpdateInProgress(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) bool {
+	return k8sutils.IsConditionTrue(pcsg.Status.Conditions, constants.ConditionTypeUpdateInProgress)
+}
+
 // GenerateDependencyNamesForBasePodGang generates the FQNs of all PodCliques that would qualify as a dependency.
 func GenerateDependencyNamesForBasePodGang(pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int, parentCliqueName string) []string {
 	parentPCLQNames := make([]string, 0)
 	pcsgConfig := FindScalingGroupConfigForClique(pgs.Spec.Template.PodCliqueScalingGroupConfigs, parentCliqueName)
 	if pcsgConfig != nil {
 		// Generate FQNs of minAvailable number of PodCliques that belong to a PodCliueScalingGroup.
-		pcsgFQN := grovecorev1alpha1.GeneratePodCliqueScalingGroupName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, pcsgConfig.Name)
+		pcsgFQN := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, pcsgConfig.Name)
 		for pcsgReplicaIndex := range int(*pcsgConfig.MinAvailable) {
-			parentPCLQNames = append(parentPCLQNames, grovecorev1alpha1.GeneratePodCliqueName(grovecorev1alpha1.ResourceNameReplica{Name: pcsgFQN, Replica: pcsgReplicaIndex}, parentCliqueName))
+			parentPCLQNames = append(parentPCLQNames, apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcsgFQN, Replica: pcsgReplicaIndex}, parentCliqueName))
 		}
 	} else {
-		parentPCLQNames = append(parentPCLQNames, grovecorev1alpha1.GeneratePodCliqueName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, parentCliqueName))
+		parentPCLQNames = append(parentPCLQNames, apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, parentCliqueName))
 	}
 	return parentPCLQNames
 }
 
 // GroupPCSGsByPGSReplicaIndex filters PCSGs that have a PodGangSetReplicaIndex label and groups them by the PGS replica.
 func GroupPCSGsByPGSReplicaIndex(pcsgs []grovecorev1alpha1.PodCliqueScalingGroup) map[string][]grovecorev1alpha1.PodCliqueScalingGroup {
-	return groupPCSGsByLabel(pcsgs, grovecorev1alpha1.LabelPodGangSetReplicaIndex)
+	return groupPCSGsByLabel(pcsgs, constants.LabelPodGangSetReplicaIndex)
 }
 
 func groupPCSGsByLabel(pcsgs []grovecorev1alpha1.PodCliqueScalingGroup, label string) map[string][]grovecorev1alpha1.PodCliqueScalingGroup {
@@ -134,4 +140,26 @@ func groupPCSGsByLabel(pcsgs []grovecorev1alpha1.PodCliqueScalingGroup, label st
 		result[labelValue] = append(result[labelValue], pcsg)
 	}
 	return result
+}
+
+// GetPCSGsByPGSReplicaIndex groups the PodCliqueScalingGroups per PodGangSet replica index and returns a map with the key being the PodGangSet replica index and the value
+// being the slice of PodCliqueScalingGroup objects.
+func GetPCSGsByPGSReplicaIndex(ctx context.Context, cl client.Client, pgsObjKey client.ObjectKey) (map[string][]grovecorev1alpha1.PodCliqueScalingGroup, error) {
+	pcsgList := &grovecorev1alpha1.PodCliqueScalingGroupList{}
+	if err := cl.List(ctx,
+		pcsgList,
+		client.InNamespace(pgsObjKey.Namespace),
+		client.MatchingLabels(apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjKey.Name)),
+	); err != nil {
+		return nil, err
+	}
+	pcsgsByPGSReplicaIndex := make(map[string][]grovecorev1alpha1.PodCliqueScalingGroup)
+	for _, pcsg := range pcsgList.Items {
+		pgsReplicaIndex, ok := pcsg.Labels[apicommon.LabelPodGangSetReplicaIndex]
+		if !ok {
+			continue
+		}
+		pcsgsByPGSReplicaIndex[pgsReplicaIndex] = append(pcsgsByPGSReplicaIndex[pgsReplicaIndex], pcsg)
+	}
+	return pcsgsByPGSReplicaIndex, nil
 }

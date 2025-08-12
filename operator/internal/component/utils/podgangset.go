@@ -20,6 +20,7 @@ import (
 	"context"
 	"slices"
 
+	"github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	"github.com/samber/lo"
@@ -31,7 +32,7 @@ import (
 func GetAllPodCliqueScalingGroupFQNsForPGSReplica(pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int) []string {
 	pcsgNames := make([]string, 0, len(pgs.Spec.Template.PodCliqueScalingGroupConfigs))
 	for _, pcsgConfig := range pgs.Spec.Template.PodCliqueScalingGroupConfigs {
-		pcsgName := grovecorev1alpha1.GeneratePodCliqueScalingGroupName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, pcsgConfig.Name)
+		pcsgName := common.GeneratePodCliqueScalingGroupName(common.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, pcsgConfig.Name)
 		pcsgNames = append(pcsgNames, pcsgName)
 	}
 	return pcsgNames
@@ -42,7 +43,7 @@ func GetPodCliqueFQNsForPGSReplicaNotInPCSG(pgs *grovecorev1alpha1.PodGangSet, p
 	pclqNames := make([]string, 0, len(pgs.Spec.Template.Cliques))
 	for _, pclqTemplateSpec := range pgs.Spec.Template.Cliques {
 		if !isPCLQInPCSG(pclqTemplateSpec.Name, pgs.Spec.Template.PodCliqueScalingGroupConfigs) {
-			pclqNames = append(pclqNames, grovecorev1alpha1.GeneratePodCliqueName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, pclqTemplateSpec.Name))
+			pclqNames = append(pclqNames, common.GeneratePodCliqueName(common.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, pclqTemplateSpec.Name))
 		}
 	}
 	return pclqNames
@@ -71,7 +72,7 @@ func GetOwnerPodGangSet(ctx context.Context, cl client.Client, objectMeta metav1
 // NOTE: It is assumed that all managed objects like PCSG, PCLQ and Pods will always have PGS name as value for grovecorev1alpha1.LabelPartOfKey label.
 // It should be ensured that labels that are set by the operator are never removed.
 func GetPodGangSetName(objectMeta metav1.ObjectMeta) string {
-	pgsName := objectMeta.GetLabels()[grovecorev1alpha1.LabelPartOfKey]
+	pgsName := objectMeta.GetLabels()[common.LabelPartOfKey]
 	return pgsName
 }
 

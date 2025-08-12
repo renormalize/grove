@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strconv"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveevents "github.com/NVIDIA/grove/operator/internal/component/events"
@@ -95,7 +96,7 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev
 	expectedPCSGNames := make([]string, 0, 20)
 	for pgsReplica := range pgs.Spec.Replicas {
 		for _, pcsgConfig := range pgs.Spec.Template.PodCliqueScalingGroupConfigs {
-			pcsgName := grovecorev1alpha1.GeneratePodCliqueScalingGroupName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: int(pgsReplica)}, pcsgConfig.Name)
+			pcsgName := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: int(pgsReplica)}, pcsgConfig.Name)
 			expectedPCSGNames = append(expectedPCSGNames, pcsgName)
 			if slices.Contains(existingPCSGNames, pcsgName) {
 				continue
@@ -212,27 +213,28 @@ func (r _resource) buildResource(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, 
 	pcsg.Spec.Replicas = *pcsgConfig.Replicas
 	pcsg.Spec.MinAvailable = pcsgConfig.MinAvailable
 	pcsg.Spec.CliqueNames = pcsgConfig.CliqueNames
-	pcsg.Labels = getLabels(pgs.Name, pgsReplica, client.ObjectKeyFromObject(pcsg))
+	pcsg.Labels = getLabels(pgs, pgsReplica, client.ObjectKeyFromObject(pcsg))
 	return nil
 }
 
-func getLabels(pgsName string, pgsReplica int, pclqScalingGroupObjKey client.ObjectKey) map[string]string {
+func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplica int, pclqScalingGroupObjKey client.ObjectKey) map[string]string {
 	componentLabels := map[string]string{
-		grovecorev1alpha1.LabelAppNameKey:             pclqScalingGroupObjKey.Name,
-		grovecorev1alpha1.LabelComponentKey:           component.NamePodCliqueScalingGroup,
-		grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplica),
+		apicommon.LabelAppNameKey:               pclqScalingGroupObjKey.Name,
+		apicommon.LabelComponentKey:             component.NamePodCliqueScalingGroup,
+		apicommon.LabelPodGangSetReplicaIndex:   strconv.Itoa(pgsReplica),
+		apicommon.LabelPodGangSetGenerationHash: *pgs.Status.GenerationHash,
 	}
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
 		componentLabels,
 	)
 }
 
 func getPodCliqueScalingGroupSelectorLabels(pgsObjMeta metav1.ObjectMeta) map[string]string {
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
 		map[string]string{
-			grovecorev1alpha1.LabelComponentKey: component.NamePodCliqueScalingGroup,
+			apicommon.LabelComponentKey: component.NamePodCliqueScalingGroup,
 		},
 	)
 }

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strconv"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
@@ -151,31 +152,31 @@ func (r _resource) buildResource(svc *corev1.Service, pgs *grovecorev1alpha1.Pod
 
 func getLabels(pgsName string, svcObjectKey client.ObjectKey, pgsReplicaIndex int) map[string]string {
 	svcLabels := map[string]string{
-		grovecorev1alpha1.LabelAppNameKey:             svcObjectKey.Name,
-		grovecorev1alpha1.LabelComponentKey:           component.NamePodGangHeadlessService,
-		grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
+		apicommon.LabelAppNameKey:             svcObjectKey.Name,
+		apicommon.LabelComponentKey:           component.NamePodGangHeadlessService,
+		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
 	}
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		svcLabels,
 	)
 }
 
 func getLabelSelectorForPodsInAPodGangSetReplica(pgsName string, pgsReplicaIndex int) map[string]string {
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		map[string]string{
-			grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
+			apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
 		},
 	)
 }
 
 func getSelectorLabelsForAllHeadlessServices(pgsName string) map[string]string {
 	svcMatchingLabels := map[string]string{
-		grovecorev1alpha1.LabelComponentKey: component.NamePodGangHeadlessService,
+		apicommon.LabelComponentKey: component.NamePodGangHeadlessService,
 	}
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		svcMatchingLabels,
 	)
 }
@@ -183,7 +184,7 @@ func getSelectorLabelsForAllHeadlessServices(pgsName string) map[string]string {
 func getObjectKeys(pgs *grovecorev1alpha1.PodGangSet) []client.ObjectKey {
 	objectKeys := make([]client.ObjectKey, 0, pgs.Spec.Replicas)
 	for replicaIndex := range pgs.Spec.Replicas {
-		serviceName := grovecorev1alpha1.GenerateHeadlessServiceName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: int(replicaIndex)})
+		serviceName := apicommon.GenerateHeadlessServiceName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: int(replicaIndex)})
 		objectKeys = append(objectKeys, client.ObjectKey{
 			Name:      serviceName,
 			Namespace: pgs.Namespace,

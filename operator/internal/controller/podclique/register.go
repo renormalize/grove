@@ -18,6 +18,7 @@ package podclique
 
 import (
 	"context"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	"strings"
 
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -68,7 +69,7 @@ func (r *Reconciler) RegisterWithManager(mgr ctrl.Manager) error {
 }
 
 func managedPodCliquePredicate() predicate.Predicate {
-	expectedOwnerKinds := []string{grovecorev1alpha1.PodCliqueScalingGroupKind, grovecorev1alpha1.PodGangSetKind}
+	expectedOwnerKinds := []string{constants.KindPodCliqueScalingGroup, constants.KindPodGangSet}
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			return grovectrlutils.IsManagedPodClique(e.Object, expectedOwnerKinds...)
@@ -193,5 +194,5 @@ func isManagedPod(obj client.Object) bool {
 	if !ok {
 		return false
 	}
-	return grovectrlutils.HasExpectedOwner(grovecorev1alpha1.PodCliqueKind, pod.OwnerReferences) && grovectrlutils.IsManagedByGrove(pod.GetLabels())
+	return grovectrlutils.HasExpectedOwner(constants.KindPodClique, pod.OwnerReferences) && grovectrlutils.IsManagedByGrove(pod.GetLabels())
 }

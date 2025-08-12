@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
@@ -87,9 +89,9 @@ func mutateSelector(pgsName string, pclq *grovecorev1alpha1.PodClique) error {
 		return nil
 	}
 	labels := lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		map[string]string{
-			grovecorev1alpha1.LabelPodClique: pclq.Name,
+			apicommon.LabelPodClique: pclq.Name,
 		},
 	)
 	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: labels})
@@ -118,9 +120,9 @@ func computeMinAvailableBreachedCondition(pclq *grovecorev1alpha1.PodClique, num
 	// Consider a case where none of the PodCliques have been scheduled yet, then it should not cause the PodGang to be recreated all the time.
 	if scheduledReplicas < minAvailable {
 		return metav1.Condition{
-			Type:               grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+			Type:               constants.ConditionTypeMinAvailableBreached,
 			Status:             metav1.ConditionFalse,
-			Reason:             grovecorev1alpha1.ConditionReasonInsufficientScheduledPods,
+			Reason:             constants.ConditionReasonInsufficientScheduledPods,
 			Message:            fmt.Sprintf("Insufficient scheduled pods. expected at least: %d, found: %d", minAvailable, scheduledReplicas),
 			LastTransitionTime: now,
 		}
@@ -133,17 +135,17 @@ func computeMinAvailableBreachedCondition(pclq *grovecorev1alpha1.PodClique, num
 	// has attempted to start the containers within the Pod at least once and failed. These pods count towards unavailability.
 	if readyOrStartingPods < minAvailable {
 		return metav1.Condition{
-			Type:               grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+			Type:               constants.ConditionTypeMinAvailableBreached,
 			Status:             metav1.ConditionTrue,
-			Reason:             grovecorev1alpha1.ConditionReasonInsufficientReadyPods,
+			Reason:             constants.ConditionReasonInsufficientReadyPods,
 			Message:            fmt.Sprintf("Insufficient ready or starting pods. expected at least: %d, found: %d", minAvailable, readyOrStartingPods),
 			LastTransitionTime: now,
 		}
 	}
 	return metav1.Condition{
-		Type:               grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+		Type:               constants.ConditionTypeMinAvailableBreached,
 		Status:             metav1.ConditionFalse,
-		Reason:             grovecorev1alpha1.ConditionReasonSufficientReadyPods,
+		Reason:             constants.ConditionReasonSufficientReadyPods,
 		Message:            fmt.Sprintf("Either sufficient ready or starting pods found. expected at least: %d, found: %d", minAvailable, readyOrStartingPods),
 		LastTransitionTime: now,
 	}
@@ -160,17 +162,17 @@ func computePodCliqueScheduledCondition(pclq *grovecorev1alpha1.PodClique) metav
 	now := metav1.Now()
 	if pclq.Status.ScheduledReplicas < *pclq.Spec.MinAvailable {
 		return metav1.Condition{
-			Type:               grovecorev1alpha1.ConditionTypePodCliqueScheduled,
+			Type:               constants.ConditionTypePodCliqueScheduled,
 			Status:             metav1.ConditionFalse,
-			Reason:             grovecorev1alpha1.ConditionReasonInsufficientScheduledPods,
+			Reason:             constants.ConditionReasonInsufficientScheduledPods,
 			Message:            fmt.Sprintf("Insufficient scheduled pods. expected at least: %d, found: %d", *pclq.Spec.MinAvailable, pclq.Status.ScheduledReplicas),
 			LastTransitionTime: now,
 		}
 	}
 	return metav1.Condition{
-		Type:               grovecorev1alpha1.ConditionTypePodCliqueScheduled,
+		Type:               constants.ConditionTypePodCliqueScheduled,
 		Status:             metav1.ConditionTrue,
-		Reason:             grovecorev1alpha1.ConditionReasonSufficientScheduledPods,
+		Reason:             constants.ConditionReasonSufficientScheduledPods,
 		Message:            fmt.Sprintf("Sufficient scheduled pods found. expected at least: %d, found: %d", *pclq.Spec.MinAvailable, pclq.Status.ScheduledReplicas),
 		LastTransitionTime: now,
 	}

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
@@ -130,18 +131,18 @@ func (r _resource) buildResource(pgs *v1alpha1.PodGangSet, sa *corev1.ServiceAcc
 
 func getLabels(pgsObjMeta metav1.ObjectMeta) map[string]string {
 	roleLabels := map[string]string{
-		v1alpha1.LabelComponentKey: component.NamePodServiceAccount,
-		v1alpha1.LabelAppNameKey:   v1alpha1.GeneratePodServiceAccountName(pgsObjMeta.Name),
+		apicommon.LabelComponentKey: component.NamePodServiceAccount,
+		apicommon.LabelAppNameKey:   apicommon.GeneratePodServiceAccountName(pgsObjMeta.Name),
 	}
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
 		roleLabels,
 	)
 }
 
 func getObjectKey(pgsObjMeta metav1.ObjectMeta) client.ObjectKey {
 	return client.ObjectKey{
-		Name:      v1alpha1.GeneratePodServiceAccountName(pgsObjMeta.Name),
+		Name:      apicommon.GeneratePodServiceAccountName(pgsObjMeta.Name),
 		Namespace: pgsObjMeta.Namespace,
 	}
 }

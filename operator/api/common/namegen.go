@@ -14,10 +14,12 @@
 // limitations under the License.
 // */
 
-package v1alpha1
+package common
 
 import (
 	"fmt"
+
+	"github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 )
 
 // ResourceNameReplica is a type that holds a resource name and its replica index.
@@ -43,13 +45,13 @@ func GenerateHeadlessServiceAddress(pgsNameReplica ResourceNameReplica, namespac
 // This role will be associated to an init container within each Pod for a PodGangSet.
 // The init container is created by the operator and is responsible for ensuring start-up order amongst PodCliques.
 func GeneratePodRoleName(pgsName string) string {
-	return fmt.Sprintf("%s:pgs:%s", SchemeGroupVersion.Group, pgsName)
+	return fmt.Sprintf("%s:pgs:%s", v1alpha1.SchemeGroupVersion.Group, pgsName)
 }
 
 // GeneratePodRoleBindingName generates a role binding name. The role binding will bind the
 // role to the service account that are created for the init container responsible for ensuring start-up order amongst PodCliques.
 func GeneratePodRoleBindingName(pgsName string) string {
-	return fmt.Sprintf("%s:pgs:%s", SchemeGroupVersion.Group, pgsName)
+	return fmt.Sprintf("%s:pgs:%s", v1alpha1.SchemeGroupVersion.Group, pgsName)
 }
 
 // GeneratePodServiceAccountName generates a Pod service account used by all the init containers
@@ -89,13 +91,13 @@ func CreatePodGangNameFromPCSGFQN(pcsgFQN string, scaledPodGangIndex int) string
 
 // GeneratePodGangNameForPodCliqueOwnedByPodGangSet generates the PodGang name for a PodClique
 // that is directly owned by a PodGangSet.
-func GeneratePodGangNameForPodCliqueOwnedByPodGangSet(pgs *PodGangSet, pgsReplicaIndex int) string {
+func GeneratePodGangNameForPodCliqueOwnedByPodGangSet(pgs *v1alpha1.PodGangSet, pgsReplicaIndex int) string {
 	return GenerateBasePodGangName(ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex})
 }
 
 // GeneratePodGangNameForPodCliqueOwnedByPCSG generates the PodGang name for a PodClique
 // that is owned by a PodCliqueScalingGroup, using the PCSG object directly (no config lookup needed).
-func GeneratePodGangNameForPodCliqueOwnedByPCSG(pgs *PodGangSet, pgsReplicaIndex int, pcsg *PodCliqueScalingGroup, pcsgReplicaIndex int) string {
+func GeneratePodGangNameForPodCliqueOwnedByPCSG(pgs *v1alpha1.PodGangSet, pgsReplicaIndex int, pcsg *v1alpha1.PodCliqueScalingGroup, pcsgReplicaIndex int) string {
 	// MinAvailable should always be non-nil due to kubebuilder default and defaulting webhook
 	minAvailable := *pcsg.Spec.MinAvailable
 

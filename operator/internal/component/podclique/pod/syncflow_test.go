@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	groveschedulerv1alpha1 "github.com/NVIDIA/grove/scheduler/api/core/v1alpha1"
@@ -196,7 +197,7 @@ func TestCheckAndRemovePodSchedulingGates_MinAvailableAware(t *testing.T) {
 			// This is what the production code expects to read in checkBasePodGangReadinessForPodClique
 			if isScaledPodGangTest {
 				testPclq.Labels = map[string]string{
-					grovecorev1alpha1.LabelBasePodGang: "simple1-0",
+					common.LabelBasePodGang: "simple1-0",
 				}
 			}
 
@@ -381,7 +382,7 @@ func TestIsBasePodGangReady(t *testing.T) {
 						Name:      "simple1-0-sga-2",
 						Namespace: "default",
 						Labels: map[string]string{
-							grovecorev1alpha1.LabelBasePodGang: "simple1-0",
+							common.LabelBasePodGang: "simple1-0",
 						},
 					},
 					Spec: groveschedulerv1alpha1.PodGangSpec{
@@ -453,14 +454,14 @@ func createTestPod(podGangName string, hasGate bool, inPodGang bool) *corev1.Pod
 	}
 
 	if inPodGang {
-		pod.Labels[grovecorev1alpha1.LabelPodGang] = podGangName
+		pod.Labels[common.LabelPodGang] = podGangName
 
 		// Add base-podgang label for scaled PodGang pods
 		if strings.Contains(podGangName, "-sga-") {
 			// Extract base PodGang name: "simple1-0-sga-2" -> "simple1-0"
 			if sgaIndex := strings.Index(podGangName, "-sga-"); sgaIndex != -1 {
 				basePodGangName := podGangName[:sgaIndex]
-				pod.Labels[grovecorev1alpha1.LabelBasePodGang] = basePodGangName
+				pod.Labels[common.LabelBasePodGang] = basePodGangName
 			}
 		}
 	}

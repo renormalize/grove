@@ -100,6 +100,8 @@ const (
 	KindPodCliqueScalingGroup Kind = "PodCliqueScalingGroup"
 	// KindPodGang indicates that the resource is a PodGang.
 	KindPodGang Kind = "PodGang"
+	// KindPodGangSetReplica indicates that the resource is a PodGangSet replica.
+	KindPodGangSetReplica Kind = "PodGangSetReplica"
 )
 
 // OperatorRegistry is a facade that gives access to all component operators.

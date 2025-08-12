@@ -20,6 +20,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	testutils "github.com/NVIDIA/grove/operator/test/utils"
 
@@ -194,7 +195,7 @@ func TestComputeMinAvailableBreachedCondition(t *testing.T) {
 						Status: grovecorev1alpha1.PodCliqueStatus{
 							Conditions: []metav1.Condition{
 								{
-									Type:   grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+									Type:   constants.ConditionTypeMinAvailableBreached,
 									Status: metav1.ConditionTrue,
 								},
 							},
@@ -394,7 +395,7 @@ func TestReconcileStatus(t *testing.T) {
 			fakeClient := testutils.SetupFakeClient(allObjects...)
 			reconciler := &Reconciler{client: fakeClient}
 
-			result := reconciler.reconcileStatus(ctx, logger, pcsg)
+			result := reconciler.reconcileStatus(ctx, logger, client.ObjectKeyFromObject(pcsg))
 
 			require.False(t, result.HasErrors())
 			assert.Equal(t, tt.wantAvailable, pcsg.Status.AvailableReplicas)
@@ -436,7 +437,7 @@ func TestReconcileStatus_EdgeCases(t *testing.T) {
 			fakeClient := testutils.SetupFakeClient(tt.pcsg, pgs)
 			reconciler := &Reconciler{client: fakeClient}
 
-			result := reconciler.reconcileStatus(ctx, logger, tt.pcsg)
+			result := reconciler.reconcileStatus(ctx, logger, client.ObjectKeyFromObject(tt.pcsg))
 
 			assert.False(t, result.HasErrors())
 		})

@@ -19,6 +19,7 @@ package podclique
 import (
 	"context"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	configv1alpha1 "github.com/NVIDIA/grove/operator/api/config/v1alpha1"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
@@ -68,7 +69,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	if !pclq.DeletionTimestamp.IsZero() {
-		if !controllerutil.ContainsFinalizer(pclq, grovecorev1alpha1.FinalizerPodClique) {
+		if !controllerutil.ContainsFinalizer(pclq, constants.FinalizerPodClique) {
 			return ctrlcommon.DoNotRequeue().Result()
 		}
 		dLog := logger.WithValues("operation", "delete")

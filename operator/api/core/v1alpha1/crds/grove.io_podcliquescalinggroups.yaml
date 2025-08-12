@@ -167,6 +167,11 @@ spec:
                   - observedAt
                   type: object
                 type: array
+              lastIndexSelectedForUpdate:
+                description: LastIndexSelectedForUpdate represent the last PodCliqueScalingGroup
+                  replica index that was selected for update.
+                format: int32
+                type: integer
               lastOperation:
                 description: LastOperation captures the last operation done by the
                   respective reconciler on the PodClique.
@@ -201,6 +206,45 @@ spec:
                 description: Replicas is the observed number of replicas for the PodCliqueScalingGroup.
                 format: int32
                 type: integer
+              rollingUpdateProgress:
+                properties:
+                  currentlyUpdating:
+                    properties:
+                      replicaIndex:
+                        format: int32
+                        type: integer
+                      scheduled:
+                        type: boolean
+                      unhealthyPodCliques:
+                        items:
+                          type: string
+                        type: array
+                      updateStartedAt:
+                        format: date-time
+                        type: string
+                    required:
+                    - scheduled
+                    - unhealthyPodCliques
+                    type: object
+                  podGangSetGenerationHash:
+                    type: string
+                  updateEndedAt:
+                    format: date-time
+                    type: string
+                  updateStartedAt:
+                    format: date-time
+                    type: string
+                  updatedPodCliques:
+                    items:
+                      type: string
+                    type: array
+                  updatedReplicas:
+                    format: int32
+                    type: integer
+                required:
+                - podGangSetGenerationHash
+                - updatedPodCliques
+                type: object
               scheduledReplicas:
                 description: |-
                   ScheduledReplicas is the number of replicas that are scheduled for the PodCliqueScalingGroup.

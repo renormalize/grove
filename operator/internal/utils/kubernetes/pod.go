@@ -17,9 +17,14 @@
 package kubernetes
 
 import (
+	"fmt"
+	"hash/fnv"
+
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/dump"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -128,6 +133,16 @@ func HasAnyStartedButNotReadyContainer(pod *corev1.Pod) bool {
 	return false
 }
 
+// ComputeHash computes a hash given one or more corev1.PodTemplateSpec.
+func ComputeHash(podTemplateSpecs ...*corev1.PodTemplateSpec) string {
+	podTemplateSpecHasher := fnv.New64a()
+	podTemplateSpecHasher.Reset()
+	for _, podTemplateSpec := range podTemplateSpecs {
+		_, _ = fmt.Fprintf(podTemplateSpecHasher, "%v", dump.ForHash(podTemplateSpec))
+	}
+	return rand.SafeEncodeString(fmt.Sprint(podTemplateSpecHasher.Sum64()))
+}
+
 // GetContainerStatusIfTerminatedErroneously gets the first occurrence of corev1.ContainerStatus (across init, sidecar and main containers)
 // that has a non-zero LastTerminationState.Terminated.ExitCode. The reason to choose `containerStatus.LastTerminationState` instead of `containerStatus.State` is that
 // the `containerStatus.State` oscillates between waiting and terminating in case of containers exiting with non-zero exit code, while the `containerStatus.LastTerminationState`
@@ -145,7 +160,7 @@ func GetContainerStatusIfTerminatedErroneously(containerStatuses []corev1.Contai
 
 func logTerminatedErroneouslyPodContainerStatus(logger logr.Logger, podObjKey client.ObjectKey, containerStatus *corev1.ContainerStatus) {
 	if containerStatus != nil && containerStatus.LastTerminationState.Terminated != nil {
-		logger.Info("container exited with a non-zero exit code",
+		logger.Info("container previously exited with a non-zero exit code",
 			"pod", podObjKey,
 			"container", containerStatus.Name,
 			"exitCode", containerStatus.LastTerminationState.Terminated.ExitCode,

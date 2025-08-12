@@ -19,8 +19,8 @@ package utils
 import (
 	"context"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
-	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
 
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
@@ -36,9 +36,9 @@ func GetPCLQPods(ctx context.Context, cl client.Client, pgsName string, pclq *gr
 		client.InNamespace(pclq.Namespace),
 		client.MatchingLabels(
 			lo.Assign(
-				k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+				apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 				map[string]string{
-					grovecorev1alpha1.LabelPodClique: pclq.Name,
+					apicommon.LabelPodClique: pclq.Name,
 				},
 			),
 		)); err != nil {

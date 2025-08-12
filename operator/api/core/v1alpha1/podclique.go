@@ -123,7 +123,17 @@ type PodCliqueStatus struct {
 	// PodClique is a unit of scale and this selector is used by HPA to scale the PodClique based on metrics captured for the pods that match this selector.
 	Selector *string `json:"hpaPodSelector,omitempty"`
 	// Conditions represents the latest available observations of the clique by its controller.
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Conditions            []metav1.Condition              `json:"conditions,omitempty"`
+	RollingUpdateProgress *PodCliqueRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
+}
+
+type PodCliqueRollingUpdateProgress struct {
+	UpdateStartedAt          metav1.Time  `json:"updateStartedAt,omitempty"`
+	UpdateEndedAt            *metav1.Time `json:"updateEndedAt,omitempty"`
+	PodGangSetGenerationHash string       `json:"podGangSetGenerationHash"`
+	UpdatedPods              []string     `json:"updatedPods"`
+	UnscheduledPods          []string     `json:"unscheduledPods"`
+	UnhealthyPods            []string     `json:"unhealthyPods"`
 }
 
 // SetLastErrors sets the last errors observed by the controller when reconciling the PodClique.

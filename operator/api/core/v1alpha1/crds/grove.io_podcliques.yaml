@@ -8681,6 +8681,34 @@ spec:
                   by this PodClique.
                 format: int32
                 type: integer
+              rollingUpdateProgress:
+                properties:
+                  podGangSetGenerationHash:
+                    type: string
+                  unhealthyPods:
+                    items:
+                      type: string
+                    type: array
+                  unscheduledPods:
+                    items:
+                      type: string
+                    type: array
+                  updateEndedAt:
+                    format: date-time
+                    type: string
+                  updateStartedAt:
+                    format: date-time
+                    type: string
+                  updatedPods:
+                    items:
+                      type: string
+                    type: array
+                required:
+                - podGangSetGenerationHash
+                - unhealthyPods
+                - unscheduledPods
+                - updatedPods
+                type: object
               scheduleGatedReplicas:
                 description: |-
                   ScheduleGatedReplicas is the number of Pods that have been created with one or more scheduling gate(s) set.

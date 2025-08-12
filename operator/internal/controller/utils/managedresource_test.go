@@ -17,6 +17,7 @@
 package utils
 
 import (
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"testing"
 
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -98,14 +99,14 @@ func TestIsManagedByGrove(t *testing.T) {
 		{
 			description: "should return true when managed-by label has correct value",
 			labels: map[string]string{
-				grovecorev1alpha1.LabelManagedByKey: grovecorev1alpha1.LabelManagedByValue,
+				apicommon.LabelManagedByKey: apicommon.LabelManagedByValue,
 			},
 			expected: true,
 		},
 		{
 			description: "should return false when managed-by label has incorrect value",
 			labels: map[string]string{
-				grovecorev1alpha1.LabelManagedByKey: "other-operator",
+				apicommon.LabelManagedByKey: "other-operator",
 			},
 			expected: false,
 		},
@@ -146,7 +147,7 @@ func TestIsManagedPodClique(t *testing.T) {
 					Name:      "managed-pclq",
 					Namespace: "test-ns",
 					Labels: map[string]string{
-						grovecorev1alpha1.LabelManagedByKey: grovecorev1alpha1.LabelManagedByValue,
+						apicommon.LabelManagedByKey: apicommon.LabelManagedByValue,
 					},
 					OwnerReferences: []metav1.OwnerReference{
 						newOwnerReference("PodGangSet", "test-pgs", true),
@@ -163,7 +164,7 @@ func TestIsManagedPodClique(t *testing.T) {
 					Name:      "unmanaged-pclq",
 					Namespace: "test-ns",
 					Labels: map[string]string{
-						grovecorev1alpha1.LabelManagedByKey: "other-operator",
+						apicommon.LabelManagedByKey: "other-operator",
 					},
 					OwnerReferences: []metav1.OwnerReference{
 						newOwnerReference("PodGangSet", "test-pgs", true),
@@ -180,7 +181,7 @@ func TestIsManagedPodClique(t *testing.T) {
 					Name:      "wrong-owner-pclq",
 					Namespace: "test-ns",
 					Labels: map[string]string{
-						grovecorev1alpha1.LabelManagedByKey: grovecorev1alpha1.LabelManagedByValue,
+						apicommon.LabelManagedByKey: apicommon.LabelManagedByValue,
 					},
 					OwnerReferences: []metav1.OwnerReference{
 						newOwnerReference("WrongKind", "test-wrong", true),
@@ -197,7 +198,7 @@ func TestIsManagedPodClique(t *testing.T) {
 					Name:      "test-pgs",
 					Namespace: "different-ns",
 					Labels: map[string]string{
-						grovecorev1alpha1.LabelManagedByKey: grovecorev1alpha1.LabelManagedByValue,
+						apicommon.LabelManagedByKey: apicommon.LabelManagedByValue,
 					},
 					OwnerReferences: []metav1.OwnerReference{
 						newOwnerReference("PodGangSet", "test-pgs", true),

@@ -25,12 +25,6 @@ import (
 const (
 	// GroupName is the name of the group for all resources defined in this package.
 	GroupName = "grove.io"
-	// PodCliqueKind is the kind for a PodClique resource.
-	PodCliqueKind = "PodClique"
-	// PodGangSetKind is the kind for a PodGangSet resource.
-	PodGangSetKind = "PodGangSet"
-	// PodCliqueScalingGroupKind is the kind for a PodCliqueScalingGroup resource.
-	PodCliqueScalingGroupKind = "PodCliqueScalingGroup"
 )
 
 var (

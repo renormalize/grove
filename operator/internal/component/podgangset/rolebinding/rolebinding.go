@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
@@ -143,13 +144,13 @@ func (r _resource) buildResource(pgs *grovecorev1alpha1.PodGangSet, roleBinding 
 	roleBinding.RoleRef = rbacv1.RoleRef{
 		APIGroup: rbacv1.SchemeGroupVersion.Group,
 		Kind:     "Role",
-		Name:     grovecorev1alpha1.GeneratePodRoleName(pgs.Name),
+		Name:     apicommon.GeneratePodRoleName(pgs.Name),
 	}
 	roleBinding.Subjects = []rbacv1.Subject{
 		{
 			APIGroup:  corev1.SchemeGroupVersion.Group,
 			Kind:      "ServiceAccount",
-			Name:      grovecorev1alpha1.GeneratePodServiceAccountName(pgs.Name),
+			Name:      apicommon.GeneratePodServiceAccountName(pgs.Name),
 			Namespace: pgs.Namespace,
 		},
 	}
@@ -158,18 +159,18 @@ func (r _resource) buildResource(pgs *grovecorev1alpha1.PodGangSet, roleBinding 
 
 func getLabels(pgsObjMeta metav1.ObjectMeta) map[string]string {
 	roleLabels := map[string]string{
-		grovecorev1alpha1.LabelComponentKey: component.NamePodRoleBinding,
-		grovecorev1alpha1.LabelAppNameKey:   strings.ReplaceAll(grovecorev1alpha1.GeneratePodRoleBindingName(pgsObjMeta.Name), ":", "-"),
+		apicommon.LabelComponentKey: component.NamePodRoleBinding,
+		apicommon.LabelAppNameKey:   strings.ReplaceAll(apicommon.GeneratePodRoleBindingName(pgsObjMeta.Name), ":", "-"),
 	}
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
 		roleLabels,
 	)
 }
 
 func getObjectKey(pgsObjMeta metav1.ObjectMeta) client.ObjectKey {
 	return client.ObjectKey{
-		Name:      grovecorev1alpha1.GeneratePodRoleBindingName(pgsObjMeta.Name),
+		Name:      apicommon.GeneratePodRoleBindingName(pgsObjMeta.Name),
 		Namespace: pgsObjMeta.Namespace,
 	}
 }

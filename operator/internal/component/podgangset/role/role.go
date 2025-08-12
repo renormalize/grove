@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
@@ -150,18 +151,18 @@ func (r _resource) buildResource(pgs *grovecorev1alpha1.PodGangSet, role *rbacv1
 
 func getLabels(pgsObjMeta metav1.ObjectMeta) map[string]string {
 	roleLabels := map[string]string{
-		grovecorev1alpha1.LabelComponentKey: component.NamePodRole,
-		grovecorev1alpha1.LabelAppNameKey:   strings.ReplaceAll(grovecorev1alpha1.GeneratePodRoleName(pgsObjMeta.Name), ":", "-"),
+		apicommon.LabelComponentKey: component.NamePodRole,
+		apicommon.LabelAppNameKey:   strings.ReplaceAll(apicommon.GeneratePodRoleName(pgsObjMeta.Name), ":", "-"),
 	}
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
 		roleLabels,
 	)
 }
 
 func getObjectKey(pgsObjMeta metav1.ObjectMeta) client.ObjectKey {
 	return client.ObjectKey{
-		Name:      grovecorev1alpha1.GeneratePodRoleName(pgsObjMeta.Name),
+		Name:      apicommon.GeneratePodRoleName(pgsObjMeta.Name),
 		Namespace: pgsObjMeta.Namespace,
 	}
 }

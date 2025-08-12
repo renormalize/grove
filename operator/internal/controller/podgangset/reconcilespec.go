@@ -19,7 +19,7 @@ package podgangset
 import (
 	"context"
 	"fmt"
-
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
@@ -35,6 +35,7 @@ func (r *Reconciler) reconcileSpec(ctx context.Context, logger logr.Logger, pgs 
 	reconcileStepFns := []ctrlcommon.ReconcileStepFn[grovecorev1alpha1.PodGangSet]{
 		r.ensureFinalizer,
 		r.recordReconcileStart,
+		r.processGenerationHashChange,
 		r.syncPodGangSetResources,
 		r.recordReconcileSuccess,
 		r.updateObservedGeneration,
@@ -50,10 +51,10 @@ func (r *Reconciler) reconcileSpec(ctx context.Context, logger logr.Logger, pgs 
 }
 
 func (r *Reconciler) ensureFinalizer(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) ctrlcommon.ReconcileStepResult {
-	if !controllerutil.ContainsFinalizer(pgs, grovecorev1alpha1.FinalizerPodGangSet) {
-		logger.Info("Adding finalizer", "finalizerName", grovecorev1alpha1.FinalizerPodGangSet)
-		if err := ctrlutils.AddAndPatchFinalizer(ctx, r.client, pgs, grovecorev1alpha1.FinalizerPodGangSet); err != nil {
-			return ctrlcommon.ReconcileWithErrors("error adding finalizer", fmt.Errorf("failed to add finalizer: %s to PodGangSet: %v: %w", grovecorev1alpha1.FinalizerPodGangSet, client.ObjectKeyFromObject(pgs), err))
+	if !controllerutil.ContainsFinalizer(pgs, constants.FinalizerPodGangSet) {
+		logger.Info("Adding finalizer", "finalizerName", constants.FinalizerPodGangSet)
+		if err := ctrlutils.AddAndPatchFinalizer(ctx, r.client, pgs, constants.FinalizerPodGangSet); err != nil {
+			return ctrlcommon.ReconcileWithErrors("error adding finalizer", fmt.Errorf("failed to add finalizer: %s to PodGangSet: %v: %w", constants.FinalizerPodGangSet, client.ObjectKeyFromObject(pgs), err))
 		}
 	}
 	return ctrlcommon.ContinueReconcile()
@@ -81,9 +82,9 @@ func (r *Reconciler) syncPodGangSetResources(ctx context.Context, logger logr.Lo
 				continueReconcileAndRequeueKinds = append(continueReconcileAndRequeueKinds, kind)
 				continue
 			}
-			if ctrlutils.ShouldRequeueAfter(err) {
+			if shouldRequeue, msg := ctrlutils.ShouldRequeueAfter(err); shouldRequeue {
 				logger.Info("retrying sync due to component", "kind", kind, "syncRetryInterval", ctrlcommon.ComponentSyncRetryInterval)
-				return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, fmt.Sprintf("requeueing sync due to component %s after %s", kind, ctrlcommon.ComponentSyncRetryInterval))
+				return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, msg)
 			}
 			logger.Error(err, "failed to sync PodGangSet resources", "kind", kind)
 			return ctrlcommon.ReconcileWithErrors("error syncing managed resources", fmt.Errorf("failed to sync %s: %w", kind, err))
@@ -132,6 +133,7 @@ func getOrderedKindsForSync() []component.Kind {
 		component.KindServiceAccountTokenSecret,
 		component.KindHeadlessService,
 		component.KindHorizontalPodAutoscaler,
+		component.KindPodGangSetReplica,
 		component.KindPodClique,
 		component.KindPodCliqueScalingGroup,
 		component.KindPodGang,

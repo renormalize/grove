@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
@@ -100,11 +101,11 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 
 // getAssociatedPodGangName gets the associated PodGang name from PodClique labels. Returns an error if the label is not found.
 func (r _resource) getAssociatedPodGangName(pclqObjectMeta metav1.ObjectMeta) (string, error) {
-	podGangName, ok := pclqObjectMeta.GetLabels()[grovecorev1alpha1.LabelPodGang]
+	podGangName, ok := pclqObjectMeta.GetLabels()[common.LabelPodGang]
 	if !ok {
 		return "", groveerr.New(errCodeMissingPodGangLabelOnPCLQ,
 			component.OperationSync,
-			fmt.Sprintf("PodClique: %v is missing required label: %s", k8sutils.GetObjectKeyFromObjectMeta(pclqObjectMeta), grovecorev1alpha1.LabelPodGang),
+			fmt.Sprintf("PodClique: %v is missing required label: %s", k8sutils.GetObjectKeyFromObjectMeta(pclqObjectMeta), common.LabelPodGang),
 		)
 	}
 	return podGangName, nil
@@ -337,7 +338,7 @@ func (r _resource) isBasePodGangReady(ctx context.Context, logger logr.Logger, n
 // for readiness, and if so, performs that check once for the entire PodClique.
 func (r _resource) checkBasePodGangReadinessForPodClique(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) (bool, string, error) {
 	// Check if this PodClique has a base PodGang dependency
-	basePodGangName, hasBasePodGangLabel := pclq.GetLabels()[grovecorev1alpha1.LabelBasePodGang]
+	basePodGangName, hasBasePodGangLabel := pclq.GetLabels()[common.LabelBasePodGang]
 	if !hasBasePodGangLabel {
 		// This PodClique is a base PodGang itself - no dependency
 		return true, "", nil

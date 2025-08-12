@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
@@ -50,9 +51,9 @@ func (r *Reconciler) reconcileSpec(ctx context.Context, logger logr.Logger, pclq
 }
 
 func (r *Reconciler) ensureFinalizer(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
-	if !controllerutil.ContainsFinalizer(pclq, grovecorev1alpha1.FinalizerPodClique) {
-		logger.Info("Adding finalizer", "PodClique", client.ObjectKeyFromObject(pclq), "finalizerName", grovecorev1alpha1.FinalizerPodClique)
-		if err := ctrlutils.AddAndPatchFinalizer(ctx, r.client, pclq, grovecorev1alpha1.FinalizerPodClique); err != nil {
+	if !controllerutil.ContainsFinalizer(pclq, constants.FinalizerPodClique) {
+		logger.Info("Adding finalizer", "PodClique", client.ObjectKeyFromObject(pclq), "finalizerName", constants.FinalizerPodClique)
+		if err := ctrlutils.AddAndPatchFinalizer(ctx, r.client, pclq, constants.FinalizerPodClique); err != nil {
 			return ctrlcommon.ReconcileWithErrors("error adding finalizer", err)
 		}
 	}
@@ -75,9 +76,9 @@ func (r *Reconciler) syncPCLQResources(ctx context.Context, logger logr.Logger, 
 		}
 		logger.Info("Syncing PodClique resources", "kind", kind)
 		if err = operator.Sync(ctx, logger, pclq); err != nil {
-			if ctrlutils.ShouldRequeueAfter(err) {
+			if shouldRequeue, msg := ctrlutils.ShouldRequeueAfter(err); shouldRequeue {
 				logger.Info("retrying sync due to component", "kind", kind, "syncRetryInterval", ctrlcommon.ComponentSyncRetryInterval)
-				return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, fmt.Sprintf("requeueing sync due to component %s after %s", kind, ctrlcommon.ComponentSyncRetryInterval))
+				return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, msg)
 			}
 			logger.Error(err, "failed to sync PodClique resources", "kind", kind)
 			return ctrlcommon.ReconcileWithErrors("error syncing managed resources", fmt.Errorf("failed to sync %s: %w", kind, err))

@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strconv"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveevents "github.com/NVIDIA/grove/operator/internal/component/events"
@@ -101,7 +102,7 @@ func (r _resource) getPCLQsForPGS(ctx context.Context, pgsObjectKey client.Objec
 	pclqList := &grovecorev1alpha1.PodCliqueList{}
 	if err := r.client.List(ctx, pclqList,
 		client.InNamespace(pgsObjectKey.Namespace),
-		client.MatchingLabels(k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsObjectKey.Name))); err != nil {
+		client.MatchingLabels(apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjectKey.Name))); err != nil {
 		return nil, err
 	}
 	return pclqList.Items, nil
@@ -141,7 +142,7 @@ func (r _resource) computeExpectedPodGangs(sc *syncContext) error {
 func getExpectedPodGangForPGSReplicas(sc *syncContext) []podGangInfo {
 	expectedPodGangs := make([]podGangInfo, 0, int(sc.pgs.Spec.Replicas))
 	for pgsReplica := range sc.pgs.Spec.Replicas {
-		podGangName := grovecorev1alpha1.GenerateBasePodGangName(grovecorev1alpha1.ResourceNameReplica{Name: sc.pgs.Name, Replica: int(pgsReplica)})
+		podGangName := apicommon.GenerateBasePodGangName(apicommon.ResourceNameReplica{Name: sc.pgs.Name, Replica: int(pgsReplica)})
 		expectedPodGangs = append(expectedPodGangs, podGangInfo{
 			fqn:   podGangName,
 			pclqs: identifyConstituentPCLQsForPGSBasePodGang(sc, pgsReplica),
@@ -161,7 +162,7 @@ func (r _resource) getExpectedPodGangsForPCSG(ctx context.Context, pgs *grovecor
 	// For each template PCSG config, compute the expected podGangInfo's
 	for _, pcsgConfig := range pgs.Spec.Template.PodCliqueScalingGroupConfigs {
 		// Generate PCSG resource name from template name
-		pcsgFQN := grovecorev1alpha1.GeneratePodCliqueScalingGroupName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplica}, pcsgConfig.Name)
+		pcsgFQN := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplica}, pcsgConfig.Name)
 
 		// MinAvailable should always be non-nil due to kubebuilder default and defaulting webhook
 		minAvailable := int(*pcsgConfig.MinAvailable)
@@ -180,7 +181,7 @@ func (r _resource) getExpectedPodGangsForPCSG(ctx context.Context, pgs *grovecor
 		// Scaled PodGangs use 0-based indexing regardless of minAvailable value
 		scaledReplicas := replicas - minAvailable
 		for podGangIndex, pcsgReplica := 0, minAvailable; podGangIndex < scaledReplicas; podGangIndex, pcsgReplica = podGangIndex+1, pcsgReplica+1 {
-			podGangName := grovecorev1alpha1.CreatePodGangNameFromPCSGFQN(pcsgFQN, podGangIndex)
+			podGangName := apicommon.CreatePodGangNameFromPCSGFQN(pcsgFQN, podGangIndex)
 			pclqs, err := identifyConstituentPCLQsForPCSGPodGang(pgs, pcsgFQN, pcsgReplica, pcsgConfig.CliqueNames)
 			if err != nil {
 				return nil, err
@@ -230,12 +231,12 @@ func buildPCSGPodCliqueInfosForBasePodGang(sc *syncContext, pclqTemplateSpec *gr
 
 	pclqs := make([]pclqInfo, 0, minAvailable)
 	for replicaIndex := range minAvailable {
-		pcsgFQN := grovecorev1alpha1.GeneratePodCliqueScalingGroupName(
-			grovecorev1alpha1.ResourceNameReplica{Name: sc.pgs.Name, Replica: int(pgsReplica)},
+		pcsgFQN := apicommon.GeneratePodCliqueScalingGroupName(
+			apicommon.ResourceNameReplica{Name: sc.pgs.Name, Replica: int(pgsReplica)},
 			pcsgConfig.Name,
 		)
-		pclqFQN := grovecorev1alpha1.GeneratePodCliqueName(
-			grovecorev1alpha1.ResourceNameReplica{Name: pcsgFQN, Replica: replicaIndex},
+		pclqFQN := apicommon.GeneratePodCliqueName(
+			apicommon.ResourceNameReplica{Name: pcsgFQN, Replica: replicaIndex},
 			pclqTemplateSpec.Name,
 		)
 
@@ -247,8 +248,8 @@ func buildPCSGPodCliqueInfosForBasePodGang(sc *syncContext, pclqTemplateSpec *gr
 
 // buildNonPCSGPodCliqueInfosForBasePodGang generates pclqInfo for a PodClique that doesn't belong to a scaling group
 func buildNonPCSGPodCliqueInfosForBasePodGang(sc *syncContext, pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, pgsReplica int32) pclqInfo {
-	pclqFQN := grovecorev1alpha1.GeneratePodCliqueName(
-		grovecorev1alpha1.ResourceNameReplica{Name: sc.pgs.Name, Replica: int(pgsReplica)},
+	pclqFQN := apicommon.GeneratePodCliqueName(
+		apicommon.ResourceNameReplica{Name: sc.pgs.Name, Replica: int(pgsReplica)},
 		pclqTemplateSpec.Name,
 	)
 	return buildPodCliqueInfo(sc, pclqTemplateSpec, pclqFQN)
@@ -293,7 +294,7 @@ func identifyConstituentPCLQsForPCSGPodGang(pgs *grovecorev1alpha1.PodGangSet, p
 			return nil, fmt.Errorf("PodCliqueScalingGroup references a PodClique that does not exist in the PodGangSet: %s", pclqName)
 		}
 
-		pclqFQN := grovecorev1alpha1.GeneratePodCliqueName(grovecorev1alpha1.ResourceNameReplica{Name: pcsgFQN, Replica: pcsgReplica}, pclqName)
+		pclqFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcsgFQN, Replica: pcsgReplica}, pclqName)
 
 		// Create pclqInfo using consistent logic (note: we use template replicas here since this is for scaling group instances)
 		constituentPCLQs = append(constituentPCLQs, pclqInfo{
@@ -312,9 +313,9 @@ func (r _resource) getExistingPodCliqueScalingGroups(ctx context.Context, pgs *g
 		client.InNamespace(pgs.Namespace),
 		client.MatchingLabels(
 			lo.Assign(
-				k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
+				apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
 				map[string]string{
-					grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplica),
+					apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplica),
 				},
 			),
 		),
@@ -331,7 +332,7 @@ func (r _resource) getPodsByPCLQForPGS(ctx context.Context, pgsObjectKey client.
 	if err := r.client.List(ctx,
 		podList,
 		client.InNamespace(pgsObjectKey.Namespace),
-		client.MatchingLabels(k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsObjectKey.Name)),
+		client.MatchingLabels(apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjectKey.Name)),
 	); err != nil {
 		return nil, err
 	}
@@ -435,7 +436,7 @@ func (r _resource) getPodsPendingCreationOrAssociation(sc *syncContext, podGang 
 
 		// For all existing pods in the PCLQ, check if they have the PodGang label set. If that is not set then add them to numPodsPendingCreateOrAssociate.
 		for _, existingPod := range existingPCLQPods {
-			podGangLabelValue, ok := existingPod.GetLabels()[grovecorev1alpha1.LabelPodGang]
+			podGangLabelValue, ok := existingPod.GetLabels()[apicommon.LabelPodGang]
 			if !ok {
 				sc.logger.Info("Pod does not have a PodGang label yet", "podObjectKey", client.ObjectKeyFromObject(&existingPod), "expectedPodGangName", podGang.fqn)
 				numPodsPendingCreateOrAssociate += 1
@@ -520,8 +521,8 @@ func (sc *syncContext) getPodGangNamesPendingCreation() []string {
 func (sc *syncContext) initializeAssignedAndUnassignedPodsForPGS(podsByPLCQ map[string][]corev1.Pod) {
 	for pclqName, pods := range podsByPLCQ {
 		for _, pod := range pods {
-			if metav1.HasLabel(pod.ObjectMeta, grovecorev1alpha1.LabelPodGang) {
-				podGangName := pod.GetLabels()[grovecorev1alpha1.LabelPodGang]
+			if metav1.HasLabel(pod.ObjectMeta, apicommon.LabelPodGang) {
+				podGangName := pod.GetLabels()[apicommon.LabelPodGang]
 				// Find the index to work with the original slice element, not a copy
 				pgiIndex := slices.IndexFunc(sc.expectedPodGangs, func(pgi podGangInfo) bool {
 					return podGangName == pgi.fqn

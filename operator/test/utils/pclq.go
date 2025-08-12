@@ -19,8 +19,9 @@ package utils
 import (
 	"strconv"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
-	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
 
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,12 +53,12 @@ func NewPCSGPodCliqueBuilder(name, namespace, pgsName, pcsgName string, pgsRepli
 			Name:      name,
 			Namespace: namespace,
 			Labels: map[string]string{
-				grovecorev1alpha1.LabelManagedByKey:                      grovecorev1alpha1.LabelManagedByValue,
-				grovecorev1alpha1.LabelPartOfKey:                         pgsName,
-				grovecorev1alpha1.LabelPodCliqueScalingGroup:             pcsgName,
-				grovecorev1alpha1.LabelComponentKey:                      grovecorev1alpha1.LabelComponentPCSGPodCliqueValue,
-				grovecorev1alpha1.LabelPodGangSetReplicaIndex:            strconv.Itoa(pgsReplicaIndex),
-				grovecorev1alpha1.LabelPodCliqueScalingGroupReplicaIndex: strconv.Itoa(pcsgReplicaIndex),
+				constants.LabelManagedByKey:                      constants.LabelManagedByValue,
+				constants.LabelPartOfKey:                         pgsName,
+				constants.LabelPodCliqueScalingGroup:             pcsgName,
+				constants.LabelComponentKey:                      constants.LabelComponentPCSGPodCliqueValue,
+				constants.LabelPodGangSetReplicaIndex:            strconv.Itoa(pgsReplicaIndex),
+				constants.LabelPodCliqueScalingGroupReplicaIndex: strconv.Itoa(pcsgReplicaIndex),
 			},
 		},
 		Spec: grovecorev1alpha1.PodCliqueSpec{
@@ -91,7 +92,7 @@ func (b *PodCliqueBuilder) WithReplicas(replicas int32) *PodCliqueBuilder {
 // WithStartsAfter sets the StartsAfter field for the PodClique.
 func (b *PodCliqueBuilder) WithStartsAfter(pclqTemplateNames []string) *PodCliqueBuilder {
 	pclqDependencies := lo.Map(pclqTemplateNames, func(pclqTemplateName string, _ int) string {
-		return grovecorev1alpha1.GeneratePodCliqueName(grovecorev1alpha1.ResourceNameReplica{Name: b.pgsName, Replica: int(b.pgsReplicaIndex)}, pclqTemplateName)
+		return apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: b.pgsName, Replica: int(b.pgsReplicaIndex)}, pclqTemplateName)
 	})
 	b.pclq.Spec.StartsAfter = pclqDependencies
 	return b
@@ -134,12 +135,12 @@ func (b *PodCliqueBuilder) Build() *grovecorev1alpha1.PodClique {
 }
 
 func (b *PodCliqueBuilder) withDefaultPodSpec() *PodCliqueBuilder {
-	b.pclq.Spec.PodSpec = *NewPodBuilder().Build()
+	b.pclq.Spec.PodSpec = NewPodWithBuilderWithDefaultSpec("test-name", "test-ns").Build().Spec
 	return b
 }
 
 func createDefaultPodCliqueWithoutPodSpec(pgsName string, pgsUID types.UID, pclqTemplateName, namespace string, pgsReplicaIndex int32) *grovecorev1alpha1.PodClique {
-	pclqName := grovecorev1alpha1.GeneratePodCliqueName(grovecorev1alpha1.ResourceNameReplica{Name: pgsName, Replica: int(pgsReplicaIndex)}, pclqTemplateName)
+	pclqName := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pgsName, Replica: int(pgsReplicaIndex)}, pclqTemplateName)
 	return &grovecorev1alpha1.PodClique{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pclqName,
@@ -148,7 +149,7 @@ func createDefaultPodCliqueWithoutPodSpec(pgsName string, pgsUID types.UID, pclq
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion:         grovecorev1alpha1.SchemeGroupVersion.String(),
-					Kind:               grovecorev1alpha1.PodGangSetKind,
+					Kind:               constants.KindPodGangSet,
 					Name:               pgsName,
 					UID:                pgsUID,
 					Controller:         ptr.To(true),
@@ -165,12 +166,12 @@ func createDefaultPodCliqueWithoutPodSpec(pgsName string, pgsUID types.UID, pclq
 
 func getDefaultLabels(pgsName, pclqName string, pgsReplicaIndex int32) map[string]string {
 	pclqComponentLabels := map[string]string{
-		grovecorev1alpha1.LabelAppNameKey:             pclqName,
-		grovecorev1alpha1.LabelComponentKey:           grovecorev1alpha1.LabelComponentPGSPodCliqueValue,
-		grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(int(pgsReplicaIndex)),
+		apicommon.LabelAppNameKey:             pclqName,
+		apicommon.LabelComponentKey:           constants.LabelComponentPCSGPodCliqueValue,
+		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(int(pgsReplicaIndex)),
 	}
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		pclqComponentLabels,
 	)
 }

@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"strconv"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
@@ -194,48 +196,49 @@ func (r _resource) Delete(ctx context.Context, logger logr.Logger, pclqObjectMet
 func getSelectorLabelsForPods(pclqObjectMeta metav1.ObjectMeta) map[string]string {
 	pgsName := k8sutils.GetFirstOwnerName(pclqObjectMeta)
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		map[string]string{
-			grovecorev1alpha1.LabelPodClique: pclqObjectMeta.Name,
+			apicommon.LabelPodClique: pclqObjectMeta.Name,
 		},
 	)
 }
 
 func getLabels(pclqObjectMeta metav1.ObjectMeta, pgsName, podGangName string, pgsReplicaIndex int) map[string]string {
 	labels := map[string]string{
-		grovecorev1alpha1.LabelPodClique:              pclqObjectMeta.Name,
-		grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
-		grovecorev1alpha1.LabelPodGang:                podGangName,
+		apicommon.LabelPodClique:              pclqObjectMeta.Name,
+		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
+		apicommon.LabelPodGang:                podGangName,
 	}
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		pclqObjectMeta.Labels,
-		labels)
+		labels,
+	)
 }
 
 // addEnvironmentVariables adds Grove-specific environment variables to all containers and init-containers.
 func addEnvironmentVariables(pod *corev1.Pod, pclq *grovecorev1alpha1.PodClique, pgsName string, pgsReplicaIndex, podIndex int) {
 	groveEnvVars := []corev1.EnvVar{
 		{
-			Name:  grovecorev1alpha1.EnvVarPGSName,
+			Name:  constants.EnvVarPGSName,
 			Value: pgsName,
 		},
 		{
-			Name:  grovecorev1alpha1.EnvVarPGSIndex,
+			Name:  constants.EnvVarPGSIndex,
 			Value: strconv.Itoa(pgsReplicaIndex),
 		},
 		{
-			Name:  grovecorev1alpha1.EnvVarPCLQName,
+			Name:  constants.EnvVarPCLQName,
 			Value: pclq.Name,
 		},
 		{
-			Name: grovecorev1alpha1.EnvVarHeadlessService,
-			Value: grovecorev1alpha1.GenerateHeadlessServiceAddress(
-				grovecorev1alpha1.ResourceNameReplica{Name: pgsName, Replica: pgsReplicaIndex},
+			Name: constants.EnvVarHeadlessService,
+			Value: apicommon.GenerateHeadlessServiceAddress(
+				apicommon.ResourceNameReplica{Name: pgsName, Replica: pgsReplicaIndex},
 				pod.Namespace),
 		},
 		{
-			Name:  grovecorev1alpha1.EnvVarPodIndex,
+			Name:  constants.EnvVarPodIndex,
 			Value: strconv.Itoa(podIndex),
 		},
 	}
@@ -249,6 +252,6 @@ func configurePodHostname(pgsName string, pgsReplicaIndex int, pclqName string, 
 	pod.Spec.Hostname = fmt.Sprintf("%s-%d", pclqName, podIndex)
 
 	// Set subdomain to headless service name (reusing existing logic)
-	pod.Spec.Subdomain = grovecorev1alpha1.GenerateHeadlessServiceName(
-		grovecorev1alpha1.ResourceNameReplica{Name: pgsName, Replica: pgsReplicaIndex})
+	pod.Spec.Subdomain = apicommon.GenerateHeadlessServiceName(
+		apicommon.ResourceNameReplica{Name: pgsName, Replica: pgsReplicaIndex})
 }

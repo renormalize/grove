@@ -20,9 +20,12 @@ import (
 	"context"
 	"fmt"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
+	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
 	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
 
 	"github.com/go-logr/logr"
@@ -33,7 +36,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) ctrlcommon.ReconcileStepResult {
+func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pcsgObjectKey client.ObjectKey) ctrlcommon.ReconcileStepResult {
+	// It is important that we re-fetch the PodCliqueScalingGroup. In case rolling update has been started during the spec reconciliation,
+	// then UpdateInProgress condition will be set. It is essential that this is checked when computing status.
+	// It is a possibility that the informer cache does not reflect the changes that are made to status conditions are not immediately reflected.
+	// However, it is currently assumed that eventually this condition will be visible eventually. We will think of alleviating this delay
+	// in the future.
+	pcsg := &grovecorev1alpha1.PodCliqueScalingGroup{}
+	if result := ctrlutils.GetPodCliqueScalingGroup(ctx, r.client, logger, pcsgObjectKey, pcsg); ctrlcommon.ShortCircuitReconcileFlow(result) {
+		return result
+	}
 	pgs, err := componentutils.GetOwnerPodGangSet(ctx, r.client, pcsg.ObjectMeta)
 	if err != nil {
 		return ctrlcommon.ReconcileWithErrors("failed to get owner PodGangSet", err)
@@ -91,7 +103,7 @@ func computeReplicaStatus(logger logr.Logger, expectedPCSGReplicaPCLQSize int, p
 		return false, false
 	}
 	isScheduled = lo.EveryBy(nonTerminatedPCSGPodCliques, func(pclq grovecorev1alpha1.PodClique) bool {
-		return k8sutils.IsConditionTrue(pclq.Status.Conditions, grovecorev1alpha1.ConditionTypePodCliqueScheduled)
+		return k8sutils.IsConditionTrue(pclq.Status.Conditions, constants.ConditionTypePodCliqueScheduled)
 	})
 	// A PodClique is considered available if it schedules at least MinAvailable pods.
 	if isScheduled {
@@ -114,14 +126,29 @@ func mutateMinAvailableBreachedCondition(logger logr.Logger, pcsg *grovecorev1al
 	}
 }
 
+// computeMinAvailableBreachedCondition computes the MinAvailableBreached condition for the PodCliqueScalingGroup.
+// If rolling update is under progress, then gang termination for this PCSG is disabled. This is achieved by marking the status to `Unknown`. This PCSG will not influence
+// the gang termination of PGS replica till its update has completed.
+// If the number of scheduled replicas is less than the MinAvailable, then it is too pre-mature to set the MinAvailableBreached condition to true.
+// If we set MinAvailableBreached condition to true, then it can result in pre-mature gang termination when the PodClique Pods are still starting.
+// If there are sufficient scheduled replicas (i.e. scheduledReplicas >= minAvailable), then we can compute the MinAvailableBreached condition based on the number of ready replicas.
 func computeMinAvailableBreachedCondition(logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pclqsPerPCSGReplica map[string][]grovecorev1alpha1.PodClique) metav1.Condition {
+	if componentutils.IsPCSGUpdateInProgress(pcsg) {
+		return metav1.Condition{
+			Type:    constants.ConditionTypeMinAvailableBreached,
+			Status:  metav1.ConditionUnknown,
+			Reason:  constants.ConditionReasonUpdateInProgress,
+			Message: "Update is in progress",
+		}
+	}
+
 	minAvailable := int(*pcsg.Spec.MinAvailable)
 	scheduledReplicas := int(pcsg.Status.ScheduledReplicas)
 	if scheduledReplicas < minAvailable {
 		return metav1.Condition{
-			Type:    grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+			Type:    constants.ConditionTypeMinAvailableBreached,
 			Status:  metav1.ConditionFalse,
-			Reason:  grovecorev1alpha1.ConditionReasonInsufficientScheduledPCSGReplicas,
+			Reason:  constants.ConditionReasonInsufficientScheduledPCSGReplicas,
 			Message: fmt.Sprintf("Insufficient scheduled replicas. expected at least: %d, found: %d", minAvailable, scheduledReplicas),
 		}
 	}
@@ -129,16 +156,16 @@ func computeMinAvailableBreachedCondition(logger logr.Logger, pcsg *grovecorev1a
 	availableReplicas := scheduledReplicas - minAvailableBreachedReplicas
 	if availableReplicas < minAvailable {
 		return metav1.Condition{
-			Type:    grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+			Type:    constants.ConditionTypeMinAvailableBreached,
 			Status:  metav1.ConditionTrue,
-			Reason:  grovecorev1alpha1.ConditionReasonInsufficientAvailablePCSGReplicas,
+			Reason:  constants.ConditionReasonInsufficientAvailablePCSGReplicas,
 			Message: fmt.Sprintf("Insufficient PodCliqueScalingGroup ready replicas, expected at least: %d, found: %d", minAvailable, availableReplicas),
 		}
 	}
 	return metav1.Condition{
-		Type:    grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+		Type:    constants.ConditionTypeMinAvailableBreached,
 		Status:  metav1.ConditionFalse,
-		Reason:  grovecorev1alpha1.ConditionReasonSufficientAvailablePCSGReplicas,
+		Reason:  constants.ConditionReasonSufficientAvailablePCSGReplicas,
 		Message: fmt.Sprintf("Sufficient PodCliqueScalingGroup ready replicas, expected at least: %d, found: %d", minAvailable, availableReplicas),
 	}
 }
@@ -147,7 +174,7 @@ func computeMinAvailableBreachedReplicas(logger logr.Logger, pclqsPerPCSGReplica
 	var breachedReplicas int
 	for pcsgReplicaIndex, pclqs := range pclqsPerPCSGReplica {
 		isMinAvailableBreached := lo.Reduce(pclqs, func(agg bool, pclq grovecorev1alpha1.PodClique, _ int) bool {
-			return agg || k8sutils.IsConditionTrue(pclq.Status.Conditions, grovecorev1alpha1.ConditionTypeMinAvailableBreached)
+			return agg || k8sutils.IsConditionTrue(pclq.Status.Conditions, constants.ConditionTypeMinAvailableBreached)
 		}, false)
 		if isMinAvailableBreached {
 			breachedReplicas++
@@ -159,15 +186,15 @@ func computeMinAvailableBreachedReplicas(logger logr.Logger, pclqsPerPCSGReplica
 
 func (r *Reconciler) getPodCliquesPerPCSGReplica(ctx context.Context, pgsName string, pcsgObjKey client.ObjectKey) (map[string][]grovecorev1alpha1.PodClique, error) {
 	selectorLabels := lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		map[string]string{
-			grovecorev1alpha1.LabelPodCliqueScalingGroup: pcsgObjKey.Name,
-			grovecorev1alpha1.LabelComponentKey:          grovecorev1alpha1.LabelComponentPCSGPodCliqueValue,
+			apicommon.LabelPodCliqueScalingGroup: pcsgObjKey.Name,
+			apicommon.LabelComponentKey:          constants.LabelComponentPCSGPodCliqueValue,
 		},
 	)
 	pclqs, err := componentutils.GetPCLQsByOwner(ctx,
 		r.client,
-		grovecorev1alpha1.PodCliqueScalingGroupKind,
+		constants.KindPodCliqueScalingGroup,
 		pcsgObjKey,
 		selectorLabels,
 	)
@@ -184,7 +211,7 @@ func mutateSelector(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.P
 		return err
 	}
 	matchingPCSGConfig, ok := lo.Find(pgs.Spec.Template.PodCliqueScalingGroupConfigs, func(pcsgConfig grovecorev1alpha1.PodCliqueScalingGroupConfig) bool {
-		pcsgFQN := grovecorev1alpha1.GeneratePodCliqueScalingGroupName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, pcsgConfig.Name)
+		pcsgFQN := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, pcsgConfig.Name)
 		return pcsgFQN == pcsg.Name
 	})
 	if !ok {
@@ -196,9 +223,9 @@ func mutateSelector(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.P
 		return nil
 	}
 	labels := lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
 		map[string]string{
-			grovecorev1alpha1.LabelPodCliqueScalingGroup: pcsg.Name,
+			apicommon.LabelPodCliqueScalingGroup: pcsg.Name,
 		},
 	)
 	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: labels})

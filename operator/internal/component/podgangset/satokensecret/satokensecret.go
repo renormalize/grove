@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
@@ -134,25 +135,25 @@ func (r _resource) buildResource(pgs *grovecorev1alpha1.PodGangSet, secret *core
 	}
 	secret.Type = corev1.SecretTypeServiceAccountToken
 	secret.Annotations = map[string]string{
-		corev1.ServiceAccountNameKey: grovecorev1alpha1.GeneratePodServiceAccountName(pgs.Name),
+		corev1.ServiceAccountNameKey: apicommon.GeneratePodServiceAccountName(pgs.Name),
 	}
 	return nil
 }
 
 func getLabels(pgsName, secretName string) map[string]string {
 	secretLabels := map[string]string{
-		grovecorev1alpha1.LabelComponentKey: component.NameServiceAccountTokenSecret,
-		grovecorev1alpha1.LabelAppNameKey:   secretName,
+		apicommon.LabelComponentKey: component.NameServiceAccountTokenSecret,
+		apicommon.LabelAppNameKey:   secretName,
 	}
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		secretLabels,
 	)
 }
 
 func getObjectKey(pgsObjMeta metav1.ObjectMeta) client.ObjectKey {
 	return client.ObjectKey{
-		Name:      grovecorev1alpha1.GenerateInitContainerSATokenSecretName(pgsObjMeta.Name),
+		Name:      apicommon.GenerateInitContainerSATokenSecretName(pgsObjMeta.Name),
 		Namespace: pgsObjMeta.Namespace,
 	}
 }
