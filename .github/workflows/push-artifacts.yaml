@@ -28,7 +28,7 @@ permissions:
   packages: write
 
 env:
-  DOCKER_REGISTRY: "ghcr.io/nvidia/grove"
+  DOCKER_REGISTRY: "ghcr.io/renormalize/grove"
 
 jobs:
   build-and-push:
@@ -79,9 +79,9 @@ jobs:
       - name: Build amd64 Helm chart
         run: |
           sed -i "s#name: grove#name: grove-amd64#" operator/charts/Chart.yaml
-          sed -i "s#repository: grove-operator#repository: ghcr.io/nvidia/grove/grove-operator-amd64#" operator/charts/values.yaml
+          sed -i "s#repository: grove-operator#repository: ghcr.io/renormalize/grove/grove-operator-amd64#" operator/charts/values.yaml
           sed -i "s#tag: latest#tag: $PACKAGE_VERSION#" operator/charts/values.yaml
-          sed -i "s#value: grove-initc#value: ghcr.io/nvidia/grove/grove-initc-amd64#" operator/charts/values.yaml
+          sed -i "s#value: grove-initc#value: ghcr.io/renormalize/grove/grove-initc-amd64#" operator/charts/values.yaml
           helm package ./operator/charts --app-version $PACKAGE_VERSION --version $PACKAGE_VERSION
           git restore . # Clean up for the subsequent steps
 
@@ -92,9 +92,9 @@ jobs:
       - name: Build arm64 Helm chart
         run: |
           sed -i "s#name: grove#name: grove-arm64#" operator/charts/Chart.yaml
-          sed -i "s#repository: grove-operator#repository: ghcr.io/nvidia/grove/grove-operator-arm64#" operator/charts/values.yaml
+          sed -i "s#repository: grove-operator#repository: ghcr.io/renormalize/grove/grove-operator-arm64#" operator/charts/values.yaml
           sed -i "s#tag: latest#tag: $PACKAGE_VERSION#" operator/charts/values.yaml
-          sed -i "s#value: grove-initc#value: ghcr.io/nvidia/grove/grove-initc-arm64#" operator/charts/values.yaml
+          sed -i "s#value: grove-initc#value: ghcr.io/renormalize/grove/grove-initc-arm64#" operator/charts/values.yaml
           helm package ./operator/charts --app-version $PACKAGE_VERSION --version $PACKAGE_VERSION
           git restore . # Clean up for the subsequent steps
 
