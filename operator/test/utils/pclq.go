@@ -17,10 +17,9 @@
 package utils
 
 import (
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
-	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
-
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -61,7 +60,7 @@ func (b *PodCliqueBuilder) WithReplicas(replicas int32) *PodCliqueBuilder {
 // WithStartsAfter sets the StartsAfter field for the PodClique.
 func (b *PodCliqueBuilder) WithStartsAfter(pclqTemplateNames []string) *PodCliqueBuilder {
 	pclqDependencies := lo.Map(pclqTemplateNames, func(pclqTemplateName string, _ int) string {
-		return grovecorev1alpha1.GeneratePodCliqueName(grovecorev1alpha1.ResourceNameReplica{Name: b.pgsName, Replica: int(b.pgsReplicaIndex)}, pclqTemplateName)
+		return apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: b.pgsName, Replica: int(b.pgsReplicaIndex)}, pclqTemplateName)
 	})
 	b.pclq.Spec.StartsAfter = pclqDependencies
 	return b
@@ -88,12 +87,12 @@ func (b *PodCliqueBuilder) Build() *grovecorev1alpha1.PodClique {
 }
 
 func (b *PodCliqueBuilder) withDefaultPodSpec() *PodCliqueBuilder {
-	b.pclq.Spec.PodSpec = *NewPodBuilder().Build()
+	b.pclq.Spec.PodSpec = NewPodWithBuilderWithDefaultSpec("test-name", "test-ns").Build().Spec
 	return b
 }
 
 func createDefaultPodCliqueWithoutPodSpec(pgsName string, pgsUID types.UID, pclqTemplateName, namespace string, pgsReplicaIndex int32) *grovecorev1alpha1.PodClique {
-	pclqName := grovecorev1alpha1.GeneratePodCliqueName(grovecorev1alpha1.ResourceNameReplica{Name: pgsName, Replica: int(pgsReplicaIndex)}, pclqTemplateName)
+	pclqName := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pgsName, Replica: int(pgsReplicaIndex)}, pclqTemplateName)
 	return &grovecorev1alpha1.PodClique{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pclqName,
@@ -118,11 +117,11 @@ func createDefaultPodCliqueWithoutPodSpec(pgsName string, pgsUID types.UID, pclq
 
 func getDefaultLabels(pgsName, pclqName string) map[string]string {
 	pclqComponentLabels := map[string]string{
-		grovecorev1alpha1.LabelAppNameKey:   pclqName,
-		grovecorev1alpha1.LabelComponentKey: component.NamePGSPodClique,
+		apicommon.LabelAppNameKey:   pclqName,
+		apicommon.LabelComponentKey: component.NamePGSPodClique,
 	}
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		pclqComponentLabels,
 	)
 }

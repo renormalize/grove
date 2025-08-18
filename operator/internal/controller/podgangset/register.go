@@ -18,6 +18,7 @@ package podgangset
 
 import (
 	"context"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
@@ -136,8 +137,8 @@ func hasAnyStatusReplicasChanged(oldPCLQStatus, newPCLQStatus grovecorev1alpha1.
 }
 
 func hasMinAvailableBreachedConditionChanged(oldConditions, newConditions []metav1.Condition) bool {
-	oldMinAvailableBreachedCond := meta.FindStatusCondition(oldConditions, grovecorev1alpha1.ConditionTypeMinAvailableBreached)
-	newMinAvailableBreachedCond := meta.FindStatusCondition(newConditions, grovecorev1alpha1.ConditionTypeMinAvailableBreached)
+	oldMinAvailableBreachedCond := meta.FindStatusCondition(oldConditions, constants.ConditionTypeMinAvailableBreached)
+	newMinAvailableBreachedCond := meta.FindStatusCondition(newConditions, constants.ConditionTypeMinAvailableBreached)
 	if utils.OnlyOneIsNil(oldMinAvailableBreachedCond, newMinAvailableBreachedCond) {
 		return true
 	}

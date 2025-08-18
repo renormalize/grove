@@ -18,6 +18,7 @@ package podcliquescalinggroup
 
 import (
 	"context"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 
 	groveconfigv1alpha1 "github.com/NVIDIA/grove/operator/api/config/v1alpha1"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -63,7 +64,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// Check if the deletion timestamp has not been set, do not handle if it is
 	var deletionOrSpecReconcileFlowResult ctrlcommon.ReconcileStepResult
 	if !pcsg.DeletionTimestamp.IsZero() {
-		if !controllerutil.ContainsFinalizer(pcsg, grovecorev1alpha1.FinalizerPodCliqueScalingGroup) {
+		if !controllerutil.ContainsFinalizer(pcsg, constants.FinalizerPodCliqueScalingGroup) {
 			return ctrlcommon.DoNotRequeue().Result()
 		}
 		dLog := logger.WithValues("operation", "delete")

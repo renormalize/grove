@@ -18,6 +18,7 @@ package internal
 
 import (
 	"context"
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"os"
 	"path/filepath"
 	"strings"
@@ -255,6 +256,6 @@ func (c *ParentPodCliqueDependencies) checkAllParentsReady() bool {
 
 func getLabelSelectorForPods(podGangName string) map[string]string {
 	return map[string]string{
-		grovecorev1alpha1.LabelPodGang: podGangName,
+		apicommon.LabelPodGang: podGangName,
 	}
 }

@@ -18,6 +18,7 @@ package pod
 
 import (
 	"fmt"
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"os"
 	"strings"
 
@@ -57,7 +58,7 @@ func addServiceAccountTokenSecretVolume(pgsName string, pod *corev1.Pod) {
 		Name: serviceAccountTokenSecretVolumeName,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
-				SecretName:  grovecorev1alpha1.GenerateInitContainerSATokenSecretName(pgsName),
+				SecretName:  apicommon.GenerateInitContainerSATokenSecretName(pgsName),
 				DefaultMode: ptr.To[int32](420),
 			},
 		},
@@ -80,7 +81,7 @@ func addPodInfoVolume(pod *corev1.Pod) {
 					{
 						Path: common.PodGangNameFileName,
 						FieldRef: &corev1.ObjectFieldSelector{
-							FieldPath: fmt.Sprintf("metadata.labels['%s']", grovecorev1alpha1.LabelPodGang),
+							FieldPath: fmt.Sprintf("metadata.labels['%s']", apicommon.LabelPodGang),
 						},
 					},
 				},

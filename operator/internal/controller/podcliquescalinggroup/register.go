@@ -18,7 +18,7 @@ package podcliquescalinggroup
 
 import (
 	"context"
-
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
 
@@ -91,7 +91,7 @@ func mapPGSToPCSG() handler.MapFunc {
 		requests := make([]reconcile.Request, 0, int(pgs.Spec.Replicas)*len(pcsgConfigs))
 		for pgsReplica := range pgs.Spec.Replicas {
 			for _, pcsgConfig := range pcsgConfigs {
-				pcsgName := grovecorev1alpha1.GeneratePodCliqueScalingGroupName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: int(pgsReplica)}, pcsgConfig.Name)
+				pcsgName := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: int(pgsReplica)}, pcsgConfig.Name)
 				requests = append(requests, reconcile.Request{
 					NamespacedName: client.ObjectKey{
 						Name:      pcsgName,
@@ -121,7 +121,7 @@ func mapPCLQToPCSG() handler.MapFunc {
 		if !ok {
 			return nil
 		}
-		pcsgName, ok := pclq.GetLabels()[grovecorev1alpha1.LabelPodCliqueScalingGroup]
+		pcsgName, ok := pclq.GetLabels()[apicommon.LabelPodCliqueScalingGroup]
 		if !ok || lo.IsEmpty(pcsgName) {
 			return nil
 		}

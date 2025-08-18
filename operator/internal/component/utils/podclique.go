@@ -18,6 +18,8 @@ package utils
 
 import (
 	"context"
+	"github.com/NVIDIA/grove/operator/api/common"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	"slices"
 	"time"
 
@@ -75,12 +77,12 @@ func GetPCLQsByNames(ctx context.Context, cl client.Client, namespace string, pc
 
 // GroupPCLQsByPodGangName filters PCLQs that have a PodGang label and groups them by the PodGang name.
 func GroupPCLQsByPodGangName(pclqs []grovecorev1alpha1.PodClique) map[string][]grovecorev1alpha1.PodClique {
-	return groupPCLQsByLabel(pclqs, grovecorev1alpha1.LabelPodGang)
+	return groupPCLQsByLabel(pclqs, common.LabelPodGang)
 }
 
 // GroupPCLQsByPCSGReplicaIndex filters PCLQs that have a PodCliqueScalingGroupReplicaIndex label and groups them by the PCSG replica.
 func GroupPCLQsByPCSGReplicaIndex(pclqs []grovecorev1alpha1.PodClique) map[string][]grovecorev1alpha1.PodClique {
-	return groupPCLQsByLabel(pclqs, grovecorev1alpha1.LabelPodCliqueScalingGroupReplicaIndex)
+	return groupPCLQsByLabel(pclqs, common.LabelPodCliqueScalingGroupReplicaIndex)
 }
 
 func groupPCLQsByLabel(pclqs []grovecorev1alpha1.PodClique, labelKey string) map[string][]grovecorev1alpha1.PodClique {
@@ -101,7 +103,7 @@ func GetMinAvailableBreachedPCLQInfo(pclqs []grovecorev1alpha1.PodClique, termin
 	pclqCandidateNames := make([]string, 0, len(pclqs))
 	waitForDurations := make([]time.Duration, 0, len(pclqs))
 	for _, pclq := range pclqs {
-		cond := meta.FindStatusCondition(pclq.Status.Conditions, grovecorev1alpha1.ConditionTypeMinAvailableBreached)
+		cond := meta.FindStatusCondition(pclq.Status.Conditions, constants.ConditionTypeMinAvailableBreached)
 		if cond == nil {
 			continue
 		}

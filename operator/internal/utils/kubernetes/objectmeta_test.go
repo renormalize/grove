@@ -17,6 +17,7 @@
 package kubernetes
 
 import (
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"testing"
 
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -60,7 +61,7 @@ func newTestOwnerReferenceSimple(name string, isController bool) metav1.OwnerRef
 }
 
 func TestGetDefaultLabelsForPodGangSetManagedResources(t *testing.T) {
-	labels := GetDefaultLabelsForPodGangSetManagedResources(testPgsName)
+	labels := apicommon.GetDefaultLabelsForPodGangSetManagedResources(testPgsName)
 	assert.Equal(t, labels, map[string]string{
 		"app.kubernetes.io/managed-by": "grove-operator",
 		"app.kubernetes.io/part-of":    testPgsName,

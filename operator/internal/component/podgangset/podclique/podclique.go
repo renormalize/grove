@@ -19,6 +19,7 @@ package podclique
 import (
 	"context"
 	"fmt"
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"strconv"
 	"strings"
 	"time"
@@ -143,7 +144,7 @@ func (r _resource) createExpectedPCLQs(ctx context.Context, logger logr.Logger, 
 	for pgsReplica := range pgs.Spec.Replicas {
 		for _, expectedPCLQName := range expectedPCLQNames {
 			pclqObjectKey := client.ObjectKey{
-				Name:      grovecorev1alpha1.GeneratePodCliqueName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: int(pgsReplica)}, expectedPCLQName),
+				Name:      apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: int(pgsReplica)}, expectedPCLQName),
 				Namespace: pgs.Namespace,
 			}
 			createTask := utils.Task{
@@ -238,9 +239,9 @@ func (r _resource) createPGSReplicaDeleteTask(logger logr.Logger, pgs *grovecore
 				client.InNamespace(pgs.Namespace),
 				client.MatchingLabels(
 					lo.Assign(
-						k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
+						apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
 						map[string]string{
-							grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
+							apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
 						},
 					))); err != nil {
 				logger.Error(err, "failed to delete PodCliques for PGS Replica index", "pgsReplicaIndex", pgsReplicaIndex, "reason", reason)
@@ -399,7 +400,7 @@ func (r _resource) buildResource(logger logr.Logger, pclq *grovecorev1alpha1.Pod
 			fmt.Sprintf("Error setting controller reference for PodClique: %v", client.ObjectKeyFromObject(pclq)),
 		)
 	}
-	pclq.Labels = getLabels(pgs, pgsReplica, pclqObjectKey, pclqTemplateSpec, grovecorev1alpha1.GeneratePodGangNameForPodCliqueOwnedByPodGangSet(pgs, pgsReplica))
+	pclq.Labels = getLabels(pgs, pgsReplica, pclqObjectKey, pclqTemplateSpec, apicommon.GeneratePodGangNameForPodCliqueOwnedByPodGangSet(pgs, pgsReplica))
 	pclq.Annotations = pclqTemplateSpec.Annotations
 	// set PodCliqueSpec
 	// ------------------------------------
@@ -447,23 +448,23 @@ func getExplicitStartupDependencies(pgs *grovecorev1alpha1.PodGangSet, pgsReplic
 
 func getPodCliqueSelectorLabels(pgsObjectMeta metav1.ObjectMeta) map[string]string {
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsObjectMeta.Name),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjectMeta.Name),
 		map[string]string{
-			grovecorev1alpha1.LabelComponentKey: component.NamePGSPodClique,
+			apicommon.LabelComponentKey: component.NamePGSPodClique,
 		},
 	)
 }
 
 func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplica int, pclqObjectKey client.ObjectKey, pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, podGangName string) map[string]string {
 	pclqComponentLabels := map[string]string{
-		grovecorev1alpha1.LabelAppNameKey:             pclqObjectKey.Name,
-		grovecorev1alpha1.LabelComponentKey:           component.NamePGSPodClique,
-		grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplica),
-		grovecorev1alpha1.LabelPodGang:                podGangName,
+		apicommon.LabelAppNameKey:             pclqObjectKey.Name,
+		apicommon.LabelComponentKey:           component.NamePGSPodClique,
+		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplica),
+		apicommon.LabelPodGang:                podGangName,
 	}
 	return lo.Assign(
 		pclqTemplateSpec.Labels,
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
 		pclqComponentLabels,
 	)
 }

@@ -19,6 +19,7 @@ package podcliquescalinggroup
 import (
 	"context"
 	"fmt"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
@@ -49,10 +50,10 @@ func (r *Reconciler) reconcileSpec(ctx context.Context, logger logr.Logger, pcsg
 }
 
 func (r *Reconciler) ensureFinalizer(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) ctrlcommon.ReconcileStepResult {
-	if !controllerutil.ContainsFinalizer(pcsg, grovecorev1alpha1.FinalizerPodGangSet) {
-		logger.Info("Adding finalizer", "finalizerName", grovecorev1alpha1.FinalizerPodCliqueScalingGroup)
-		if err := ctrlutils.AddAndPatchFinalizer(ctx, r.client, pcsg, grovecorev1alpha1.FinalizerPodCliqueScalingGroup); err != nil {
-			return ctrlcommon.ReconcileWithErrors("error adding finalizer", fmt.Errorf("failed to add finalizer: %s to PodGangSet: %v: %w", grovecorev1alpha1.FinalizerPodCliqueScalingGroup, client.ObjectKeyFromObject(pcsg), err))
+	if !controllerutil.ContainsFinalizer(pcsg, constants.FinalizerPodGangSet) {
+		logger.Info("Adding finalizer", "finalizerName", constants.FinalizerPodCliqueScalingGroup)
+		if err := ctrlutils.AddAndPatchFinalizer(ctx, r.client, pcsg, constants.FinalizerPodCliqueScalingGroup); err != nil {
+			return ctrlcommon.ReconcileWithErrors("error adding finalizer", fmt.Errorf("failed to add finalizer: %s to PodGangSet: %v: %w", constants.FinalizerPodCliqueScalingGroup, client.ObjectKeyFromObject(pcsg), err))
 		}
 	}
 	return ctrlcommon.ContinueReconcile()
