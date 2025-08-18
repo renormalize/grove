@@ -98,18 +98,15 @@ kind-down: $(KIND)
 # -------------------------------------------------------------
 
 # Builds the grove-initc and grove-operator docker images for the specified platform.
-# Usage: make docker-build-<arch>
-# Example: make docker-build-amd64, make docker-build-arm64
-.PHONY: docker-build-%
-docker-build-%:
-	@GOARCH=$$(echo $* | cut -d- -f 1) $(MODULE_HACK_DIR)/docker-build.sh
+# Usage: PLATFORM=linux/amd64 make docker-build
+# Multiplatform builds: PLATFORM=linux/amd64,linux/arm64 make docker-build
+.PHONY: docker-build
+docker-build:
+	@$(MODULE_HACK_DIR)/docker-build.sh
 
 # Make targets for deploying grove-operator to a k8s cluster via skaffold
 # -------------------------------------------------------------
 # Deploys grove-operator to a k8s cluster using skaffold.
-ifndef CERT_EXPIRY
-override CERT_EXPIRY = 12h
-endif
 
 ifndef NAMESPACE
 override NAMESPACE = default
@@ -118,19 +115,19 @@ endif
 # Deploys grove-operator to a k8s cluster using skaffold.
 .PHONY: deploy
 deploy: $(SKAFFOLD)
-	@$(MODULE_HACK_DIR)/prepare-deploy.sh $(NAMESPACE) $(CERT_EXPIRY)
+	@$(MODULE_HACK_DIR)/prepare-charts.sh
 	@PACKAGE_PATH=${LD_PACKAGE_PATH} PROGRAM_NAME=${OPERATOR_NAME} $(MODULE_HACK_DIR)/deploy.sh run -m grove-operator -n $(NAMESPACE)
 
 # Deploys grove-operator to a k8s cluster using skaffold in dev mode.
 .PHONY: deploy-dev
 deploy-dev: $(SKAFFOLD)
-	@$(MODULE_HACK_DIR)/prepare-deploy.sh $(NAMESPACE) $(CERT_EXPIRY)
+	@$(MODULE_HACK_DIR)/prepare-charts.sh
 	@PACKAGE_PATH=${LD_PACKAGE_PATH} PROGRAM_NAME=${OPERATOR_NAME} $(MODULE_HACK_DIR)/deploy.sh dev --cleanup=false --keep-running-on-failure -m grove-operator --trigger='manual' -n $(NAMESPACE)
 
 # Deploys grove-operator to a k8s cluster using skaffold in debug mode.
 .PHONY: deploy-debug
 deploy-debug: $(SKAFFOLD)
-	@$(MODULE_HACK_DIR)/prepare-deploy.sh $(NAMESPACE) $(CERT_EXPIRY)
+	@$(MODULE_HACK_DIR)/prepare-charts.sh
 	@PACKAGE_PATH=${LD_PACKAGE_PATH} PROGRAM_NAME=${OPERATOR_NAME} $(MODULE_HACK_DIR)/deploy.sh debug --cleanup=false -m grove-operator -p debug -n $(NAMESPACE)
 
 # Undeploys grove-operator from a k8s cluster using skaffold.
@@ -146,4 +143,3 @@ deploy-addons:
 .PHONY: clean-chart-resources
 clean-chart-resources:
 	@rm -f $(MODULE_ROOT)/charts/crds/*.yaml
-	@rm -rf $(MODULE_ROOT)/charts/pki-resources/*
