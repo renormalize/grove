@@ -18,12 +18,14 @@ package utils
 
 import (
 	"context"
-	apicommon "github.com/NVIDIA/grove/operator/api/common"
-	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
-	"github.com/samber/lo"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"slices"
 	"strconv"
+
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
+
+	"github.com/samber/lo"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // FindScalingGroupConfigForClique searches through the scaling group configurations to find

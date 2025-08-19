@@ -19,9 +19,9 @@ package hpa
 import (
 	"context"
 	"fmt"
-	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"slices"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"

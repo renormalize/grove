@@ -19,8 +19,9 @@ package kubernetes
 import (
 	"errors"
 	"fmt"
-	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"strconv"
+
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

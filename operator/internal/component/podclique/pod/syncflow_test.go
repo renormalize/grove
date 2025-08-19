@@ -19,10 +19,10 @@ package pod
 import (
 	"context"
 	"fmt"
-	"github.com/NVIDIA/grove/operator/api/common"
 	"strings"
 	"testing"
 
+	"github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	groveschedulerv1alpha1 "github.com/NVIDIA/grove/scheduler/api/core/v1alpha1"

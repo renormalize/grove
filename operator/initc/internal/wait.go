@@ -18,13 +18,13 @@ package internal
 
 import (
 	"context"
-	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/common"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"

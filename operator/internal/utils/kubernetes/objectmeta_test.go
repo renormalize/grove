@@ -17,9 +17,9 @@
 package kubernetes
 
 import (
-	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"testing"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	"github.com/stretchr/testify/assert"
@@ -49,7 +49,7 @@ func newTestObjectMetaWithOwnerRefs(name, namespace string, ownerRefs ...metav1.
 func newTestOwnerReference(name string, uid types.UID, isController bool) metav1.OwnerReference {
 	return metav1.OwnerReference{
 		APIVersion: version,
-		Kind:       grovecorev1alpha1.PodGangSetKind,
+		Kind:       grovecorev1alpha1.KindPodGangSet,
 		Name:       name,
 		UID:        uid,
 		Controller: ptr.To(isController),
