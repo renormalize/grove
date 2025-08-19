@@ -24,8 +24,10 @@ import (
 	"github.com/NVIDIA/grove/operator/api/common"
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
+	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
 
 	"github.com/samber/lo"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -101,4 +103,17 @@ func GetMinAvailableBreachedPCLQInfo(pclqs []grovecorev1alpha1.PodClique, termin
 	}
 	slices.Sort(waitForDurations)
 	return pclqCandidateNames, waitForDurations[0]
+}
+
+// GetPCLQPodTemplateHashLabel computes the pod template hash for the PCLQ pod spec.
+func GetPCLQPodTemplateHashLabel(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, priortyClassName string) string {
+	podTemplateSpec := corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels:      pclqTemplateSpec.Labels,
+			Annotations: pclqTemplateSpec.Annotations,
+		},
+		Spec: pclqTemplateSpec.Spec.PodSpec,
+	}
+	podTemplateSpec.Spec.PriorityClassName = priortyClassName
+	return k8sutils.ComputePodTemplateSpecHashLabelValue(&podTemplateSpec)
 }

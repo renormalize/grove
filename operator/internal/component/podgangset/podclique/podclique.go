@@ -355,25 +355,13 @@ func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplica int, pclqObjectKey 
 		apicommon.LabelComponentKey:           component.NamePGSPodClique,
 		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplica),
 		apicommon.LabelPodGang:                podGangName,
-		apicommon.LabelPodTemplateHash:        getPodTemplateHashLabel(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName),
+		apicommon.LabelPodTemplateHash:        componentutils.GetPCLQPodTemplateHashLabel(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName),
 	}
 	return lo.Assign(
 		pclqTemplateSpec.Labels,
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
 		pclqComponentLabels,
 	)
-}
-
-func getPodTemplateHashLabel(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, priortyClassName string) string {
-	podTemplateSpec := corev1.PodTemplateSpec{
-		ObjectMeta: metav1.ObjectMeta{
-			Labels:      pclqTemplateSpec.Labels,
-			Annotations: pclqTemplateSpec.Annotations,
-		},
-		Spec: pclqTemplateSpec.Spec.PodSpec,
-	}
-	podTemplateSpec.Spec.PriorityClassName = priortyClassName
-	return k8sutils.ComputePodTemplateSpecHashLabelValue(&podTemplateSpec)
 }
 
 func emptyPodClique(objKey client.ObjectKey) *grovecorev1alpha1.PodClique {
