@@ -18,9 +18,10 @@ package kubernetes
 
 import (
 	"fmt"
+	"hash/fnv"
+
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
-	"hash/fnv"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/dump"
 	"k8s.io/apimachinery/pkg/util/rand"
@@ -158,11 +159,11 @@ func GetContainerStatusIfTerminatedErroneously(containerStatuses []corev1.Contai
 
 func logTerminatedErroneouslyPodContainerStatus(logger logr.Logger, podObjKey client.ObjectKey, containerStatus *corev1.ContainerStatus) {
 	if containerStatus != nil {
-		logger.Info("container exited with a non-zero exit code",
+		logger.Info("container previously exited with a non-zero exit code",
 			"pod", podObjKey,
 			"container", containerStatus.Name,
-			"exitCode", containerStatus.State.Terminated.ExitCode,
-			"exitReason", containerStatus.State.Terminated.Reason)
+			"exitCode", containerStatus.LastTerminationState.Terminated.ExitCode,
+			"exitReason", containerStatus.LastTerminationState.Terminated.Reason)
 	}
 }
 
