@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/NVIDIA/grove/operator/api/common/constants"
-
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
@@ -133,6 +132,7 @@ func getOrderedKindsForSync() []component.Kind {
 		component.KindServiceAccountTokenSecret,
 		component.KindHeadlessService,
 		component.KindHorizontalPodAutoscaler,
+		component.KindPodGangSetReplica,
 		component.KindPodClique,
 		component.KindPodCliqueScalingGroup,
 		component.KindPodGang,

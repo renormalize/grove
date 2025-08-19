@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	componentcommon "github.com/NVIDIA/grove/operator/internal/component/common"
 	"strconv"
 	"strings"
 	"time"
@@ -94,7 +95,7 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev
 	}
 
 	terminationDelay := pgs.Spec.Template.TerminationDelay.Duration
-	podGangsRequiringRequeue, err := r.checkMinAvailableBreachAndDeletePGSReplicaPodGang(ctx, logger, pgs, terminationDelay)
+	podGangsRequiringRequeue, err := r.checkMinAvailableBreachAndDeletePGSReplicaPCLQs(ctx, logger, pgs, terminationDelay)
 	if err != nil {
 		return err
 	}
@@ -179,7 +180,36 @@ func (r _resource) getMinAvailableBreachedPCSGsForPGSReplica(ctx context.Context
 	return breachedPCSGNames, minWaitFor, nil
 }
 
-func (r _resource) getMinAvailableBreachedPCLQsNotInPCSGForPGSReplica(ctx context.Context, pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int, since time.Time) (breachedPCLQNames []string, minWaitFor time.Duration, skipPGSReplica bool, err error) {
+// checkMinAvailableBreachAndDeletePGSReplicaPCLQs checks if there are any non-PCSG PCLQs that have their MinAvailableBreached condition set to true.
+// If terminationDelay has expired even for a one such PCLQ, then trigger termination of the PGS replica by deleting all PCLQs created for the PGS replica.
+// If terminationDelay has not yet expired then a requeue is required. To ensure a requeue it returns the PGS replica indices that require a requeue.
+// It is the responsibility of the caller to check if it is a non-zero slice of PGS replica indices and if yes then requeue.
+func (r _resource) checkMinAvailableBreachAndDeletePGSReplicaPCLQs(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, terminationDelay time.Duration) ([]string, error) {
+	now := time.Now()
+	pgsObjectKey := client.ObjectKeyFromObject(pgs)
+	pgsReplicaIndexRequiringRequeue := make([]string, 0, pgs.Spec.Replicas)
+	deletionTasks := make([]utils.Task, 0, pgs.Spec.Replicas)
+	for pgsReplicaIndex := range int(pgs.Spec.Replicas) {
+		breachedPCLQNames, minPCLQWaitFor, skipPGSReplicaIndex, err := r.getMinAvailableBreachedPCLQsNotInPCSG(ctx, pgs, pgsReplicaIndex, now)
+		if err != nil {
+			return nil, err
+		}
+		if skipPGSReplicaIndex {
+			continue
+		}
+		if len(breachedPCLQNames) > 0 && minPCLQWaitFor <= 0 {
+			// terminate all PodCliques for this PGS replica index
+			reason := fmt.Sprintf("Delete all PodCliques for PodGangSet %v with replicaIndex :%d due to MinAvailable breached longer than TerminationDelay: %s", pgsObjectKey, pgsReplicaIndex, terminationDelay)
+			pclqGangTerminationTask := componentcommon.CreatePGSReplicaDeleteTask(logger, r.client, r.eventRecorder, pgs, pgsReplicaIndex, reason)
+			deletionTasks = append(deletionTasks, pclqGangTerminationTask)
+		} else if len(breachedPCLQNames) > 0 {
+			pgsReplicaIndexRequiringRequeue = append(pgsReplicaIndexRequiringRequeue, strconv.Itoa(pgsReplicaIndex))
+		}
+	}
+	return pgsReplicaIndexRequiringRequeue, r.triggerDeletionOfPodCliques(ctx, logger, pgsObjectKey, deletionTasks)
+}
+
+func (r _resource) getMinAvailableBreachedPCLQsNotInPCSG(ctx context.Context, pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int, since time.Time) (breachedPCLQNames []string, minWaitFor time.Duration, skipPGSReplica bool, err error) {
 	pclqFQNsNotInPCSG := componentutils.GetPodCliqueFQNsForPGSReplicaNotInPCSG(pgs, pgsReplicaIndex)
 	pclqs, notFoundPCLQFQNs, err := componentutils.GetPCLQsByNames(ctx, r.client, pgs.Namespace, pclqFQNsNotInPCSG)
 	if err != nil {
@@ -196,63 +226,6 @@ func (r _resource) getMinAvailableBreachedPCLQsNotInPCSGForPGSReplica(ctx contex
 	}
 	breachedPCLQNames, minWaitFor = componentutils.GetMinAvailableBreachedPCLQInfo(pclqs, pgs.Spec.Template.TerminationDelay.Duration, since)
 	return
-}
-
-func (r _resource) checkMinAvailableBreachAndDeletePGSReplicaPodGang(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, terminationDelay time.Duration) ([]string, error) {
-	now := time.Now()
-	pgsObjectKey := client.ObjectKeyFromObject(pgs)
-	pgsReplicaIndexRequiringRequeue := make([]string, 0, pgs.Spec.Replicas)
-	deletionTasks := make([]utils.Task, 0, pgs.Spec.Replicas)
-	for pgsReplicaIndex := range int(pgs.Spec.Replicas) {
-		breachedPCSGNames, minPCSGWaitFor, err := r.getMinAvailableBreachedPCSGsForPGSReplica(ctx, pgsObjectKey, pgsReplicaIndex, terminationDelay, now)
-		if err != nil {
-			return nil, err
-		}
-		breachedPCLQNames, minPCLQWaitFor, skipPGSReplicaIndex, err := r.getMinAvailableBreachedPCLQsNotInPCSGForPGSReplica(ctx, pgs, pgsReplicaIndex, now)
-		if err != nil {
-			return nil, err
-		}
-		if skipPGSReplicaIndex {
-			continue
-		}
-
-		if (len(breachedPCSGNames) > 0 && minPCSGWaitFor <= 0) ||
-			(len(breachedPCLQNames) > 0 && minPCLQWaitFor <= 0) {
-			// terminate all PodCliques for this PGS replica index
-			reason := fmt.Sprintf("Delete all PodCliques for PodGangSet %v with replicaIndex :%d due to MinAvailable breached longer than TerminationDelay: %s", pgsObjectKey, pgsReplicaIndex, terminationDelay)
-			pclqGangTerminationTask := r.createPGSReplicaDeleteTask(logger, pgs, pgsReplicaIndex, reason)
-			deletionTasks = append(deletionTasks, pclqGangTerminationTask)
-		} else if len(breachedPCSGNames) > 0 || len(breachedPCLQNames) > 0 {
-			pgsReplicaIndexRequiringRequeue = append(pgsReplicaIndexRequiringRequeue, strconv.Itoa(pgsReplicaIndex))
-		}
-	}
-
-	return pgsReplicaIndexRequiringRequeue, r.triggerDeletionOfPodCliques(ctx, logger, pgsObjectKey, deletionTasks)
-}
-
-func (r _resource) createPGSReplicaDeleteTask(logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int, reason string) utils.Task {
-	return utils.Task{
-		Name: fmt.Sprintf("DeletePGSReplicaPodCliques-%d", pgsReplicaIndex),
-		Fn: func(ctx context.Context) error {
-			if err := r.client.DeleteAllOf(ctx,
-				&grovecorev1alpha1.PodClique{},
-				client.InNamespace(pgs.Namespace),
-				client.MatchingLabels(
-					lo.Assign(
-						apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
-						map[string]string{
-							apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
-						},
-					))); err != nil {
-				logger.Error(err, "failed to delete PodCliques for PGS Replica index", "pgsReplicaIndex", pgsReplicaIndex, "reason", reason)
-				r.eventRecorder.Eventf(pgs, corev1.EventTypeWarning, groveevents.ReasonPodGangSetReplicaDeletionFailed, "Error deleting PodGangSet replica %d: %v", pgsReplicaIndex, err)
-				return err
-			}
-			logger.Info("Deleted PGS replica PodCliques", "pgsReplicaIndex", pgsReplicaIndex, "reason", reason)
-			r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodGangSetReplicaDeletionSuccessful, "PodGangSet replica %d deleted", pgsReplicaIndex)
-			return nil
-		},
-	}
 }
 
 func (r _resource) triggerDeletionOfPodCliques(ctx context.Context, logger logr.Logger, pgsObjKey client.ObjectKey, deletionTasks []utils.Task) error {

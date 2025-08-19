@@ -26,7 +26,6 @@ import (
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	"github.com/samber/lo"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -57,22 +56,6 @@ func GetPCLQsMatchingLabels(ctx context.Context, cl client.Client, namespace str
 		return nil, err
 	}
 	return podCliqueList.Items, nil
-}
-
-// GetPCLQsByNames fetches PodClique objects. It returns the PCLQ objects that it found and a slice of PCLQ FQNs for which no PCLQ object exists. If there is an error it just returns the error.
-func GetPCLQsByNames(ctx context.Context, cl client.Client, namespace string, pclqFQNs []string) (pclqs []grovecorev1alpha1.PodClique, notFoundPCLQs []string, err error) {
-	for _, pclqFQN := range pclqFQNs {
-		pclq := grovecorev1alpha1.PodClique{}
-		if err := cl.Get(ctx, client.ObjectKey{Name: pclqFQN, Namespace: namespace}, &pclq); err != nil {
-			if apierrors.IsNotFound(err) {
-				notFoundPCLQs = append(notFoundPCLQs, pclqFQN)
-				continue
-			}
-			return nil, nil, err
-		}
-		pclqs = append(pclqs, pclq)
-	}
-	return pclqs, notFoundPCLQs, nil
 }
 
 // GroupPCLQsByPodGangName filters PCLQs that have a PodGang label and groups them by the PodGang name.

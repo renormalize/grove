@@ -132,12 +132,13 @@ func HasAnyStartedButNotReadyContainer(pod *corev1.Pod) bool {
 	return false
 }
 
-// ComputePodSpecHash computes a hash of the PodSpec. This will be used to determine if the PodSpec has changed.
-func ComputePodSpecHash(podSpec *corev1.PodSpec) string {
-	podSpecHasher := fnv.New64a()
-	podSpecHasher.Reset()
-	fmt.Fprintf(podSpecHasher, "%v", dump.ForHash(podSpec))
-	return rand.SafeEncodeString(fmt.Sprint(podSpecHasher.Sum64()))
+// ComputePodTemplateSpecHash computes a hash of the PodSpec. This will be used to determine if the PodSpec has changed.
+func ComputePodTemplateSpecHash(podTemplateSpec *corev1.PodTemplateSpec) string {
+	podTemplateSpecHasher := fnv.New64a()
+	podTemplateSpecHasher.Reset()
+
+	fmt.Fprintf(podTemplateSpecHasher, "%v", dump.ForHash(podTemplateSpec))
+	return rand.SafeEncodeString(fmt.Sprint(podTemplateSpecHasher.Sum64()))
 }
 
 // GetContainerStatusIfTerminatedErroneously gets the first occurrence of corev1.ContainerStatus (across init, sidecar and main containers)
