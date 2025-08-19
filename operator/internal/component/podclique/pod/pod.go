@@ -212,7 +212,8 @@ func getLabels(pclqObjectMeta metav1.ObjectMeta, pgsName, podGangName string, pg
 	return lo.Assign(
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		pclqObjectMeta.Labels,
-		labels)
+		labels,
+	)
 }
 
 // addEnvironmentVariables adds Grove-specific environment variables to all containers and init-containers.

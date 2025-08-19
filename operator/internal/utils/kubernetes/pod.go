@@ -133,8 +133,8 @@ func HasAnyStartedButNotReadyContainer(pod *corev1.Pod) bool {
 	return false
 }
 
-// ComputePodTemplateSpecHash computes a hash of the PodSpec. This will be used to determine if the PodSpec has changed.
-func ComputePodTemplateSpecHash(podTemplateSpec *corev1.PodTemplateSpec) string {
+// ComputePodTemplateSpecHashLabelValue computes a hash of the PodSpec. This will be used to determine if the PodSpec has changed.
+func ComputePodTemplateSpecHashLabelValue(podTemplateSpec *corev1.PodTemplateSpec) string {
 	podTemplateSpecHasher := fnv.New64a()
 	podTemplateSpecHasher.Reset()
 

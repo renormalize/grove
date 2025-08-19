@@ -34,7 +34,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
@@ -48,7 +47,7 @@ const (
 	errDeletePodClique               grovecorev1alpha1.ErrorCode = "ERR_DELETE_PODCLIQUE"
 	errCodeListPodCliqueScalingGroup grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUESCALINGGROUP"
 	errCodeListPodCliques            grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUES"
-	errCodeCreatePodClique           grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODCLIQUE"
+	errCodeCreateOrUpdatePodClique   grovecorev1alpha1.ErrorCode = "ERR_CREATE_OR_UPDATE_PODCLIQUE"
 )
 
 type _resource struct {
@@ -92,7 +91,7 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev
 		return err
 	}
 
-	if err := r.createExpectedPCLQs(ctx, logger, pgs, expectedPCLQNames); err != nil {
+	if err := r.createOrUpdatePCLQs(ctx, logger, pgs, expectedPCLQNames); err != nil {
 		return err
 	}
 
@@ -124,7 +123,7 @@ func (r _resource) triggerDeletionOfExcessPCLQs(ctx context.Context, logger logr
 	return nil
 }
 
-func (r _resource) createExpectedPCLQs(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, expectedPCLQNames []string) error {
+func (r _resource) createOrUpdatePCLQs(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, expectedPCLQNames []string) error {
 	tasks := make([]utils.Task, 0, len(expectedPCLQNames))
 
 	for pgsReplica := range pgs.Spec.Replicas {
@@ -134,9 +133,9 @@ func (r _resource) createExpectedPCLQs(ctx context.Context, logger logr.Logger, 
 				Namespace: pgs.Namespace,
 			}
 			createTask := utils.Task{
-				Name: fmt.Sprintf("CreatePodClique-%s", pclqObjectKey),
+				Name: fmt.Sprintf("CreateOrUpdatePodClique-%s", pclqObjectKey),
 				Fn: func(ctx context.Context) error {
-					return r.doCreate(ctx, logger, pgs, pgsReplica, pclqObjectKey)
+					return r.doCreateOrUpdate(ctx, logger, pgs, pgsReplica, pclqObjectKey)
 				},
 			}
 			tasks = append(tasks, createTask)
@@ -251,27 +250,25 @@ func (r _resource) Delete(ctx context.Context, logger logr.Logger, pgsObjectMeta
 	return nil
 }
 
-func (r _resource) doCreate(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pgsReplica int32, pclqObjectKey client.ObjectKey) error {
+func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pgsReplica int32, pclqObjectKey client.ObjectKey) error {
 	logger.Info("Running CreateOrUpdate PodClique", "pclqObjectKey", pclqObjectKey)
 	pclq := emptyPodClique(pclqObjectKey)
 	pgsObjKey := client.ObjectKeyFromObject(pgs)
-	if err := r.buildResource(logger, pclq, pgs, int(pgsReplica)); err != nil {
-		return err
-	}
-	if err := r.client.Create(ctx, pclq); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			logger.Info("PodClique creation failed for PodGangSet as it already exists", "pgs", pgsObjKey, "pclq", pclqObjectKey)
-			return nil
-		}
-		r.eventRecorder.Eventf(pgs, corev1.EventTypeWarning, groveevents.ReasonPodCliqueCreationFailed, "PodClique %v creation failed: %v", pclqObjectKey, err)
+
+	opResult, err := controllerutil.CreateOrPatch(ctx, r.client, pclq, func() error {
+		return r.buildResource(logger, pclq, pgs, int(pgsReplica))
+	})
+	if err != nil {
+		r.eventRecorder.Eventf(pgs, corev1.EventTypeWarning, groveevents.ReasonPodCliqueCreationOrUpdationFailed, "PodClique %v creation or updation failed: %v", pclqObjectKey, err)
 		return groveerr.WrapError(err,
-			errCodeCreatePodClique,
+			errCodeCreateOrUpdatePodClique,
 			component.OperationSync,
-			fmt.Sprintf("Error creating PodClique: %v for PodGangSet: %v", pclqObjectKey, pgsObjKey),
+			fmt.Sprintf("Error creating or updating PodClique: %v for PodGangSet: %v", pclqObjectKey, pgsObjKey),
 		)
 	}
-	r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodCliqueCreationSuccessful, "PodClique %v created successfully", pclqObjectKey)
-	logger.Info("triggered create of PodClique for PodGangSet", "pgs", pgsObjKey, "pclqObjectKey", pclqObjectKey)
+
+	r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodCliqueCreationOrUpdationSuccessful, "PodClique %v created or updated successfully", pclqObjectKey)
+	logger.Info("triggered create or update of PodClique for PodGangSet", "pgs", pgsObjKey, "pclqObjectKey", pclqObjectKey, "result", opResult)
 	return nil
 }
 
@@ -358,12 +355,25 @@ func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplica int, pclqObjectKey 
 		apicommon.LabelComponentKey:           component.NamePGSPodClique,
 		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplica),
 		apicommon.LabelPodGang:                podGangName,
+		apicommon.LabelPodTemplateHash:        getPodTemplateHashLabel(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName),
 	}
 	return lo.Assign(
 		pclqTemplateSpec.Labels,
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
 		pclqComponentLabels,
 	)
+}
+
+func getPodTemplateHashLabel(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, priortyClassName string) string {
+	podTemplateSpec := corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels:      pclqTemplateSpec.Labels,
+			Annotations: pclqTemplateSpec.Annotations,
+		},
+		Spec: pclqTemplateSpec.Spec.PodSpec,
+	}
+	podTemplateSpec.Spec.PriorityClassName = priortyClassName
+	return k8sutils.ComputePodTemplateSpecHashLabelValue(&podTemplateSpec)
 }
 
 func emptyPodClique(objKey client.ObjectKey) *grovecorev1alpha1.PodClique {
