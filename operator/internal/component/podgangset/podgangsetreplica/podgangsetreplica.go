@@ -66,6 +66,7 @@ func (d deletionWork) hasPendingPGSReplicaDeletion() bool {
 	return len(d.deletionTasks) > 0
 }
 
+// New creates a new instance of the PodGangSetReplica operator.
 func New(client client.Client, eventRecorder record.EventRecorder) component.Operator[grovecorev1alpha1.PodGangSet] {
 	return &_resource{
 		client:        client,

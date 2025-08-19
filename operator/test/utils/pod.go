@@ -17,6 +17,7 @@
 package utils
 
 import (
+	"maps"
 	"time"
 
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -27,6 +28,7 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+// PodBuilder is a builder for Pod objects.
 type PodBuilder struct {
 	pod *corev1.Pod
 }
@@ -46,6 +48,7 @@ func NewPodBuilder(name, namespace string) *PodBuilder {
 	}
 }
 
+// NewPodWithBuilderWithDefaultSpec creates a new PodBuilder with a default spec.
 func NewPodWithBuilderWithDefaultSpec(name, namespace string) *PodBuilder {
 	return &PodBuilder{
 		pod: &corev1.Pod{
@@ -58,6 +61,7 @@ func NewPodWithBuilderWithDefaultSpec(name, namespace string) *PodBuilder {
 	}
 }
 
+// Build builds and returns the Pod.
 func (b *PodBuilder) Build() *corev1.Pod {
 	return b.pod
 }
@@ -72,18 +76,16 @@ func (b *PodBuilder) WithOwner(ownerName string) *PodBuilder {
 		BlockOwnerDeletion: ptr.To(true),
 		Controller:         ptr.To(true),
 	}
-	b.pod.ObjectMeta.OwnerReferences = append(b.pod.ObjectMeta.OwnerReferences, ownerRef)
+	b.pod.OwnerReferences = append(b.pod.OwnerReferences, ownerRef)
 	return b
 }
 
 // WithLabels adds labels to the Pod.
 func (b *PodBuilder) WithLabels(labels map[string]string) *PodBuilder {
-	if b.pod.ObjectMeta.Labels == nil {
-		b.pod.ObjectMeta.Labels = make(map[string]string)
+	if b.pod.Labels == nil {
+		b.pod.Labels = make(map[string]string)
 	}
-	for key, value := range labels {
-		b.pod.ObjectMeta.Labels[key] = value
-	}
+	maps.Copy(b.pod.Labels, labels)
 	return b
 }
 
