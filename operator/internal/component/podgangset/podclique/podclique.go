@@ -19,12 +19,10 @@ package podclique
 import (
 	"context"
 	"fmt"
-	apicommon "github.com/NVIDIA/grove/operator/api/common"
-	componentcommon "github.com/NVIDIA/grove/operator/internal/component/common"
 	"strconv"
 	"strings"
-	"time"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveevents "github.com/NVIDIA/grove/operator/internal/component/events"
@@ -94,21 +92,8 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev
 		return err
 	}
 
-	terminationDelay := pgs.Spec.Template.TerminationDelay.Duration
-	podGangsRequiringRequeue, err := r.checkMinAvailableBreachAndDeletePGSReplicaPCLQs(ctx, logger, pgs, terminationDelay)
-	if err != nil {
+	if err := r.createExpectedPCLQs(ctx, logger, pgs, expectedPCLQNames); err != nil {
 		return err
-	}
-	if err = r.createExpectedPCLQs(ctx, logger, pgs, expectedPCLQNames); err != nil {
-		return err
-	}
-
-	if len(podGangsRequiringRequeue) > 0 {
-		logger.Info("Found PCLQs with MinAvailable breached but which have not crossed TerminationDelay", "podGangs", podGangsRequiringRequeue, "terminationDelay", terminationDelay)
-		return groveerr.New(groveerr.ErrCodeContinueReconcileAndRequeue,
-			component.OperationSync,
-			"Requeuing to re-process PCLQs that have breached MinAvailable but not crossed TerminationDelay",
-		)
 	}
 
 	return nil
@@ -165,67 +150,6 @@ func (r _resource) createExpectedPCLQs(ctx context.Context, logger logr.Logger, 
 		)
 	}
 	return nil
-}
-
-func (r _resource) getMinAvailableBreachedPCSGsForPGSReplica(ctx context.Context, pgsObjKey client.ObjectKey, pgsReplicaIndex int, terminationDelay time.Duration, since time.Time) ([]string, time.Duration, error) {
-	pcsgs, err := componentutils.GetPCSGsForPGSReplicaIndex(ctx, r.client, pgsObjKey, pgsReplicaIndex)
-	if err != nil {
-		return nil, 0, groveerr.WrapError(err,
-			errCodeListPodCliqueScalingGroup,
-			component.OperationSync,
-			fmt.Sprintf("failed to list PodCliqueScalingGroups for PodGangSet: %v,  replica Index: %d", pgsObjKey, pgsReplicaIndex))
-	}
-
-	breachedPCSGNames, minWaitFor := componentutils.GetMinAvailableBreachedPCSGInfo(pcsgs, terminationDelay, since)
-	return breachedPCSGNames, minWaitFor, nil
-}
-
-// checkMinAvailableBreachAndDeletePGSReplicaPCLQs checks if there are any non-PCSG PCLQs that have their MinAvailableBreached condition set to true.
-// If terminationDelay has expired even for a one such PCLQ, then trigger termination of the PGS replica by deleting all PCLQs created for the PGS replica.
-// If terminationDelay has not yet expired then a requeue is required. To ensure a requeue it returns the PGS replica indices that require a requeue.
-// It is the responsibility of the caller to check if it is a non-zero slice of PGS replica indices and if yes then requeue.
-func (r _resource) checkMinAvailableBreachAndDeletePGSReplicaPCLQs(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, terminationDelay time.Duration) ([]string, error) {
-	now := time.Now()
-	pgsObjectKey := client.ObjectKeyFromObject(pgs)
-	pgsReplicaIndexRequiringRequeue := make([]string, 0, pgs.Spec.Replicas)
-	deletionTasks := make([]utils.Task, 0, pgs.Spec.Replicas)
-	for pgsReplicaIndex := range int(pgs.Spec.Replicas) {
-		breachedPCLQNames, minPCLQWaitFor, skipPGSReplicaIndex, err := r.getMinAvailableBreachedPCLQsNotInPCSG(ctx, pgs, pgsReplicaIndex, now)
-		if err != nil {
-			return nil, err
-		}
-		if skipPGSReplicaIndex {
-			continue
-		}
-		if len(breachedPCLQNames) > 0 && minPCLQWaitFor <= 0 {
-			// terminate all PodCliques for this PGS replica index
-			reason := fmt.Sprintf("Delete all PodCliques for PodGangSet %v with replicaIndex :%d due to MinAvailable breached longer than TerminationDelay: %s", pgsObjectKey, pgsReplicaIndex, terminationDelay)
-			pclqGangTerminationTask := componentcommon.CreatePGSReplicaDeleteTask(logger, r.client, r.eventRecorder, pgs, pgsReplicaIndex, reason)
-			deletionTasks = append(deletionTasks, pclqGangTerminationTask)
-		} else if len(breachedPCLQNames) > 0 {
-			pgsReplicaIndexRequiringRequeue = append(pgsReplicaIndexRequiringRequeue, strconv.Itoa(pgsReplicaIndex))
-		}
-	}
-	return pgsReplicaIndexRequiringRequeue, r.triggerDeletionOfPodCliques(ctx, logger, pgsObjectKey, deletionTasks)
-}
-
-func (r _resource) getMinAvailableBreachedPCLQsNotInPCSG(ctx context.Context, pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int, since time.Time) (breachedPCLQNames []string, minWaitFor time.Duration, skipPGSReplica bool, err error) {
-	pclqFQNsNotInPCSG := componentutils.GetPodCliqueFQNsForPGSReplicaNotInPCSG(pgs, pgsReplicaIndex)
-	pclqs, notFoundPCLQFQNs, err := componentutils.GetPCLQsByNames(ctx, r.client, pgs.Namespace, pclqFQNsNotInPCSG)
-	if err != nil {
-		err = groveerr.WrapError(err,
-			errCodeListPodCliques,
-			component.OperationSync,
-			fmt.Sprintf("failed to list PodCliques: %v for PodGangSet: %v, replica Index: %d", pclqFQNsNotInPCSG, client.ObjectKeyFromObject(pgs), pgsReplicaIndex),
-		)
-		return
-	}
-	if len(notFoundPCLQFQNs) > 0 {
-		skipPGSReplica = true
-		return
-	}
-	breachedPCLQNames, minWaitFor = componentutils.GetMinAvailableBreachedPCLQInfo(pclqs, pgs.Spec.Template.TerminationDelay.Duration, since)
-	return
 }
 
 func (r _resource) triggerDeletionOfPodCliques(ctx context.Context, logger logr.Logger, pgsObjKey client.ObjectKey, deletionTasks []utils.Task) error {
