@@ -184,7 +184,6 @@ func isUpdateNeeded(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.P
 				Replica: int(pcsgReplicaIndex),
 			}, pcsgCliqueName)
 			pclqFQNToHash[cliqueFQN] = podTemplateHash
-			fmt.Printf("PodTemplateHash for podClique %s: %s\n", cliqueFQN, podTemplateHash)
 		}
 	}
 
