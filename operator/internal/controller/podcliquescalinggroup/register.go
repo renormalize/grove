@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	controllerName = "podcliquescalingroup-controller"
+	controllerName = "podcliquescalinggroup-controller"
 )
 
 // RegisterWithManager registers the PodCliqueScalingGroup Reconciler with the manager.

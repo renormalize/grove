@@ -139,6 +139,9 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 	}
 
 	// TODO check if there is a pending update that needs to be done to all constituent PCLQs
+	if isUpdateNeeded(pgs, pcsg, existingPCLQs) {
+		logger.Info("Update for PodCliqueScalingGroup PodCliques necessary.")
+	}
 
 	if len(pcsgIndicesToTerminate) > 0 {
 		reason := fmt.Sprintf("Delete PodCliques %v for PodCliqueScalingGroup %v which have breached MinAvailable longer than TerminationDelay: %s", pcsgIndicesToTerminate, client.ObjectKeyFromObject(pcsg), terminationDelay)
@@ -162,6 +165,35 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 	}
 
 	return nil
+}
+
+func isUpdateNeeded(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, existingPCLQS []grovecorev1alpha1.PodClique) bool {
+	pclqFQNToHash := make(map[string]string)
+	pcsgPCLQNames := pcsg.Spec.CliqueNames
+	for _, pcsgCliqueName := range pcsgPCLQNames {
+		pclqTemplateSpec, ok := lo.Find(pgs.Spec.Template.Cliques, func(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec) bool {
+			return pclqTemplateSpec.Name == pcsgCliqueName
+		})
+		if !ok {
+			continue
+		}
+		podTemplateHash := componentutils.GetPCLQPodTemplateHashLabel(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName)
+		for pcsgReplicaIndex := range int(pcsg.Spec.Replicas) {
+			cliqueFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{
+				Name:    pcsg.Name,
+				Replica: int(pcsgReplicaIndex),
+			}, pcsgCliqueName)
+			pclqFQNToHash[cliqueFQN] = podTemplateHash
+			fmt.Printf("PodTemplateHash for podClique %s: %s\n", cliqueFQN, podTemplateHash)
+		}
+	}
+
+	for _, pclq := range existingPCLQS {
+		if pclq.GetLabels()[apicommon.LabelPodTemplateHash] != pclqFQNToHash[pclq.Name] {
+			return true
+		}
+	}
+	return false
 }
 
 func (r _resource) getExistingPCLQs(ctx context.Context, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) ([]grovecorev1alpha1.PodClique, error) {
