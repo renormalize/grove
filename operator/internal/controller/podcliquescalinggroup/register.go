@@ -18,7 +18,6 @@ package podcliquescalinggroup
 
 import (
 	"context"
-
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
@@ -107,11 +106,9 @@ func mapPGSToPCSG() handler.MapFunc {
 
 func podGangSetPredicate() predicate.Predicate {
 	return predicate.Funcs{
-		CreateFunc: func(_ event.CreateEvent) bool { return false },
-		DeleteFunc: func(_ event.DeleteEvent) bool { return false },
-		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
-			return ctrlutils.IsManagedByGrove(updateEvent.ObjectOld.GetLabels())
-		},
+		CreateFunc:  func(_ event.CreateEvent) bool { return false },
+		DeleteFunc:  func(_ event.DeleteEvent) bool { return false },
+		UpdateFunc:  func(updateEvent event.UpdateEvent) bool { return true },
 		GenericFunc: func(_ event.GenericEvent) bool { return false },
 	}
 }
