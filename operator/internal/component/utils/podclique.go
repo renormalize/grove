@@ -98,8 +98,8 @@ func GetMinAvailableBreachedPCLQInfo(pclqs []grovecorev1alpha1.PodClique, termin
 			waitForDurations = append(waitForDurations, waitFor)
 		}
 	}
-	if len(waitForDurations) == 0 {
-		return pclqCandidateNames, 0
+	if len(pclqCandidateNames) == 0 {
+		return nil, 0
 	}
 	slices.Sort(waitForDurations)
 	return pclqCandidateNames, waitForDurations[0]
