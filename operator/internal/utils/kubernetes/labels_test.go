@@ -18,9 +18,8 @@ package kubernetes
 
 import (
 	"errors"
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"testing"
-
-	grovev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,7 +31,7 @@ func newTestObjectMetaWithReplicaIndex(index string) metav1.ObjectMeta {
 		Name:      "test-resource",
 		Namespace: "test-ns",
 		Labels: map[string]string{
-			grovev1alpha1.LabelPodGangSetReplicaIndex: index,
+			apicommon.LabelPodGangSetReplicaIndex: index,
 		},
 	}
 }
@@ -55,7 +54,7 @@ func newTestObjectMetaNilLabels() metav1.ObjectMeta {
 
 func newLabelsWithReplicaIndexAndExtras(index string, extraLabels map[string]string) map[string]string {
 	labels := map[string]string{
-		grovev1alpha1.LabelPodGangSetReplicaIndex: index,
+		apicommon.LabelPodGangSetReplicaIndex: index,
 	}
 	for k, v := range extraLabels {
 		labels[k] = v

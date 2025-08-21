@@ -74,7 +74,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		deletionOrSpecReconcileFlowResult = r.reconcileSpec(ctx, specLog, pcsg)
 	}
 
-	if statusReconcileResult := r.reconcileStatus(ctx, logger, pcsg); ctrlcommon.ShortCircuitReconcileFlow(statusReconcileResult) {
+	if statusReconcileResult := r.reconcileStatus(ctx, logger, client.ObjectKeyFromObject(pcsg)); ctrlcommon.ShortCircuitReconcileFlow(statusReconcileResult) {
 		return statusReconcileResult.Result()
 	}
 

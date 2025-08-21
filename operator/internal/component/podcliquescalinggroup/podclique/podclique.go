@@ -97,18 +97,6 @@ func (r _resource) GetExistingResourceNames(ctx context.Context, logger logr.Log
 	return k8sutils.FilterMapOwnedResourceNames(pcsgObjMeta, pclqPartialObjMetaList), nil
 }
 
-/*
-	reconcileSpec:
-		* Sync the components.
-			* Check if there was a scale-in, if yes delete any pending excess PCLQs
-			* Check if minAvailable is breached for at least MinAvailable replicas. If yes skip any other work.
-			* Check if there was a scale-out, if yes create additional PCLQs.
-			* Check if there are pending updates. If there, then skip the updates if the above condition is true, else:
-				* Update Status of PCSG and set update-in-progress to true.
-				* Order PCSG replicas by health
-				* Update PCSG replicas by re-creating one PCSG replica at a time.
-*/
-
 // Sync synchronizes all resources that the PodClique Operator manages.
 func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
 	pgs, err := componentutils.GetOwnerPodGangSet(ctx, r.client, pcsg.ObjectMeta)
@@ -132,15 +120,25 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 		return err
 	}
 	existingPCLQs, err = refreshExistingPCLQs(existingPCLQs, expectedPCSGReplicas)
+	if err != nil {
+		return err
+	}
 
 	terminationDelay := pgs.Spec.Template.TerminationDelay.Duration
 	pcsgIndicesToTerminate, pcsgIndicesToRequeue := getMinAvailableBreachedPCSGIndices(logger, existingPCLQs, terminationDelay)
-	if !isUpdateInProgress(pcsg) {
+
+	// Only if the rolling update is not in progress, check for a possibility of gang termination and execute it only if
+	// the pcsg.spec.minAvailable is not breached.
+	if !componentutils.IsPCSGUpdateInProgress(pcsg) {
+		// If pcsg.spec.minAvailable is breached, then delegate the responsibility to the PodGangSet reconciler which after
+		// termination delay terminate the PodGangSet replica. No further processing is required to be done here.
 		minAvailableBreachedPCSGReplicas := len(pcsgIndicesToTerminate) + len(pcsgIndicesToRequeue)
 		if int(pcsg.Spec.Replicas)-minAvailableBreachedPCSGReplicas < int(*pcsg.Spec.MinAvailable) {
 			logger.Info("Skipping further reconciliation as MinAvailable for the PCSG has been breached. This can potentially trigger PGS replica deletion.")
 			return nil
 		}
+		// If pcsg.spec.minAvailable is not breached but if there is one more PCSG replica for which there is at least one PCLQ that has
+		// its minAvailable breached for a duration > terminationDelay then gang terminate such PCSG replicas.
 		if len(pcsgIndicesToTerminate) > 0 {
 			reason := fmt.Sprintf("Delete PodCliques %v for PodCliqueScalingGroup %v which have breached MinAvailable longer than TerminationDelay: %s", pcsgIndicesToTerminate, client.ObjectKeyFromObject(pcsg), terminationDelay)
 			pclqGangTerminationTasks := r.createDeleteTasks(logger, pgs, pcsg.Name, pcsgIndicesToTerminate, reason)
@@ -156,27 +154,32 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 		return err
 	}
 
-	// TODO check if there is a pending update that needs to be done to all constituent PCLQs
+	// Check if any PCSG replica has pending updates.
 	pcsgReplicaIndicesPendingUpdate := getPCSGReplicaIndicesPendingUpdate(pgs, pcsg, existingPCLQs)
 	if len(pcsgReplicaIndicesPendingUpdate) > 0 {
+		// Progress with rolling update only when any pending update for previously selected PCSG replica has completed.
 		if pcsg.Status.LastIndexSelectedForUpdate != nil && !hasLastIndexSuccessfullyUpdated(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs) {
 			return groveerr.New(groveerr.ErrCodeRequeueAfter,
 				component.OperationSync,
 				fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.LastIndexSelectedForUpdate),
 			)
 		}
+		// Order the PCSG replicas based on a criteria and select the next PCSG index to update.
 		orderedPCSGReplicaIndicesToUpdate := getOrderedPCSGIndicesPendingUpdate(pcsgReplicaIndicesPendingUpdate, pcsgIndicesToTerminate, pcsgIndicesToRequeue)
 		replicaPickedForUpdate := orderedPCSGReplicaIndicesToUpdate[0]
 		logger.Info("Found PCSG replicas pending update, picking up one replica to update", "pcsgReplicaIndicesPendingUpdate", pcsgReplicaIndicesPendingUpdate, "replicaPickedForUpdate", replicaPickedForUpdate)
 		if err = r.triggerRollingUpdate(ctx, logger, pgs, pcsg, replicaPickedForUpdate); err != nil {
 			return err
 		}
+		// Requeue after a fixed interval.
 		return groveerr.New(groveerr.ErrCodeRequeueAfter,
 			component.OperationSync,
 			"Requeuing to continue PCSG replica updates",
 		)
 	}
 
+	// If there are any PCSG replicas which have minAvailableBreached but the terminationDelay has not yet expired, then
+	// requeue the event after a fixed delay.
 	if len(pcsgIndicesToRequeue) > 0 {
 		return groveerr.New(groveerr.ErrCodeRequeueAfter,
 			component.OperationSync,
@@ -258,7 +261,7 @@ func (r _resource) updatePCSGStatusWithRollingUpdateProgress(ctx context.Context
 		)
 	}
 	pcsg.Status.LastIndexSelectedForUpdate = ptr.To(int32(index))
-	if !isUpdateInProgress(pcsg) {
+	if !componentutils.IsPCSGUpdateInProgress(pcsg) {
 		if pcsg.Status.Conditions == nil {
 			pcsg.Status.Conditions = []metav1.Condition{}
 		}
@@ -277,10 +280,6 @@ func (r _resource) updatePCSGStatusWithRollingUpdateProgress(ctx context.Context
 		)
 	}
 	return nil
-}
-
-func isUpdateInProgress(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) bool {
-	return k8sutils.IsConditionTrue(pcsg.Status.Conditions, constants.ConditionTypeUpdateInProgress)
 }
 
 func getPCSGReplicaIndicesPendingUpdate(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, existingPCLQS []grovecorev1alpha1.PodClique) []string {
@@ -425,7 +424,7 @@ func (r _resource) createExpectedPCLQs(ctx context.Context, logger logr.Logger, 
 			createTask := utils.Task{
 				Name: fmt.Sprintf("CreatePodClique-%s", pclqObjectKey),
 				Fn: func(ctx context.Context) error {
-					return r.doCreate(ctx, logger, pgs, pcsg, int(pcsgReplicaIndex), pclqObjectKey)
+					return r.doCreate(ctx, logger, pgs, pcsg, pcsgReplicaIndex, pclqObjectKey)
 				},
 			}
 			tasks = append(tasks, createTask)
@@ -655,7 +654,7 @@ func getExpectedPodCliqueFQNsByPCSGReplica(pcsg *grovecorev1alpha1.PodCliqueScal
 		pclqFQNs := lo.Map(pcsg.Spec.CliqueNames, func(cliqueName string, _ int) string {
 			return apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{
 				Name:    pcsg.Name,
-				Replica: int(pcsgReplicaIndex),
+				Replica: pcsgReplicaIndex,
 			}, cliqueName)
 		})
 		expectedPCLQFQNs[pcsgReplicaIndex] = pclqFQNs

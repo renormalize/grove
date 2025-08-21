@@ -26,6 +26,7 @@ import (
 	"github.com/NVIDIA/grove/operator/internal/component"
 	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
+	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
 	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
 
 	"github.com/go-logr/logr"
@@ -36,7 +37,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) ctrlcommon.ReconcileStepResult {
+func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pcsgObjectKey client.ObjectKey) ctrlcommon.ReconcileStepResult {
+	// It is important that we re-fetch the PodCliqueScalingGroup. In case rolling update has been started during the spec reconciliation,
+	// then UpdateInProgress condition will be set. It is essential that this is checked when computing status.
+	// It is a possibility that the informer cache does not reflect the changes that are made to status conditions are not immediately reflected.
+	// However, it is currently assumed that eventually this condition will be visible eventually. We will think of alleviating this delay
+	// in the future.
+	pcsg := &grovecorev1alpha1.PodCliqueScalingGroup{}
+	if result := ctrlutils.GetPodCliqueScalingGroup(ctx, r.client, logger, pcsgObjectKey, pcsg); ctrlcommon.ShortCircuitReconcileFlow(result) {
+		return result
+	}
 	pgs, err := componentutils.GetOwnerPodGangSet(ctx, r.client, pcsg.ObjectMeta)
 	if err != nil {
 		return ctrlcommon.ReconcileWithErrors("failed to get owner PodGangSet", err)
@@ -87,10 +97,21 @@ func mutateMinAvailableBreachedCondition(logger logr.Logger, pcsg *grovecorev1al
 }
 
 // computeMinAvailableBreachedCondition computes the MinAvailableBreached condition for the PodCliqueScalingGroup.
+// If rolling update is under progress, then gang termination for this PCSG is disabled. This is achieved by marking the status to `Unknown`. This PCSG will not influence
+// the gang termination of PGS replica till its update has completed.
 // If the number of scheduled replicas is less than the MinAvailable, then it is too pre-mature to set the MinAvailableBreached condition to true.
 // If we set MinAvailableBreached condition to true, then it can result in pre-mature gang termination when the PodClique Pods are still starting.
 // If there are sufficient scheduled replicas (i.e. scheduledReplicas >= minAvailable), then we can compute the MinAvailableBreached condition based on the number of ready replicas.
 func computeMinAvailableBreachedCondition(logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pclqsPerPCSGReplica map[string][]grovecorev1alpha1.PodClique) metav1.Condition {
+	if componentutils.IsPCSGUpdateInProgress(pcsg) {
+		return metav1.Condition{
+			Type:    constants.ConditionTypeMinAvailableBreached,
+			Status:  metav1.ConditionUnknown,
+			Reason:  constants.ConditionReasonUpdateInProgress,
+			Message: "update is in progress",
+		}
+	}
+
 	minAvailable := int(*pcsg.Spec.MinAvailable)
 	scheduledReplicas := int(pcsg.Status.ScheduledReplicas)
 	if scheduledReplicas < minAvailable {
