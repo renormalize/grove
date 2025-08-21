@@ -75,20 +75,22 @@ const (
 	ConditionTypeUpdateInProgress = "UpdateInProgress"
 )
 
-// Constants for Condition Reasons
+// Constants for Condition Reasons.
 const (
 	// ConditionReasonInsufficientReadyPods indicates that the number of ready pods in the PodClique is below the threshold defined in the PodCliqueSpec.MinAvailable threshold.
 	ConditionReasonInsufficientReadyPods = "InsufficientReadyPods"
 	// ConditionReasonSufficientReadyPods indicates that the number of ready pods in the PodClique is above the threshold defined in the PodCliqueSpec.MinAvailable threshold.
 	ConditionReasonSufficientReadyPods = "SufficientReadyPods"
+	// ConditionReasonInsufficientReadyPCSGReplicas indicates that the number of ready replicas in the PodCliqueScalingGroup is below the PodCliqueScalingGroupSpec.MinAvailable.
+	ConditionReasonInsufficientReadyPCSGReplicas = "InsufficientReadyPodCliqueScalingGroupReplicas"
+	// ConditionReasonSufficientReadyPCSGReplicas indicates that the number of ready replicas in the PodCliqueScalingGroup is greater than or equal to the PodCliqueScalingGroupSpec.MinAvailable.
+	ConditionReasonSufficientReadyPCSGReplicas = "SufficientReadyPodCliqueScalingGroupReplicas"
 	// ConditionReasonInsufficientScheduledPods indicates that the number of scheduled pods in the PodClique is below the threshold defined in the PodCliqueSpec.MinAvailable threshold.
 	ConditionReasonInsufficientScheduledPods = "InsufficientScheduledPods"
 	// ConditionReasonSufficientScheduledPods indicates that the number of scheduled pods in the PodClique greater or equal to PodCliqueSpec.MinAvailable.
 	ConditionReasonSufficientScheduledPods = "SufficientScheduledPods"
 	// ConditionReasonInsufficientScheduledPCSGReplicas indicates that the number of scheduled replicas in the PodCliqueScalingGroup is below the PodCliqueScalingGroupSpec.MinAvailable.
 	ConditionReasonInsufficientScheduledPCSGReplicas = "InsufficientScheduledPodCliqueScalingGroupReplicas"
-	// ConditionReasonInsufficientReadyPCSGReplicas indicates that the number of ready replicas in the PodCliqueScalingGroup is below the PodCliqueScalingGroupSpec.MinAvailable.
-	ConditionReasonInsufficientReadyPCSGReplicas = "InsufficientReadyPodCliqueScalingGroupReplicas"
-	// ConditionReasonSufficientReadyPCSGReplicas indicates that the number of ready replicas in the PodCliqueScalingGroup is greater than or equal to the PodCliqueScalingGroupSpec.MinAvailable.
-	ConditionReasonSufficientReadyPCSGReplicas = "SufficientReadyPodCliqueScalingGroupReplicas"
+	// ConditionReasonUpdatePending indicates that there are resources that have pending updates.
+	ConditionReasonUpdatePending = "UpdatePending"
 )
