@@ -42,24 +42,26 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 const (
-	errCodeListPodClique                   grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUE"
-	errCodeMissingStartupType              grovecorev1alpha1.ErrorCode = "ERR_UNDEFINED_STARTUP_TYPE"
-	errCodeSetPodCliqueOwnerReference      grovecorev1alpha1.ErrorCode = "ERR_SET_PODCLIQUE_OWNER_REFERENCE"
-	errCodeBuildPodClique                  grovecorev1alpha1.ErrorCode = "ERR_BUILD_PODCLIQUE"
-	errCodeCreatePodCliques                grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODCLIQUES"
-	errCodeDeletePodClique                 grovecorev1alpha1.ErrorCode = "ERR_DELETE_PODCLIQUE"
-	errCodeGetPodGangSet                   grovecorev1alpha1.ErrorCode = "ERR_GET_PODGANGSET"
-	errCodeMissingPGSReplicaIndex          grovecorev1alpha1.ErrorCode = "ERR_MISSING_PODGANGSET_REPLICA_INDEX"
-	errCodeReplicaIndexIntConversion       grovecorev1alpha1.ErrorCode = "ERR_PODGANGSET_REPLICA_INDEX_CONVERSION"
-	errCodeListPodCliquesForPCSG           grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUE_FOR_PCSG"
-	errCodeCreatePodClique                 grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODCLIQUE"
-	errCodeParsePodCliqueScalingGroupIndex grovecorev1alpha1.ErrorCode = "ERR_PARSE_PODCLIQUESCALINGGROUP_REPLICA_INDEX"
-	errCodeUpdateStatusCondition           grovecorev1alpha1.ErrorCode = "ERR_UPDATE_STATUS_CONDITION"
+	errCodeListPodClique                          grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUE"
+	errCodeMissingStartupType                     grovecorev1alpha1.ErrorCode = "ERR_UNDEFINED_STARTUP_TYPE"
+	errCodeSetPodCliqueOwnerReference             grovecorev1alpha1.ErrorCode = "ERR_SET_PODCLIQUE_OWNER_REFERENCE"
+	errCodeBuildPodClique                         grovecorev1alpha1.ErrorCode = "ERR_BUILD_PODCLIQUE"
+	errCodeCreatePodCliques                       grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODCLIQUES"
+	errCodeDeletePodClique                        grovecorev1alpha1.ErrorCode = "ERR_DELETE_PODCLIQUE"
+	errCodeGetPodGangSet                          grovecorev1alpha1.ErrorCode = "ERR_GET_PODGANGSET"
+	errCodeMissingPGSReplicaIndex                 grovecorev1alpha1.ErrorCode = "ERR_MISSING_PODGANGSET_REPLICA_INDEX"
+	errCodeReplicaIndexIntConversion              grovecorev1alpha1.ErrorCode = "ERR_PODGANGSET_REPLICA_INDEX_CONVERSION"
+	errCodeListPodCliquesForPCSG                  grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUE_FOR_PCSG"
+	errCodeCreatePodClique                        grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODCLIQUE"
+	errCodeParsePodCliqueScalingGroupReplicaIndex grovecorev1alpha1.ErrorCode = "ERR_PARSE_PODCLIQUESCALINGGROUP_REPLICA_INDEX"
+	errCodeUpdateStatusCondition                  grovecorev1alpha1.ErrorCode = "ERR_UPDATE_STATUS_CONDITION"
+	errCodeUpdateLastIndexSelectedForUpdate       grovecorev1alpha1.ErrorCode = "ERR_UPDATE_STATUS_LAST_INDEX_SELECTED_FOR_UPDATE"
 )
 
 type _resource struct {
@@ -157,6 +159,12 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 	// TODO check if there is a pending update that needs to be done to all constituent PCLQs
 	pcsgReplicaIndicesPendingUpdate := getPCSGReplicaIndicesPendingUpdate(pgs, pcsg, existingPCLQs)
 	if len(pcsgReplicaIndicesPendingUpdate) > 0 {
+		if pcsg.Status.LastIndexSelectedForUpdate != nil && !hasLastIndexSuccessfullyUpdated(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs) {
+			return groveerr.New(groveerr.ErrCodeRequeueAfter,
+				component.OperationSync,
+				fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.LastIndexSelectedForUpdate),
+			)
+		}
 		orderedPCSGReplicaIndicesToUpdate := getOrderedPCSGIndicesPendingUpdate(pcsgReplicaIndicesPendingUpdate, pcsgIndicesToTerminate, pcsgIndicesToRequeue)
 		replicaPickedForUpdate := orderedPCSGReplicaIndicesToUpdate[0]
 		logger.Info("Found PCSG replicas pending update, picking up one replica to update", "pcsgReplicaIndicesPendingUpdate", pcsgReplicaIndicesPendingUpdate, "replicaPickedForUpdate", replicaPickedForUpdate)
@@ -179,8 +187,21 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 	return nil
 }
 
+func hasLastIndexSuccessfullyUpdated(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, expectedPCLQsPerPCSGReplica map[int][]string, existingPCLQs []grovecorev1alpha1.PodClique) bool {
+	pclqToBeCheckedForAvailabilityFQNs := expectedPCLQsPerPCSGReplica[int(*pcsg.Status.LastIndexSelectedForUpdate)]
+	for _, pclqFQN := range pclqToBeCheckedForAvailabilityFQNs {
+		pclqToBeChecked, ok := lo.Find(existingPCLQs, func(pclq grovecorev1alpha1.PodClique) bool {
+			return pclqFQN == pclq.Name
+		})
+		if !ok || pclqToBeChecked.Status.ReadyReplicas < *pclqToBeChecked.Spec.MinAvailable {
+			return false
+		}
+	}
+	return true
+}
+
 func (r _resource) triggerRollingUpdate(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pcsgIndexToUpdate string) error {
-	if err := r.setUpdateInProgressCondition(ctx, pcsg); err != nil {
+	if err := r.updatePCSGStatusWithRollingUpdateProgress(ctx, pcsg, pcsgIndexToUpdate); err != nil {
 		return err
 	}
 	logger.Info("triggering deletion of PCSG replica to update", "pcsgIndexToUpdate", pcsgIndexToUpdate)
@@ -227,19 +248,27 @@ func getOrderedPCSGIndicesPendingUpdate(pcsgReplicaIndicesPendingUpdate, pcsgInd
 	return orderedPCSGReplicas
 }
 
-func (r _resource) setUpdateInProgressCondition(ctx context.Context, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
-	if isUpdateInProgress(pcsg) {
-		return nil
+func (r _resource) updatePCSGStatusWithRollingUpdateProgress(ctx context.Context, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, replicaIndex string) error {
+	index, err := strconv.Atoi(replicaIndex)
+	if err != nil {
+		return groveerr.WrapError(err,
+			errCodeParsePodCliqueScalingGroupReplicaIndex,
+			component.OperationSync,
+			fmt.Sprintf("invalid pcsg replica index: %s", replicaIndex),
+		)
 	}
-	if pcsg.Status.Conditions == nil {
-		pcsg.Status.Conditions = []metav1.Condition{}
+	pcsg.Status.LastIndexSelectedForUpdate = ptr.To(int32(index))
+	if !isUpdateInProgress(pcsg) {
+		if pcsg.Status.Conditions == nil {
+			pcsg.Status.Conditions = []metav1.Condition{}
+		}
+		pcsg.Status.Conditions = append(pcsg.Status.Conditions, metav1.Condition{
+			Type:               constants.ConditionTypeUpdateInProgress,
+			Status:             metav1.ConditionTrue,
+			Reason:             constants.ConditionReasonUpdatePending,
+			LastTransitionTime: metav1.Now(),
+		})
 	}
-	pcsg.Status.Conditions = append(pcsg.Status.Conditions, metav1.Condition{
-		Type:               constants.ConditionTypeUpdateInProgress,
-		Status:             metav1.ConditionTrue,
-		Reason:             constants.ConditionReasonUpdatePending,
-		LastTransitionTime: metav1.Now(),
-	})
 	if err := r.client.Status().Update(ctx, pcsg); err != nil {
 		return groveerr.WrapError(err,
 			errCodeUpdateStatusCondition,
@@ -284,7 +313,7 @@ func getPCSGReplicaIndicesPendingUpdate(pgs *grovecorev1alpha1.PodGangSet, pcsg 
 			pcsgReplicaIndicesPendingUpdate = append(pcsgReplicaIndicesPendingUpdate, pcsgReplicaIndex)
 		}
 	}
-	return pcsgReplicaIndicesPendingUpdate
+	return lo.Uniq(pcsgReplicaIndicesPendingUpdate)
 }
 
 func (r _resource) getExistingPCLQs(ctx context.Context, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) ([]grovecorev1alpha1.PodClique, error) {
@@ -351,7 +380,7 @@ func refreshExistingPCLQs(existingPCLQs []grovecorev1alpha1.PodClique, expectedP
 		pcsgReplicaIndex, err := strconv.Atoi(pcsgReplicaIndexStr)
 		if err != nil {
 			return nil, groveerr.WrapError(err,
-				errCodeParsePodCliqueScalingGroupIndex,
+				errCodeParsePodCliqueScalingGroupReplicaIndex,
 				component.OperationSync,
 				fmt.Sprintf("invalid pcsg replica index label value found on PodClique: %v", client.ObjectKeyFromObject(&pclq)),
 			)
@@ -438,7 +467,7 @@ func (r _resource) createDeleteTasks(logger logr.Logger, pgs *grovecorev1alpha1.
 					logger.Error(err, "failed to delete PodCliques for PCSG replica index", "pcsgReplicaIndex", pcsgReplicaIndex, "reason", reason)
 					return err
 				}
-				logger.Info("Deleting PodCliqueScalingGroup %s replicaIndex: %s", pcsgName, pcsgReplicaIndex)
+				logger.Info("Deleting PodCliqueScalingGroup replica", "pcsgName", pcsgName, "pcsgReplicaIndex", pcsgReplicaIndex)
 				r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodCliqueScalingGroupReplicaDeletionSuccessful, "Deleted PodCliqueScalingGroup %s replicaIndex: %s", pcsgName, pcsgReplicaIndex)
 				return nil
 			},
@@ -575,7 +604,7 @@ func (r _resource) buildResource(logger logr.Logger, pgs *grovecorev1alpha1.PodG
 	pclq.Annotations = pclqTemplateSpec.Annotations
 	// set PodCliqueSpec
 	// ------------------------------------
-	pclq.Spec = pclqTemplateSpec.Spec
+	pclq.Spec = *pclqTemplateSpec.Spec.DeepCopy()
 	pcsgTemplateNumPods := r.getPCSGTemplateNumPods(pgs, pcsg)
 	r.addEnvironmentVariablesToPodContainerSpecs(pclq, pcsgTemplateNumPods)
 	dependentPCLQNames, err := identifyFullyQualifiedStartupDependencyNames(pgs, pgsReplicaIndex, pcsg, pcsgReplicaIndex, pclq, foundAtIndex)

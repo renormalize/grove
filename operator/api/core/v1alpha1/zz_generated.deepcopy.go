@@ -343,6 +343,11 @@ func (in *PodCliqueScalingGroupStatus) DeepCopyInto(out *PodCliqueScalingGroupSt
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.LastIndexSelectedForUpdate != nil {
+		in, out := &in.LastIndexSelectedForUpdate, &out.LastIndexSelectedForUpdate
+		*out = new(int32)
+		**out = **in
+	}
 	return
 }
 
