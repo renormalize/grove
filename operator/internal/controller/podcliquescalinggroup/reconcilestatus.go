@@ -108,7 +108,7 @@ func computeMinAvailableBreachedCondition(logger logr.Logger, pcsg *grovecorev1a
 			Type:    constants.ConditionTypeMinAvailableBreached,
 			Status:  metav1.ConditionUnknown,
 			Reason:  constants.ConditionReasonUpdateInProgress,
-			Message: "update is in progress",
+			Message: "Update is in progress",
 		}
 	}
 

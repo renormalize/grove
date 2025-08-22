@@ -93,6 +93,4 @@ const (
 	ConditionReasonInsufficientScheduledPCSGReplicas = "InsufficientScheduledPodCliqueScalingGroupReplicas"
 	// ConditionReasonUpdateInProgress indicates that the resource is undergoing rolling update.
 	ConditionReasonUpdateInProgress = "UpdateInProgress"
-	// ConditionReasonUpdatePending indicates that there are resources that have pending updates.
-	ConditionReasonUpdatePending = "UpdatePending"
 )

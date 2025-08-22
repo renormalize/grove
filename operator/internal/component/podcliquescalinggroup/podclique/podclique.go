@@ -39,6 +39,7 @@ import (
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
@@ -147,7 +148,6 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 			}
 		}
 	}
-
 	// Create or update the expected PodCliques as per the PodCliqueScalingGroup configurations defined in the PodGangSet.
 	existingPCLQFQNs := lo.Map(existingPCLQs, func(pclq grovecorev1alpha1.PodClique, _ int) string { return pclq.Name })
 	if err = r.createExpectedPCLQs(ctx, logger, pgs, pcsg, existingPCLQFQNs, expectedPCLQsPerPCSGReplica); err != nil {
@@ -176,6 +176,16 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 			component.OperationSync,
 			"Requeuing to continue PCSG replica updates",
 		)
+	} else {
+		if pcsg.Status.LastIndexSelectedForUpdate != nil && !hasLastIndexSuccessfullyUpdated(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs) {
+			return groveerr.New(groveerr.ErrCodeRequeueAfter,
+				component.OperationSync,
+				fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.LastIndexSelectedForUpdate),
+			)
+		}
+		if err = r.resetUpdateStatus(ctx, pcsg); err != nil {
+			return err
+		}
 	}
 
 	// If there are any PCSG replicas which have minAvailableBreached but the terminationDelay has not yet expired, then
@@ -187,6 +197,22 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 		)
 	}
 
+	return nil
+}
+
+func (r _resource) resetUpdateStatus(ctx context.Context, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
+	if meta.FindStatusCondition(pcsg.Status.Conditions, constants.ConditionTypeUpdateInProgress) != nil {
+		meta.RemoveStatusCondition(&pcsg.Status.Conditions, constants.ConditionTypeUpdateInProgress)
+		pcsg.Status.LastIndexSelectedForUpdate = nil
+		if err := r.client.Status().Update(ctx, pcsg); err != nil {
+			return groveerr.WrapError(
+				err,
+				errCodeUpdateStatusCondition,
+				component.OperationSync,
+				fmt.Sprintf("failed to remove the %s condition in the PodCliqueScalingGroup status", constants.ConditionReasonInsufficientReadyPCSGReplicas),
+			)
+		}
+	}
 	return nil
 }
 
@@ -268,8 +294,9 @@ func (r _resource) updatePCSGStatusWithRollingUpdateProgress(ctx context.Context
 		pcsg.Status.Conditions = append(pcsg.Status.Conditions, metav1.Condition{
 			Type:               constants.ConditionTypeUpdateInProgress,
 			Status:             metav1.ConditionTrue,
-			Reason:             constants.ConditionReasonUpdatePending,
+			Reason:             constants.ConditionReasonUpdateInProgress,
 			LastTransitionTime: metav1.Now(),
+			Message:            "At least one of the constituent PodClique templates have been updated",
 		})
 	}
 	if err := r.client.Status().Update(ctx, pcsg); err != nil {
