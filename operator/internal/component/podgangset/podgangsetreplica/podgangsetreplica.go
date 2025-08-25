@@ -19,6 +19,9 @@ package podgangsetreplica
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
+
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
@@ -59,10 +62,6 @@ func (r _resource) GetExistingResourceNames(_ context.Context, _ logr.Logger, _ 
 func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) error {
 	pgsObjectKey := client.ObjectKeyFromObject(pgs)
 
-	if isRollingUpdateInProgress(pgs) {
-		r.orchestrateRollingUpdate(ctx, pgs)
-	}
-
 	work, err := r.getPGSReplicaDeletionWork(ctx, logger, pgs)
 	if err != nil {
 		return groveerr.WrapError(err,
@@ -70,6 +69,7 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev
 			component.OperationSync,
 			fmt.Sprintf("Could not compute pending replica deletion work for PGS: %v", pgsObjectKey))
 	}
+
 	if work.hasPendingPGSReplicaDeletion() {
 		if runResult := utils.RunConcurrently(ctx, logger, work.deletionTasks); runResult.HasErrors() {
 			return groveerr.WrapError(runResult.GetAggregatedError(),
@@ -79,6 +79,14 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev
 			)
 		}
 	}
+
+	if isRollingUpdateInProgress(pgs) {
+		minAvailableBreachedPGSReplicaIndices := slices.Collect(maps.Keys(work.minAvailableBreachedConstituents))
+		if err := r.orchestrateRollingUpdate(ctx, logger, pgs, work.pgsIndicesToTerminate, minAvailableBreachedPGSReplicaIndices); err != nil {
+			return err
+		}
+	}
+
 	if work.shouldRequeue() {
 		return groveerr.New(groveerr.ErrCodeContinueReconcileAndRequeue,
 			component.OperationSync,
