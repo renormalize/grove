@@ -161,34 +161,37 @@ func (r _resource) getPGSReplicaInfos(ctx context.Context, pgs *grovecorev1alpha
 func (r _resource) updatePGSWithReplicaUpdateProgress(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, currentReplicaUpdateProgress replicaUpdateProgress) error {
 	pgs.Status.RollingUpdateProgress.CurrentlyUpdating.UpdatedPodCliques = currentReplicaUpdateProgress.updatedPCLQFQNs
 	pgs.Status.RollingUpdateProgress.CurrentlyUpdating.UpdatedPodCliqueScalingGroups = currentReplicaUpdateProgress.updatedPCSGFQNs
-	// if err := r.client.Status().Update(ctx, pgs);
-	errorMessage := fmt.Sprintf("could not update ongoing rolling update progress of replica %d update", int(pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex))
-	return r.updateRollingUpdateProgressStatus(ctx, logger, pgs, errorMessage)
+	logger.Info("Updating PodGangSet status with newly updated PodCliques and PodClique")
+	if err := r.updateRollingUpdateProgressStatus(ctx, logger, pgs); err != nil {
+		logger.Error(err, "failed to update rolling update progress", "replicaIndex", pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex)
+		return err
+	}
+	return nil
 }
 
 func (r _resource) onReplicaUpdateComplete(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, nextPGSReplicaIndex *int) error {
-	previouslyUpdatedReplicaIndex := pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex
 	pgs.Status.UpdatedReplicas++
 	if nextPGSReplicaIndex == nil {
+		logger.Info("Rolling update has completed")
 		pgs.Status.RollingUpdateProgress.UpdateEndedAt = ptr.To(metav1.Now())
 		pgs.Status.RollingUpdateProgress.CurrentlyUpdating = nil
 	} else {
+		logger.Info("Initiating rolling update for next replica index", "nextReplicaIndex", *nextPGSReplicaIndex)
 		pgs.Status.RollingUpdateProgress.CurrentlyUpdating = &grovecorev1alpha1.PodGangSetReplicaRollingUpdateProgress{
 			ReplicaIndex:    int32(*nextPGSReplicaIndex),
 			UpdateStartedAt: metav1.Now(),
 		}
 	}
-	errorMessage := fmt.Sprintf("could not update rolling update progress on completion of replica %d update", previouslyUpdatedReplicaIndex)
-	return r.updateRollingUpdateProgressStatus(ctx, logger, pgs, errorMessage)
+	return r.updateRollingUpdateProgressStatus(ctx, logger, pgs)
 }
 
-func (r _resource) updateRollingUpdateProgressStatus(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, errorMessage string) error {
+func (r _resource) updateRollingUpdateProgressStatus(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) error {
 	if err := r.client.Status().Update(ctx, pgs); err != nil {
 		return groveerr.WrapError(
 			err,
 			errCodeUpdatePGSStatus,
 			component.OperationSync,
-			errorMessage,
+			"could not update rolling update progress",
 		)
 	}
 	logger.Info("Updated the PodGangSet status with rolling update progress")

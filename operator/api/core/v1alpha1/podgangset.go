@@ -90,18 +90,20 @@ type PodGangSetStatus struct {
 }
 
 type PodGangSetRollingUpdateProgress struct {
-	UpdateStartedAt   metav1.Time                             `json:"updateStartedAt,omitempty"`
-	UpdateEndedAt     *metav1.Time                            `json:"updateEndedAt,omitempty"`
-	UpdatedReplicas   int32                                   `json:"updatedReplicas,omitempty"`
+	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
+	// +optional
+	UpdateEndedAt   *metav1.Time `json:"updateEndedAt,omitempty"`
+	UpdatedReplicas int32        `json:"updatedReplicas,omitempty"`
+	// +optional
 	CurrentlyUpdating *PodGangSetReplicaRollingUpdateProgress `json:"currentlyUpdating,omitempty"`
 }
 
 type PodGangSetReplicaRollingUpdateProgress struct {
 	ReplicaIndex                  int32       `json:"replicaIndex,omitempty"`
 	UpdateStartedAt               metav1.Time `json:"updateStartedAt,omitempty"`
-	UpdatedPodCliqueScalingGroups []string    `json:"updatedPodCliqueScalingGroups"`
-	UpdatedPodCliques             []string    `json:"updatedPodCliques"`
-	UnhealthyPodCliques           []string    `json:"unhealthyPodCliques"`
+	UpdatedPodCliqueScalingGroups []string    `json:"updatedPodCliqueScalingGroups,omitempty"`
+	UpdatedPodCliques             []string    `json:"updatedPodCliques,omitempty"`
+	UnhealthyPodCliques           []string    `json:"unhealthyPodCliques,omitempty"`
 }
 
 // PodGangSetTemplateSpec defines a template spec for a PodGang.

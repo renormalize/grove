@@ -9835,10 +9835,6 @@ spec:
                         items:
                           type: string
                         type: array
-                    required:
-                    - unhealthyPodCliques
-                    - updatedPodCliqueScalingGroups
-                    - updatedPodCliques
                     type: object
                   updateEndedAt:
                     format: date-time
