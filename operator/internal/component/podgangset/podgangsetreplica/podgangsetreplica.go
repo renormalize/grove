@@ -35,6 +35,7 @@ const (
 	errCodeDeletePGSReplica                grovecorev1alpha1.ErrorCode = "ERR_DELETE_PGS_REPLICA"
 	errCodeListPCLQs                       grovecorev1alpha1.ErrorCode = "ERR_LIST_PCLQs"
 	errCodeListPCSGs                       grovecorev1alpha1.ErrorCode = "ERR_LIST_PCGS"
+	errCodeUpdatePGSStatus                 grovecorev1alpha1.ErrorCode = "ERR_UPDATE_PGS_STATUS"
 )
 
 type _resource struct {
@@ -57,6 +58,10 @@ func (r _resource) GetExistingResourceNames(_ context.Context, _ logr.Logger, _ 
 
 func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) error {
 	pgsObjectKey := client.ObjectKeyFromObject(pgs)
+
+	if isRollingUpdateInProgress(pgs) {
+		r.orchestrateRollingUpdate(ctx, pgs)
+	}
 
 	work, err := r.getPGSReplicaDeletionWork(ctx, logger, pgs)
 	if err != nil {
