@@ -18,16 +18,13 @@ package utils
 
 import (
 	"context"
-	"slices"
-	"strconv"
-
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
-
 	"github.com/samber/lo"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"slices"
 )
 
 // FindScalingGroupConfigForClique searches through the scaling group configurations to find
@@ -44,22 +41,26 @@ func FindScalingGroupConfigForClique(scalingGroupConfigs []grovecorev1alpha1.Pod
 	return &pcsgConfig
 }
 
-// GetPCSGsForPGSReplicaIndex fetches all PodCliqueScalingGroups for a PodGangSet replica index.
-func GetPCSGsForPGSReplicaIndex(ctx context.Context, cl client.Client, pgsObjKey client.ObjectKey, pgsReplicaIndex int) ([]grovecorev1alpha1.PodCliqueScalingGroup, error) {
+// GetPCSGsByPGSReplicaIndex groups the PodCliqueScalingGroups per PodGangSet replica index and returns a map with the key being the PodGangSet replica index and the value
+// being the slice of PodCliqueScalingGroup objects.
+func GetPCSGsByPGSReplicaIndex(ctx context.Context, cl client.Client, pgsObjKey client.ObjectKey) (map[string][]grovecorev1alpha1.PodCliqueScalingGroup, error) {
 	pcsgList := &grovecorev1alpha1.PodCliqueScalingGroupList{}
 	if err := cl.List(ctx,
 		pcsgList,
 		client.InNamespace(pgsObjKey.Namespace),
-		client.MatchingLabels(lo.Assign(
-			apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjKey.Name),
-			map[string]string{
-				apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
-			},
-		)),
+		client.MatchingLabels(apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjKey.Name)),
 	); err != nil {
 		return nil, err
 	}
-	return pcsgList.Items, nil
+	pcsgsByPGSReplicaIndex := make(map[string][]grovecorev1alpha1.PodCliqueScalingGroup)
+	for _, pcsg := range pcsgList.Items {
+		pgsReplicaIndex, ok := pcsg.Labels[apicommon.LabelPodGangSetReplicaIndex]
+		if !ok {
+			continue
+		}
+		pcsgsByPGSReplicaIndex[pgsReplicaIndex] = append(pcsgsByPGSReplicaIndex[pgsReplicaIndex], pcsg)
+	}
+	return pcsgsByPGSReplicaIndex, nil
 }
 
 // IsPCSGUpdateInProgress checks if PCSG is under rolling update.

@@ -18,6 +18,7 @@ package podgangset
 
 import (
 	"context"
+	"sync"
 
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	configv1alpha1 "github.com/NVIDIA/grove/operator/api/config/v1alpha1"
@@ -36,20 +37,22 @@ import (
 
 // Reconciler reconciles PodGangSet resources.
 type Reconciler struct {
-	config                  configv1alpha1.PodGangSetControllerConfiguration
-	client                  ctrlclient.Client
-	reconcileStatusRecorder ctrlcommon.ReconcileStatusRecorder
-	operatorRegistry        component.OperatorRegistry[grovecorev1alpha1.PodGangSet]
+	config                        configv1alpha1.PodGangSetControllerConfiguration
+	client                        ctrlclient.Client
+	reconcileStatusRecorder       ctrlcommon.ReconcileStatusRecorder
+	operatorRegistry              component.OperatorRegistry[grovecorev1alpha1.PodGangSet]
+	pgsGenerationHashExpectations sync.Map
 }
 
 // NewReconciler creates a new reconciler for PodGangSet.
 func NewReconciler(mgr ctrl.Manager, controllerCfg configv1alpha1.PodGangSetControllerConfiguration) *Reconciler {
 	eventRecorder := mgr.GetEventRecorderFor(controllerName)
 	return &Reconciler{
-		config:                  controllerCfg,
-		client:                  mgr.GetClient(),
-		reconcileStatusRecorder: ctrlcommon.NewReconcileStatusRecorder(mgr.GetClient(), eventRecorder),
-		operatorRegistry:        pgscomponent.CreateOperatorRegistry(mgr, eventRecorder),
+		config:                        controllerCfg,
+		client:                        mgr.GetClient(),
+		reconcileStatusRecorder:       ctrlcommon.NewReconcileStatusRecorder(mgr.GetClient(), eventRecorder),
+		operatorRegistry:              pgscomponent.CreateOperatorRegistry(mgr, eventRecorder),
+		pgsGenerationHashExpectations: sync.Map{},
 	}
 }
 

@@ -17,6 +17,7 @@
 package utils
 
 import (
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	"maps"
 	"time"
 
@@ -70,7 +71,7 @@ func (b *PodBuilder) Build() *corev1.Pod {
 func (b *PodBuilder) WithOwner(ownerName string) *PodBuilder {
 	ownerRef := metav1.OwnerReference{
 		APIVersion:         grovecorev1alpha1.SchemeGroupVersion.String(),
-		Kind:               grovecorev1alpha1.KindPodClique,
+		Kind:               constants.KindPodClique,
 		Name:               ownerName,
 		UID:                uuid.NewUUID(),
 		BlockOwnerDeletion: ptr.To(true),

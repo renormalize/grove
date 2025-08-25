@@ -48,6 +48,15 @@ func GetPCLQsByOwner(ctx context.Context, cl client.Client, ownerKind string, ow
 	return filteredPCLQs, nil
 }
 
+// GetPCLQsByOwnerReplicaIndex retrieves PodClique objects per replica of the owner resource matching provided selector labels.
+func GetPCLQsByOwnerReplicaIndex(ctx context.Context, cl client.Client, ownerKind string, ownerObjectKey client.ObjectKey, selectorLabels map[string]string) (map[string][]grovecorev1alpha1.PodClique, error) {
+	pclqs, err := GetPCLQsByOwner(ctx, cl, ownerKind, ownerObjectKey, selectorLabels)
+	if err != nil {
+		return nil, err
+	}
+	return groupPCLQsByLabel(pclqs, common.LabelPodGangSetReplicaIndex), nil
+}
+
 // GetPCLQsMatchingLabels gets all the PodClique's in a given namespace matching selectorLabels.
 func GetPCLQsMatchingLabels(ctx context.Context, cl client.Client, namespace string, selectorLabels map[string]string) ([]grovecorev1alpha1.PodClique, error) {
 	podCliqueList := &grovecorev1alpha1.PodCliqueList{}
@@ -105,8 +114,8 @@ func GetMinAvailableBreachedPCLQInfo(pclqs []grovecorev1alpha1.PodClique, termin
 	return pclqCandidateNames, waitForDurations[0]
 }
 
-// GetPCLQPodTemplateHashLabel computes the pod template hash for the PCLQ pod spec.
-func GetPCLQPodTemplateHashLabel(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, priortyClassName string) string {
+// GetPCLQPodTemplateHash computes the pod template hash for the PCLQ pod spec.
+func GetPCLQPodTemplateHash(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, priorityClassName string) string {
 	podTemplateSpec := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:      pclqTemplateSpec.Labels,
@@ -114,6 +123,6 @@ func GetPCLQPodTemplateHashLabel(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTe
 		},
 		Spec: pclqTemplateSpec.Spec.PodSpec,
 	}
-	podTemplateSpec.Spec.PriorityClassName = priortyClassName
-	return k8sutils.ComputePodTemplateSpecHashLabelValue(&podTemplateSpec)
+	podTemplateSpec.Spec.PriorityClassName = priorityClassName
+	return k8sutils.ComputeHash(&podTemplateSpec)
 }

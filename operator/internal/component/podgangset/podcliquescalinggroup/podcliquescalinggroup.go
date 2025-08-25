@@ -213,18 +213,19 @@ func (r _resource) buildResource(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, 
 	pcsg.Spec.Replicas = *pcsgConfig.Replicas
 	pcsg.Spec.MinAvailable = pcsgConfig.MinAvailable
 	pcsg.Spec.CliqueNames = pcsgConfig.CliqueNames
-	pcsg.Labels = getLabels(pgs.Name, pgsReplica, client.ObjectKeyFromObject(pcsg))
+	pcsg.Labels = getLabels(pgs, pgsReplica, client.ObjectKeyFromObject(pcsg))
 	return nil
 }
 
-func getLabels(pgsName string, pgsReplica int, pclqScalingGroupObjKey client.ObjectKey) map[string]string {
+func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplica int, pclqScalingGroupObjKey client.ObjectKey) map[string]string {
 	componentLabels := map[string]string{
-		apicommon.LabelAppNameKey:             pclqScalingGroupObjKey.Name,
-		apicommon.LabelComponentKey:           component.NamePodCliqueScalingGroup,
-		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplica),
+		apicommon.LabelAppNameKey:               pclqScalingGroupObjKey.Name,
+		apicommon.LabelComponentKey:             component.NamePodCliqueScalingGroup,
+		apicommon.LabelPodGangSetReplicaIndex:   strconv.Itoa(pgsReplica),
+		apicommon.LabelPodGangSetGenerationHash: *pgs.Status.GenerationHash,
 	}
 	return lo.Assign(
-		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),
 		componentLabels,
 	)
 }

@@ -94,3 +94,12 @@ const (
 	// ConditionReasonUpdateInProgress indicates that the resource is undergoing rolling update.
 	ConditionReasonUpdateInProgress = "UpdateInProgress"
 )
+
+const (
+	// KindPodGangSet is the kind for a PodGangSet resource.
+	KindPodGangSet = "PodGangSet"
+	// KindPodClique is the kind for a PodClique resource.
+	KindPodClique = "PodClique"
+	// KindPodCliqueScalingGroup is the kind for a PodCliqueScalingGroup resource.
+	KindPodCliqueScalingGroup = "PodCliqueScalingGroup"
+)

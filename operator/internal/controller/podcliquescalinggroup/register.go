@@ -18,6 +18,7 @@ package podcliquescalinggroup
 
 import (
 	"context"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -68,12 +69,12 @@ func podCliqueScalingGroupUpdatePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(createEvent event.CreateEvent) bool {
 			return ctrlutils.IsManagedByGrove(createEvent.Object.GetLabels()) &&
-				ctrlutils.HasExpectedOwner(grovecorev1alpha1.KindPodGangSet, createEvent.Object.GetOwnerReferences())
+				ctrlutils.HasExpectedOwner(constants.KindPodGangSet, createEvent.Object.GetOwnerReferences())
 		},
 		DeleteFunc: func(_ event.DeleteEvent) bool { return false },
 		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
 			return ctrlutils.IsManagedByGrove(updateEvent.ObjectOld.GetLabels()) &&
-				ctrlutils.HasExpectedOwner(grovecorev1alpha1.KindPodGangSet, updateEvent.ObjectOld.GetOwnerReferences())
+				ctrlutils.HasExpectedOwner(constants.KindPodGangSet, updateEvent.ObjectOld.GetOwnerReferences())
 		},
 		GenericFunc: func(_ event.GenericEvent) bool { return false },
 	}
@@ -132,10 +133,10 @@ func podCliquePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(_ event.CreateEvent) bool { return false },
 		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
-			return ctrlutils.IsManagedPodClique(deleteEvent.Object, grovecorev1alpha1.KindPodCliqueScalingGroup)
+			return ctrlutils.IsManagedPodClique(deleteEvent.Object, constants.KindPodCliqueScalingGroup)
 		},
 		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
-			return ctrlutils.IsManagedPodClique(updateEvent.ObjectOld, grovecorev1alpha1.KindPodCliqueScalingGroup)
+			return ctrlutils.IsManagedPodClique(updateEvent.ObjectOld, constants.KindPodCliqueScalingGroup)
 		},
 	}
 }

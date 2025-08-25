@@ -19,7 +19,6 @@ package podgangset
 import (
 	"context"
 	"fmt"
-
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
@@ -36,6 +35,7 @@ func (r *Reconciler) reconcileSpec(ctx context.Context, logger logr.Logger, pgs 
 	reconcileStepFns := []ctrlcommon.ReconcileStepFn[grovecorev1alpha1.PodGangSet]{
 		r.ensureFinalizer,
 		r.recordReconcileStart,
+		r.processGenerationHashChange,
 		r.syncPodGangSetResources,
 		r.recordReconcileSuccess,
 		r.updateObservedGeneration,
@@ -82,9 +82,9 @@ func (r *Reconciler) syncPodGangSetResources(ctx context.Context, logger logr.Lo
 				continueReconcileAndRequeueKinds = append(continueReconcileAndRequeueKinds, kind)
 				continue
 			}
-			if ctrlutils.ShouldRequeueAfter(err) {
+			if shouldRequeue, msg := ctrlutils.ShouldRequeueAfter(err); shouldRequeue {
 				logger.Info("retrying sync due to component", "kind", kind, "syncRetryInterval", ctrlcommon.ComponentSyncRetryInterval)
-				return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, fmt.Sprintf("requeueing sync due to component %s after %s", kind, ctrlcommon.ComponentSyncRetryInterval))
+				return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, msg)
 			}
 			logger.Error(err, "failed to sync PodGangSet resources", "kind", kind)
 			return ctrlcommon.ReconcileWithErrors("error syncing managed resources", fmt.Errorf("failed to sync %s: %w", kind, err))

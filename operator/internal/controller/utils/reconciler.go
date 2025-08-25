@@ -91,13 +91,13 @@ func VerifyNoResourceAwaitsCleanup[T component.GroveCustomResourceType](ctx cont
 }
 
 // ShouldRequeueAfter checks if an error is a GroveError and if yes then returns true
-// when the error code is groveerr.ErrCodeRequeueAfter, else it returns false.
-func ShouldRequeueAfter(err error) bool {
+// when the error code is groveerr.ErrCodeRequeueAfter along with the GroveError.Message, else it returns false and an empty message.
+func ShouldRequeueAfter(err error) (bool, string) {
 	groveErr := &groveerr.GroveError{}
 	if errors.As(err, &groveErr) {
-		return groveErr.Code == groveerr.ErrCodeRequeueAfter
+		return groveErr.Code == groveerr.ErrCodeRequeueAfter, groveErr.Message
 	}
-	return false
+	return false, ""
 }
 
 // ShouldContinueReconcileAndRequeue checks if an error is a Grove error,

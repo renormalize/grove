@@ -319,7 +319,7 @@ func getPCSGReplicaIndicesPendingUpdate(pgs *grovecorev1alpha1.PodGangSet, pcsg 
 		if !ok {
 			continue
 		}
-		podTemplateHash := componentutils.GetPCLQPodTemplateHashLabel(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName)
+		podTemplateHash := componentutils.GetPCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName)
 		for pcsgReplicaIndex := range int(pcsg.Spec.Replicas) {
 			cliqueFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{
 				Name:    pcsg.Name,
@@ -343,7 +343,7 @@ func getPCSGReplicaIndicesPendingUpdate(pgs *grovecorev1alpha1.PodGangSet, pcsg 
 }
 
 func (r _resource) getExistingPCLQs(ctx context.Context, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) ([]grovecorev1alpha1.PodClique, error) {
-	existingPCLQs, err := componentutils.GetPCLQsByOwner(ctx, r.client, grovecorev1alpha1.KindPodCliqueScalingGroup, client.ObjectKeyFromObject(pcsg), getPodCliqueSelectorLabels(pcsg.ObjectMeta))
+	existingPCLQs, err := componentutils.GetPCLQsByOwner(ctx, r.client, constants.KindPodCliqueScalingGroup, client.ObjectKeyFromObject(pcsg), getPodCliqueSelectorLabels(pcsg.ObjectMeta))
 	if err != nil {
 		return nil, groveerr.WrapError(err,
 			errCodeListPodCliquesForPCSG,
@@ -784,7 +784,8 @@ func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int, pcsg *gro
 		apicommon.LabelPodGang:                           podGangName,
 		apicommon.LabelPodGangSetReplicaIndex:            strconv.Itoa(pgsReplicaIndex),
 		apicommon.LabelPodCliqueScalingGroupReplicaIndex: strconv.Itoa(pcsgReplicaIndex),
-		apicommon.LabelPodTemplateHash:                   componentutils.GetPCLQPodTemplateHashLabel(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName),
+		apicommon.LabelPodTemplateHash:                   componentutils.GetPCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName),
+		apicommon.LabelPodGangSetGenerationHash:          *pgs.Status.GenerationHash,
 	}
 
 	// Add base-podgang label for scaled PodGang pods (beyond minAvailable)

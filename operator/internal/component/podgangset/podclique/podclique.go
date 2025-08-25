@@ -42,12 +42,11 @@ import (
 )
 
 const (
-	errListPodClique                 grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUE"
-	errSyncPodClique                 grovecorev1alpha1.ErrorCode = "ERR_SYNC_PODCLIQUE"
-	errDeletePodClique               grovecorev1alpha1.ErrorCode = "ERR_DELETE_PODCLIQUE"
-	errCodeListPodCliqueScalingGroup grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUESCALINGGROUP"
-	errCodeListPodCliques            grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUES"
-	errCodeCreateOrUpdatePodClique   grovecorev1alpha1.ErrorCode = "ERR_CREATE_OR_UPDATE_PODCLIQUE"
+	errListPodClique               grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUE"
+	errSyncPodClique               grovecorev1alpha1.ErrorCode = "ERR_SYNC_PODCLIQUE"
+	errDeletePodClique             grovecorev1alpha1.ErrorCode = "ERR_DELETE_PODCLIQUE"
+	errCodeListPodCliques          grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUES"
+	errCodeCreateOrUpdatePodClique grovecorev1alpha1.ErrorCode = "ERR_CREATE_OR_UPDATE_PODCLIQUE"
 )
 
 type _resource struct {
@@ -90,7 +89,6 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev
 	if err := r.triggerDeletionOfExcessPCLQs(ctx, logger, pgs, expectedPCLQNames); err != nil {
 		return err
 	}
-
 	if err := r.createOrUpdatePCLQs(ctx, logger, pgs, expectedPCLQNames); err != nil {
 		return err
 	}
@@ -351,11 +349,12 @@ func getPodCliqueSelectorLabels(pgsObjectMeta metav1.ObjectMeta) map[string]stri
 
 func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplica int, pclqObjectKey client.ObjectKey, pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, podGangName string) map[string]string {
 	pclqComponentLabels := map[string]string{
-		apicommon.LabelAppNameKey:             pclqObjectKey.Name,
-		apicommon.LabelComponentKey:           component.NamePGSPodClique,
-		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplica),
-		apicommon.LabelPodGang:                podGangName,
-		apicommon.LabelPodTemplateHash:        componentutils.GetPCLQPodTemplateHashLabel(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName),
+		apicommon.LabelAppNameKey:               pclqObjectKey.Name,
+		apicommon.LabelComponentKey:             component.NamePGSPodClique,
+		apicommon.LabelPodGangSetReplicaIndex:   strconv.Itoa(pgsReplica),
+		apicommon.LabelPodGang:                  podGangName,
+		apicommon.LabelPodTemplateHash:          componentutils.GetPCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName),
+		apicommon.LabelPodGangSetGenerationHash: *pgs.Status.GenerationHash,
 	}
 	return lo.Assign(
 		pclqTemplateSpec.Labels,

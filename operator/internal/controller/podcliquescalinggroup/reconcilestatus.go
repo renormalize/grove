@@ -164,7 +164,7 @@ func (r *Reconciler) getPodCliquesPerPCSGReplica(ctx context.Context, pgsName st
 	)
 	pclqs, err := componentutils.GetPCLQsByOwner(ctx,
 		r.client,
-		grovecorev1alpha1.KindPodCliqueScalingGroup,
+		constants.KindPodCliqueScalingGroup,
 		pcsgObjKey,
 		selectorLabels,
 	)

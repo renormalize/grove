@@ -19,6 +19,7 @@ package hpa
 import (
 	"context"
 	"fmt"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	"slices"
 
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
@@ -140,7 +141,7 @@ func (r _resource) computeExpectedHPAs(pgs *grovecorev1alpha1.PodGangSet) []hpaI
 			}
 			expectedHPAInfos = append(expectedHPAInfos, hpaInfo{
 				objectKey:               hpaObjectKey,
-				targetScaleResourceKind: grovecorev1alpha1.KindPodClique,
+				targetScaleResourceKind: constants.KindPodClique,
 				targetScaleResourceName: pclqFQN,
 				scaleConfig:             *pclqTemplateSpec.Spec.ScaleConfig,
 			})
@@ -156,7 +157,7 @@ func (r _resource) computeExpectedHPAs(pgs *grovecorev1alpha1.PodGangSet) []hpaI
 			}
 			expectedHPAInfos = append(expectedHPAInfos, hpaInfo{
 				objectKey:               hpaObjectKey,
-				targetScaleResourceKind: grovecorev1alpha1.KindPodCliqueScalingGroup,
+				targetScaleResourceKind: constants.KindPodCliqueScalingGroup,
 				targetScaleResourceName: pcsgFQN,
 				scaleConfig:             *pcsgConfig.ScaleConfig,
 			})

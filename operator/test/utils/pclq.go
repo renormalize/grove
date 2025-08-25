@@ -18,6 +18,7 @@ package utils
 
 import (
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 
@@ -102,7 +103,7 @@ func createDefaultPodCliqueWithoutPodSpec(pgsName string, pgsUID types.UID, pclq
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion:         grovecorev1alpha1.SchemeGroupVersion.String(),
-					Kind:               grovecorev1alpha1.KindPodGangSet,
+					Kind:               constants.KindPodGangSet,
 					Name:               pgsName,
 					UID:                pgsUID,
 					Controller:         ptr.To(true),
