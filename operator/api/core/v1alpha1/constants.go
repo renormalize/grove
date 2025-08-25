@@ -39,9 +39,12 @@ const (
 	LabelPodGangSetReplicaIndex = "grove.io/podgangset-replica-index"
 	// LabelPodCliqueScalingGroup is a key for a label that sets the PodCliqueScalingGroup name.
 	LabelPodCliqueScalingGroup = "grove.io/podcliquescalinggroup"
-
 	// LabelPodCliqueScalingGroupReplicaIndex is a key for a label that sets the replica index of a PCSG within PodGangSet.
 	LabelPodCliqueScalingGroupReplicaIndex = "grove.io/podcliquescalinggroup-replica-index"
+	// LabelComponentPGSPodCliqueValue is the value for LabelComponentKey for PodClique resources managed by a PodGangSet.
+	LabelComponentPGSPodCliqueValue = "pgs-podclique"
+	// LabelComponentPCSGPodCliqueValue is the value for LabelComponentKey for PodClique resources managed by a PodCliqueScalingGroup.
+	LabelComponentPCSGPodCliqueValue = "pcsg-podclique"
 )
 
 // Constants for finalizers.
@@ -115,8 +118,8 @@ const (
 	ConditionReasonSufficientScheduledPods = "SufficientScheduledPods"
 	// ConditionReasonInsufficientScheduledPCSGReplicas indicates that the number of scheduled replicas in the PodCliqueScalingGroup is below the PodCliqueScalingGroupSpec.MinAvailable.
 	ConditionReasonInsufficientScheduledPCSGReplicas = "InsufficientScheduledPodCliqueScalingGroupReplicas"
-	// ConditionReasonInsufficientReadyPCSGReplicas indicates that the number of ready replicas in the PodCliqueScalingGroup is below the PodCliqueScalingGroupSpec.MinAvailable.
-	ConditionReasonInsufficientReadyPCSGReplicas = "InsufficientReadyPodCliqueScalingGroupReplicas"
-	// ConditionReasonSufficientReadyPCSGReplicas indicates that the number of ready replicas in the PodCliqueScalingGroup is greater than or equal to the PodCliqueScalingGroupSpec.MinAvailable.
-	ConditionReasonSufficientReadyPCSGReplicas = "SufficientReadyPodCliqueScalingGroupReplicas"
+	// ConditionReasonInsufficientAvailablePCSGReplicas indicates that the number of ready replicas in the PodCliqueScalingGroup is below the PodCliqueScalingGroupSpec.MinAvailable.
+	ConditionReasonInsufficientAvailablePCSGReplicas = "InsufficientAvailablePodCliqueScalingGroupReplicas"
+	// ConditionReasonSufficientAvailablePCSGReplicas indicates that the number of ready replicas in the PodCliqueScalingGroup is greater than or equal to the PodCliqueScalingGroupSpec.MinAvailable.
+	ConditionReasonSufficientAvailablePCSGReplicas = "SufficientAvailablePodCliqueScalingGroupReplicas"
 )

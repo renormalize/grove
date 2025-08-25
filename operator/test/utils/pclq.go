@@ -17,8 +17,9 @@
 package utils
 
 import (
+	"strconv"
+
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
-	"github.com/NVIDIA/grove/operator/internal/component"
 	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
 
 	"github.com/samber/lo"
@@ -41,6 +42,35 @@ func NewPodCliqueBuilder(pgsName string, pgsUID types.UID, pclqTemplateName, nam
 		pgsName:         pgsName,
 		pgsReplicaIndex: pgsReplicaIndex,
 		pclq:            createDefaultPodCliqueWithoutPodSpec(pgsName, pgsUID, pclqTemplateName, namespace, pgsReplicaIndex),
+	}
+}
+
+// NewPCSGPodCliqueBuilder creates a PodClique that belongs to a PodCliqueScalingGroup.
+func NewPCSGPodCliqueBuilder(name, namespace, pgsName, pcsgName string, pgsReplicaIndex, pcsgReplicaIndex int) *PodCliqueBuilder {
+	pclq := &grovecorev1alpha1.PodClique{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				grovecorev1alpha1.LabelManagedByKey:                      grovecorev1alpha1.LabelManagedByValue,
+				grovecorev1alpha1.LabelPartOfKey:                         pgsName,
+				grovecorev1alpha1.LabelPodCliqueScalingGroup:             pcsgName,
+				grovecorev1alpha1.LabelComponentKey:                      grovecorev1alpha1.LabelComponentPCSGPodCliqueValue,
+				grovecorev1alpha1.LabelPodGangSetReplicaIndex:            strconv.Itoa(pgsReplicaIndex),
+				grovecorev1alpha1.LabelPodCliqueScalingGroupReplicaIndex: strconv.Itoa(pcsgReplicaIndex),
+			},
+		},
+		Spec: grovecorev1alpha1.PodCliqueSpec{
+			Replicas:     1,
+			MinAvailable: ptr.To(int32(1)),
+		},
+		Status: grovecorev1alpha1.PodCliqueStatus{},
+	}
+
+	return &PodCliqueBuilder{
+		pgsName:         pgsName,
+		pgsReplicaIndex: int32(pgsReplicaIndex),
+		pclq:            pclq,
 	}
 }
 
@@ -75,9 +105,25 @@ func (b *PodCliqueBuilder) WithAutoScaleMaxReplicas(maximum int32) *PodCliqueBui
 	return b
 }
 
-// WithOwnerReference sets the owner reference for the PodClique.
-func (b *PodCliqueBuilder) WithOwnerReference(ownerRef metav1.OwnerReference) *PodCliqueBuilder {
-	b.pclq.OwnerReferences = []metav1.OwnerReference{ownerRef}
+// WithOwnerReference sets the owner reference for the PodClique from individual values.
+func (b *PodCliqueBuilder) WithOwnerReference(kind, name, uid string) *PodCliqueBuilder {
+	ownerRef := metav1.OwnerReference{
+		Kind: kind,
+		Name: name,
+		UID:  types.UID("test-uid"),
+	}
+	if uid != "" {
+		ownerRef.UID = types.UID(uid)
+	}
+	b.pclq.OwnerReferences = append(b.pclq.OwnerReferences, ownerRef)
+	return b
+}
+
+// WithOptions applies option functions to customize the PodClique.
+func (b *PodCliqueBuilder) WithOptions(opts ...PCLQOption) *PodCliqueBuilder {
+	for _, opt := range opts {
+		opt(b.pclq)
+	}
 	return b
 }
 
@@ -98,7 +144,7 @@ func createDefaultPodCliqueWithoutPodSpec(pgsName string, pgsUID types.UID, pclq
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pclqName,
 			Namespace: namespace,
-			Labels:    getDefaultLabels(pgsName, pclqName),
+			Labels:    getDefaultLabels(pgsName, pclqName, pgsReplicaIndex),
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion:         grovecorev1alpha1.SchemeGroupVersion.String(),
@@ -111,15 +157,17 @@ func createDefaultPodCliqueWithoutPodSpec(pgsName string, pgsUID types.UID, pclq
 			},
 		},
 		Spec: grovecorev1alpha1.PodCliqueSpec{
-			Replicas: 1,
+			Replicas:     1,
+			MinAvailable: ptr.To(int32(1)),
 		},
 	}
 }
 
-func getDefaultLabels(pgsName, pclqName string) map[string]string {
+func getDefaultLabels(pgsName, pclqName string, pgsReplicaIndex int32) map[string]string {
 	pclqComponentLabels := map[string]string{
-		grovecorev1alpha1.LabelAppNameKey:   pclqName,
-		grovecorev1alpha1.LabelComponentKey: component.NamePGSPodClique,
+		grovecorev1alpha1.LabelAppNameKey:             pclqName,
+		grovecorev1alpha1.LabelComponentKey:           grovecorev1alpha1.LabelComponentPGSPodCliqueValue,
+		grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(int(pgsReplicaIndex)),
 	}
 	return lo.Assign(
 		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),

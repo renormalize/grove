@@ -205,14 +205,7 @@ func createExistingPodCliquesFromPGS(pgs *grovecorev1alpha1.PodGangSet, podCliqu
 	nonExistingPGSName := "ebony"
 	for _, podCliqueName := range podCliqueNamesNotOwnedByPGS {
 		pclq := testutils.NewPodCliqueBuilder(nonExistingPGSName, types.UID(uuid.NewString()), podCliqueName, pgs.Namespace, 0).
-			WithOwnerReference(metav1.OwnerReference{
-				APIVersion:         grovecorev1alpha1.SchemeGroupVersion.String(),
-				Kind:               "PodGangSet",
-				Name:               nonExistingPGSName,
-				UID:                types.UID(uuid.NewString()),
-				Controller:         ptr.To(true),
-				BlockOwnerDeletion: ptr.To(true),
-			}).Build()
+			WithOwnerReference("PodGangSet", nonExistingPGSName, uuid.NewString()).Build()
 		existingPodCliques = append(existingPodCliques, pclq)
 	}
 	return existingPodCliques

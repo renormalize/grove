@@ -47,20 +47,37 @@ func FindScalingGroupConfigForClique(scalingGroupConfigs []grovecorev1alpha1.Pod
 
 // GetPCSGsForPGSReplicaIndex fetches all PodCliqueScalingGroups for a PodGangSet replica index.
 func GetPCSGsForPGSReplicaIndex(ctx context.Context, cl client.Client, pgsObjKey client.ObjectKey, pgsReplicaIndex int) ([]grovecorev1alpha1.PodCliqueScalingGroup, error) {
+	pcsgList, err := doGetPCSGsForPGS(ctx, cl, pgsObjKey, map[string]string{
+		grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return pcsgList.Items, nil
+}
+
+// GetPCSGsForPGS fetches all PodCliqueScalingGroups for a PodGangSet.
+func GetPCSGsForPGS(ctx context.Context, cl client.Client, pgsObjKey client.ObjectKey) ([]grovecorev1alpha1.PodCliqueScalingGroup, error) {
+	pcsgList, err := doGetPCSGsForPGS(ctx, cl, pgsObjKey, nil)
+	if err != nil {
+		return nil, err
+	}
+	return pcsgList.Items, nil
+}
+
+func doGetPCSGsForPGS(ctx context.Context, cl client.Client, pgsObjKey client.ObjectKey, matchingLabels map[string]string) (*grovecorev1alpha1.PodCliqueScalingGroupList, error) {
 	pcsgList := &grovecorev1alpha1.PodCliqueScalingGroupList{}
 	if err := cl.List(ctx,
 		pcsgList,
 		client.InNamespace(pgsObjKey.Namespace),
 		client.MatchingLabels(lo.Assign(
 			k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsObjKey.Name),
-			map[string]string{
-				grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
-			},
+			matchingLabels,
 		)),
 	); err != nil {
 		return nil, err
 	}
-	return pcsgList.Items, nil
+	return pcsgList, nil
 }
 
 // GetMinAvailableBreachedPCSGInfo filters PodCliqueScalingGroups that have grovecorev1alpha1.ConditionTypeMinAvailableBreached set to true.
@@ -100,4 +117,21 @@ func GenerateDependencyNamesForBasePodGang(pgs *grovecorev1alpha1.PodGangSet, pg
 		parentPCLQNames = append(parentPCLQNames, grovecorev1alpha1.GeneratePodCliqueName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, parentCliqueName))
 	}
 	return parentPCLQNames
+}
+
+// GroupPCSGsByPGSReplicaIndex filters PCSGs that have a PodGangSetReplicaIndex label and groups them by the PGS replica.
+func GroupPCSGsByPGSReplicaIndex(pcsgs []grovecorev1alpha1.PodCliqueScalingGroup) map[string][]grovecorev1alpha1.PodCliqueScalingGroup {
+	return groupPCSGsByLabel(pcsgs, grovecorev1alpha1.LabelPodGangSetReplicaIndex)
+}
+
+func groupPCSGsByLabel(pcsgs []grovecorev1alpha1.PodCliqueScalingGroup, label string) map[string][]grovecorev1alpha1.PodCliqueScalingGroup {
+	result := make(map[string][]grovecorev1alpha1.PodCliqueScalingGroup)
+	for _, pcsg := range pcsgs {
+		labelValue, exists := pcsg.Labels[label]
+		if !exists {
+			continue
+		}
+		result[labelValue] = append(result[labelValue], pcsg)
+	}
+	return result
 }

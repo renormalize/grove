@@ -50,5 +50,5 @@ func GetObjectKeyFromObjectMeta(objMeta metav1.ObjectMeta) client.ObjectKey {
 
 // IsResourceTerminating checks if a deletion timestamp is set. If it is set it returns true else false.
 func IsResourceTerminating(objMeta metav1.ObjectMeta) bool {
-	return objMeta.DeletionTimestamp != nil
+	return objMeta.GetDeletionTimestamp() != nil
 }

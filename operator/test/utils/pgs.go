@@ -70,6 +70,59 @@ func (b *PodGangSetBuilder) WithPodCliqueScalingGroupConfig(config grovecorev1al
 	return b
 }
 
+// WithStandaloneClique adds a standalone clique (not part of any scaling group).
+func (b *PodGangSetBuilder) WithStandaloneClique(name string) *PodGangSetBuilder {
+	cliqueSpec := &grovecorev1alpha1.PodCliqueTemplateSpec{
+		Name: name,
+		Spec: grovecorev1alpha1.PodCliqueSpec{
+			Replicas: 1,
+		},
+	}
+	b.pgs.Spec.Template.Cliques = append(b.pgs.Spec.Template.Cliques, cliqueSpec)
+	return b
+}
+
+// WithStandaloneCliqueReplicas adds a standalone clique with specific replica count.
+func (b *PodGangSetBuilder) WithStandaloneCliqueReplicas(name string, replicas int32) *PodGangSetBuilder {
+	cliqueSpec := &grovecorev1alpha1.PodCliqueTemplateSpec{
+		Name: name,
+		Spec: grovecorev1alpha1.PodCliqueSpec{
+			Replicas: replicas,
+		},
+	}
+	b.pgs.Spec.Template.Cliques = append(b.pgs.Spec.Template.Cliques, cliqueSpec)
+	return b
+}
+
+// WithScalingGroup adds a scaling group with the specified cliques.
+func (b *PodGangSetBuilder) WithScalingGroup(name string, cliqueNames []string) *PodGangSetBuilder {
+	return b.WithScalingGroupConfig(name, cliqueNames, 1, 1)
+}
+
+// WithScalingGroupConfig adds a scaling group with custom replicas and minAvailable.
+func (b *PodGangSetBuilder) WithScalingGroupConfig(name string, cliqueNames []string, replicas, minAvailable int32) *PodGangSetBuilder {
+	// Add cliques for the scaling group
+	for _, cliqueName := range cliqueNames {
+		cliqueSpec := &grovecorev1alpha1.PodCliqueTemplateSpec{
+			Name: cliqueName,
+			Spec: grovecorev1alpha1.PodCliqueSpec{
+				Replicas: 1,
+			},
+		}
+		b.pgs.Spec.Template.Cliques = append(b.pgs.Spec.Template.Cliques, cliqueSpec)
+	}
+
+	// Add scaling group config
+	pcsgConfig := grovecorev1alpha1.PodCliqueScalingGroupConfig{
+		Name:         name,
+		CliqueNames:  cliqueNames,
+		Replicas:     &replicas,
+		MinAvailable: &minAvailable,
+	}
+	b.pgs.Spec.Template.PodCliqueScalingGroupConfigs = append(b.pgs.Spec.Template.PodCliqueScalingGroupConfigs, pcsgConfig)
+	return b
+}
+
 // Build creates a PodGangSet object.
 func (b *PodGangSetBuilder) Build() *grovecorev1alpha1.PodGangSet {
 	return b.pgs

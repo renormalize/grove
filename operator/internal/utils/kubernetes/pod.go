@@ -144,12 +144,12 @@ func GetContainerStatusIfTerminatedErroneously(containerStatuses []corev1.Contai
 }
 
 func logTerminatedErroneouslyPodContainerStatus(logger logr.Logger, podObjKey client.ObjectKey, containerStatus *corev1.ContainerStatus) {
-	if containerStatus != nil {
+	if containerStatus != nil && containerStatus.LastTerminationState.Terminated != nil {
 		logger.Info("container exited with a non-zero exit code",
 			"pod", podObjKey,
 			"container", containerStatus.Name,
-			"exitCode", containerStatus.State.Terminated.ExitCode,
-			"exitReason", containerStatus.State.Terminated.Reason)
+			"exitCode", containerStatus.LastTerminationState.Terminated.ExitCode,
+			"exitReason", containerStatus.LastTerminationState.Terminated.Reason)
 	}
 }
 

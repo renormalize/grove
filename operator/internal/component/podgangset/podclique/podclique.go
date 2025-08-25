@@ -449,7 +449,7 @@ func getPodCliqueSelectorLabels(pgsObjectMeta metav1.ObjectMeta) map[string]stri
 	return lo.Assign(
 		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsObjectMeta.Name),
 		map[string]string{
-			grovecorev1alpha1.LabelComponentKey: component.NamePGSPodClique,
+			grovecorev1alpha1.LabelComponentKey: grovecorev1alpha1.LabelComponentPGSPodCliqueValue,
 		},
 	)
 }
@@ -457,7 +457,7 @@ func getPodCliqueSelectorLabels(pgsObjectMeta metav1.ObjectMeta) map[string]stri
 func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplica int, pclqObjectKey client.ObjectKey, pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, podGangName string) map[string]string {
 	pclqComponentLabels := map[string]string{
 		grovecorev1alpha1.LabelAppNameKey:             pclqObjectKey.Name,
-		grovecorev1alpha1.LabelComponentKey:           component.NamePGSPodClique,
+		grovecorev1alpha1.LabelComponentKey:           grovecorev1alpha1.LabelComponentPGSPodCliqueValue,
 		grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplica),
 		grovecorev1alpha1.LabelPodGang:                podGangName,
 	}
