@@ -46,13 +46,18 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pc
 	if result := ctrlutils.GetPodCliqueScalingGroup(ctx, r.client, logger, pcsgObjectKey, pcsg); ctrlcommon.ShortCircuitReconcileFlow(result) {
 		return result
 	}
+
+	patchObj := client.MergeFrom(pcsg.DeepCopy())
+
 	pgs, err := componentutils.GetOwnerPodGangSet(ctx, r.client, pcsg.ObjectMeta)
 	if err != nil {
+		logger.Error(err, "failed to get owner PodGangSet")
 		return ctrlcommon.ReconcileWithErrors("failed to get owner PodGangSet", err)
 	}
 
 	pclqsPerPCSGReplica, err := r.getPodCliquesPerPCSGReplica(ctx, pgs.Name, client.ObjectKeyFromObject(pcsg))
 	if err != nil {
+		logger.Error(err, "failed to list PodCliques for PodCliqueScalingGroup")
 		return ctrlcommon.ReconcileWithErrors(fmt.Sprintf("failed to list PodCliques for PodCliqueScalingGroup: %q", client.ObjectKeyFromObject(pcsg)), err)
 	}
 	mutateReplicas(logger, pcsg, pclqsPerPCSGReplica)
@@ -63,7 +68,8 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pc
 		return ctrlcommon.ReconcileWithErrors("failed to update selector for PodCliqueScalingGroup", err)
 	}
 
-	if err = r.client.Status().Update(ctx, pcsg); err != nil {
+	if err = r.client.Status().Patch(ctx, pcsg, patchObj); err != nil {
+		logger.Error(err, "failed to update PodCliqueScalingGroup status")
 		return ctrlcommon.ReconcileWithErrors("failed to update the status with label selector and replicas", err)
 	}
 

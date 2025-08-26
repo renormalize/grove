@@ -18,12 +18,11 @@ package podcliquescalinggroup
 
 import (
 	"context"
-
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
-
+	"github.com/NVIDIA/grove/operator/internal/utils"
 	"github.com/samber/lo"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -91,9 +90,11 @@ func mapPGSToPCSG() handler.MapFunc {
 			return nil
 		}
 		requests := make([]reconcile.Request, 0, int(pgs.Spec.Replicas)*len(pcsgConfigs))
-		for pgsReplica := range pgs.Spec.Replicas {
+		// We are only interested in PGS events during rolling update.
+		if pgs.Status.RollingUpdateProgress != nil && pgs.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
+			pgsReplicaIndex := pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex
 			for _, pcsgConfig := range pcsgConfigs {
-				pcsgName := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: int(pgsReplica)}, pcsgConfig.Name)
+				pcsgName := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: int(pgsReplicaIndex)}, pcsgConfig.Name)
 				requests = append(requests, reconcile.Request{
 					NamespacedName: client.ObjectKey{
 						Name:      pcsgName,
@@ -108,11 +109,32 @@ func mapPGSToPCSG() handler.MapFunc {
 
 func podGangSetPredicate() predicate.Predicate {
 	return predicate.Funcs{
-		CreateFunc:  func(_ event.CreateEvent) bool { return false },
-		DeleteFunc:  func(_ event.DeleteEvent) bool { return false },
-		UpdateFunc:  func(_ event.UpdateEvent) bool { return true },
+		CreateFunc: func(_ event.CreateEvent) bool { return false },
+		DeleteFunc: func(_ event.DeleteEvent) bool { return false },
+		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
+			return shouldEnqueueOnPGSUpdate(updateEvent)
+		},
 		GenericFunc: func(_ event.GenericEvent) bool { return false },
 	}
+}
+
+func shouldEnqueueOnPGSUpdate(event event.UpdateEvent) bool {
+	oldPGS, okOld := event.ObjectOld.(*grovecorev1alpha1.PodGangSet)
+	newPGS, okNew := event.ObjectNew.(*grovecorev1alpha1.PodGangSet)
+	if !okOld || !okNew {
+		return false
+	}
+
+	if oldPGS.Status.RollingUpdateProgress != nil && newPGS.Status.RollingUpdateProgress != nil {
+		if utils.OnlyOneIsNil(oldPGS.Status.RollingUpdateProgress.CurrentlyUpdating, newPGS.Status.RollingUpdateProgress.CurrentlyUpdating) ||
+			oldPGS.Status.RollingUpdateProgress.CurrentlyUpdating != nil &&
+				newPGS.Status.RollingUpdateProgress.CurrentlyUpdating != nil &&
+				oldPGS.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex != newPGS.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex {
+			return true
+		}
+	}
+	return false
+
 }
 
 func mapPCLQToPCSG() handler.MapFunc {

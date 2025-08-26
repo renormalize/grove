@@ -223,8 +223,8 @@ spec:
                         format: date-time
                         type: string
                     required:
+                    - replicaIndex
                     - scheduled
-                    - unhealthyPodCliques
                     type: object
                   podGangSetGenerationHash:
                     type: string
@@ -243,7 +243,8 @@ spec:
                     type: integer
                 required:
                 - podGangSetGenerationHash
-                - updatedPodCliques
+                - updateStartedAt
+                - updatedReplicas
                 type: object
               scheduledReplicas:
                 description: |-

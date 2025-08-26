@@ -91,6 +91,7 @@ func (r *Reconciler) processGenerationHashChange(ctx context.Context, logger log
 	if pgs.Status.GenerationHash == nil {
 		// update the generation hash and continue reconciliation. No rolling update is required.
 		if err := r.setGenerationHash(ctx, pgs, pgsObjectName, newGenerationHash); err != nil {
+			logger.Error(err, "failed to set generation hash on PGS", "newGenerationHash", newGenerationHash)
 			return ctrlcommon.ReconcileWithErrors("error updating generation hash", err)
 		}
 		return ctrlcommon.ContinueReconcile()

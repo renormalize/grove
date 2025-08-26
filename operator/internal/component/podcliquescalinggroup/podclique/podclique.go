@@ -154,37 +154,38 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 		return err
 	}
 
-	// Check if any PCSG replica has pending updates.
-	pcsgReplicaIndicesPendingUpdate := getPCSGReplicaIndicesPendingUpdate(pgs, pcsg, existingPCLQs)
-	if len(pcsgReplicaIndicesPendingUpdate) > 0 {
-		// Progress with rolling update only when any pending update for previously selected PCSG replica has completed.
-		if pcsg.Status.LastIndexSelectedForUpdate != nil && !hasLastIndexSuccessfullyUpdated(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs) {
+	if pcsg.Status.RollingUpdateProgress != nil && pcsg.Status.RollingUpdateProgress.UpdateEndedAt == nil {
+		pcsgReplicaIndicesPendingUpdate := getPCSGReplicaIndicesPendingUpdate(pgs, pcsg, existingPCLQs)
+		if len(pcsgReplicaIndicesPendingUpdate) > 0 {
+			// Progress with rolling update only when any pending update for previously selected PCSG replica has completed.
+			if pcsg.Status.LastIndexSelectedForUpdate != nil && !hasLastIndexSuccessfullyUpdated(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs) {
+				return groveerr.New(groveerr.ErrCodeRequeueAfter,
+					component.OperationSync,
+					fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.LastIndexSelectedForUpdate),
+				)
+			}
+			// Order the PCSG replicas based on a criteria and select the next PCSG index to update.
+			orderedPCSGReplicaIndicesToUpdate := getOrderedPCSGIndicesPendingUpdate(pcsgReplicaIndicesPendingUpdate, pcsgIndicesToTerminate, pcsgIndicesToRequeue)
+			replicaPickedForUpdate := orderedPCSGReplicaIndicesToUpdate[0]
+			logger.Info("Found PCSG replicas pending update, picking up one replica to update", "pcsgReplicaIndicesPendingUpdate", pcsgReplicaIndicesPendingUpdate, "replicaPickedForUpdate", replicaPickedForUpdate)
+			if err = r.updatePCSGReplica(ctx, logger, pgs, pcsg, replicaPickedForUpdate); err != nil {
+				return err
+			}
+			// Requeue after a fixed interval.
 			return groveerr.New(groveerr.ErrCodeRequeueAfter,
 				component.OperationSync,
-				fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.LastIndexSelectedForUpdate),
+				"Requeuing to continue PCSG replica updates",
 			)
-		}
-		// Order the PCSG replicas based on a criteria and select the next PCSG index to update.
-		orderedPCSGReplicaIndicesToUpdate := getOrderedPCSGIndicesPendingUpdate(pcsgReplicaIndicesPendingUpdate, pcsgIndicesToTerminate, pcsgIndicesToRequeue)
-		replicaPickedForUpdate := orderedPCSGReplicaIndicesToUpdate[0]
-		logger.Info("Found PCSG replicas pending update, picking up one replica to update", "pcsgReplicaIndicesPendingUpdate", pcsgReplicaIndicesPendingUpdate, "replicaPickedForUpdate", replicaPickedForUpdate)
-		if err = r.triggerRollingUpdate(ctx, logger, pgs, pcsg, replicaPickedForUpdate); err != nil {
-			return err
-		}
-		// Requeue after a fixed interval.
-		return groveerr.New(groveerr.ErrCodeRequeueAfter,
-			component.OperationSync,
-			"Requeuing to continue PCSG replica updates",
-		)
-	} else {
-		if pcsg.Status.LastIndexSelectedForUpdate != nil && !hasLastIndexSuccessfullyUpdated(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs) {
-			return groveerr.New(groveerr.ErrCodeRequeueAfter,
-				component.OperationSync,
-				fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.LastIndexSelectedForUpdate),
-			)
-		}
-		if err = r.resetUpdateStatus(ctx, pcsg); err != nil {
-			return err
+		} else {
+			if pcsg.Status.LastIndexSelectedForUpdate != nil && !hasLastIndexSuccessfullyUpdated(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs) {
+				return groveerr.New(groveerr.ErrCodeRequeueAfter,
+					component.OperationSync,
+					fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.LastIndexSelectedForUpdate),
+				)
+			}
+			if err = r.resetUpdateStatus(ctx, pcsg); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -229,7 +230,7 @@ func hasLastIndexSuccessfullyUpdated(pcsg *grovecorev1alpha1.PodCliqueScalingGro
 	return true
 }
 
-func (r _resource) triggerRollingUpdate(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pcsgIndexToUpdate string) error {
+func (r _resource) updatePCSGReplica(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pcsgIndexToUpdate string) error {
 	if err := r.updatePCSGStatusWithRollingUpdateProgress(ctx, pcsg, pcsgIndexToUpdate); err != nil {
 		return err
 	}

@@ -55,10 +55,11 @@ func (r *Reconciler) reconcileSpec(ctx context.Context, logger logr.Logger, pcsg
 }
 
 func (r *Reconciler) ensureFinalizer(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) ctrlcommon.ReconcileStepResult {
-	if !controllerutil.ContainsFinalizer(pcsg, constants.FinalizerPodGangSet) {
+	if !controllerutil.ContainsFinalizer(pcsg, constants.FinalizerPodCliqueScalingGroup) {
 		logger.Info("Adding finalizer", "finalizerName", constants.FinalizerPodCliqueScalingGroup)
 		if err := ctrlutils.AddAndPatchFinalizer(ctx, r.client, pcsg, constants.FinalizerPodCliqueScalingGroup); err != nil {
-			return ctrlcommon.ReconcileWithErrors("error adding finalizer", fmt.Errorf("failed to add finalizer: %s to PodGangSet: %v: %w", constants.FinalizerPodCliqueScalingGroup, client.ObjectKeyFromObject(pcsg), err))
+			logger.Error(err, "failed to add finalizer")
+			return ctrlcommon.ReconcileWithErrors("error adding finalizer", fmt.Errorf("failed to add finalizer: %s to PodCliqueScalingGroup: %v: %w", constants.FinalizerPodCliqueScalingGroup, client.ObjectKeyFromObject(pcsg), err))
 		}
 	}
 	return ctrlcommon.ContinueReconcile()
@@ -93,7 +94,7 @@ func (r *Reconciler) processRollingUpdate(ctx context.Context, logger logr.Logge
 		return ctrlcommon.ContinueReconcile()
 	}
 
-	// Trigger processing of pending updates for this PCSG. Check if all pending updates for this PCSG and PGS GenerationHash
+	// Trigger processing of pending updates for this PCSG. Check if all pending updates for this PCSG and for the PGS GenerationHash
 	// has already been completed or are already in-progress. If that is true, then there is nothing more to do.
 	// If the rolling update is in-progress for a different PGS GenerationHash, or it has not even been started, then
 	// reset the rolling update progress so that it can be restarted.
@@ -103,6 +104,7 @@ func (r *Reconciler) processRollingUpdate(ctx context.Context, logger logr.Logge
 			PodGangSetGenerationHash: *pgs.Status.GenerationHash,
 		}
 		if err = r.client.Status().Update(ctx, pcsg); err != nil {
+			logger.Error(err, "could not update PodCliqueScalingGroup.Status.RollingUpdateProgress")
 			return ctrlcommon.ReconcileWithErrors(fmt.Sprintf("could not update PodCliqueScalingGroup.Status.RollingUpdateProgress:  %v", pcsgObjectKey), err)
 		}
 	}
