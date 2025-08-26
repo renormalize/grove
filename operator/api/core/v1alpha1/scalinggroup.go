@@ -90,10 +90,8 @@ type PodCliqueScalingGroupStatus struct {
 	// LastErrors captures the last errors observed by the controller when reconciling the PodClique.
 	LastErrors []LastError `json:"lastErrors,omitempty"`
 	// Conditions represents the latest available observations of the PodCliqueScalingGroup by its controller.
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// LastIndexSelectedForUpdate represent the last PodCliqueScalingGroup replica index that was selected for update.
-	LastIndexSelectedForUpdate *int32                                      `json:"lastIndexSelectedForUpdate,omitempty"`
-	RollingUpdateProgress      *PodCliqueScalingGroupRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
+	Conditions            []metav1.Condition                          `json:"conditions,omitempty"`
+	RollingUpdateProgress *PodCliqueScalingGroupRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
 }
 
 type PodCliqueScalingGroupRollingUpdateProgress struct {

@@ -43,7 +43,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -158,10 +157,11 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 		pcsgReplicaIndicesPendingUpdate := getPCSGReplicaIndicesPendingUpdate(pgs, pcsg, existingPCLQs)
 		if len(pcsgReplicaIndicesPendingUpdate) > 0 {
 			// Progress with rolling update only when any pending update for previously selected PCSG replica has completed.
-			if pcsg.Status.LastIndexSelectedForUpdate != nil && !hasLastIndexSuccessfullyUpdated(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs) {
+			// if pcsg.Status.LastIndexSelectedForUpdate != nil && !hasLastIndexSuccessfullyUpdated(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs) {
+			if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil && !hasLastIndexSuccessfullyUpdated(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs) {
 				return groveerr.New(groveerr.ErrCodeRequeueAfter,
 					component.OperationSync,
-					fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.LastIndexSelectedForUpdate),
+					fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex),
 				)
 			}
 			// Order the PCSG replicas based on a criteria and select the next PCSG index to update.
@@ -177,10 +177,10 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 				"Requeuing to continue PCSG replica updates",
 			)
 		} else {
-			if pcsg.Status.LastIndexSelectedForUpdate != nil && !hasLastIndexSuccessfullyUpdated(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs) {
+			if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil && !hasLastIndexSuccessfullyUpdated(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs) {
 				return groveerr.New(groveerr.ErrCodeRequeueAfter,
 					component.OperationSync,
-					fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.LastIndexSelectedForUpdate),
+					fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex),
 				)
 			}
 			if err = r.resetUpdateStatus(ctx, pcsg); err != nil {
@@ -204,7 +204,8 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 func (r _resource) resetUpdateStatus(ctx context.Context, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
 	if meta.FindStatusCondition(pcsg.Status.Conditions, constants.ConditionTypeUpdateInProgress) != nil {
 		meta.RemoveStatusCondition(&pcsg.Status.Conditions, constants.ConditionTypeUpdateInProgress)
-		pcsg.Status.LastIndexSelectedForUpdate = nil
+		// pcsg.Status.LastIndexSelectedForUpdate = nil
+		pcsg.Status.RollingUpdateProgress.CurrentlyUpdating = nil
 		if err := r.client.Status().Update(ctx, pcsg); err != nil {
 			return groveerr.WrapError(
 				err,
@@ -218,7 +219,9 @@ func (r _resource) resetUpdateStatus(ctx context.Context, pcsg *grovecorev1alpha
 }
 
 func hasLastIndexSuccessfullyUpdated(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, expectedPCLQsPerPCSGReplica map[int][]string, existingPCLQs []grovecorev1alpha1.PodClique) bool {
-	pclqToBeCheckedForAvailabilityFQNs := expectedPCLQsPerPCSGReplica[int(*pcsg.Status.LastIndexSelectedForUpdate)]
+	lastUpdatingReplica := int(pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex)
+	// pclqToBeCheckedForAvailabilityFQNs := expectedPCLQsPerPCSGReplica[int(*pcsg.Status.LastIndexSelectedForUpdate)]
+	pclqToBeCheckedForAvailabilityFQNs := expectedPCLQsPerPCSGReplica[lastUpdatingReplica]
 	for _, pclqFQN := range pclqToBeCheckedForAvailabilityFQNs {
 		pclqToBeChecked, ok := lo.Find(existingPCLQs, func(pclq grovecorev1alpha1.PodClique) bool {
 			return pclqFQN == pclq.Name
@@ -287,7 +290,11 @@ func (r _resource) updatePCSGStatusWithRollingUpdateProgress(ctx context.Context
 			fmt.Sprintf("invalid pcsg replica index: %s", replicaIndex),
 		)
 	}
-	pcsg.Status.LastIndexSelectedForUpdate = ptr.To(int32(index))
+	// pcsg.Status.LastIndexSelectedForUpdate = ptr.To(int32(index))
+	pcsg.Status.RollingUpdateProgress.CurrentlyUpdating = &grovecorev1alpha1.PodCliqueScalingGroupReplicaRollingUpdateProgress{
+		ReplicaIndex:    int32(index),
+		UpdateStartedAt: metav1.Now(),
+	}
 	if !componentutils.IsPCSGUpdateInProgress(pcsg) {
 		if pcsg.Status.Conditions == nil {
 			pcsg.Status.Conditions = []metav1.Condition{}

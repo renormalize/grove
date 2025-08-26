@@ -167,11 +167,6 @@ spec:
                   - observedAt
                   type: object
                 type: array
-              lastIndexSelectedForUpdate:
-                description: LastIndexSelectedForUpdate represent the last PodCliqueScalingGroup
-                  replica index that was selected for update.
-                format: int32
-                type: integer
               lastOperation:
                 description: LastOperation captures the last operation done by the
                   respective reconciler on the PodClique.
