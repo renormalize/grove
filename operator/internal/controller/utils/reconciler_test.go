@@ -74,7 +74,7 @@ func TestShouldRequeueAfter(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			result, _ := ShouldRequeueAfter(tc.err)
+			result := ShouldRequeueAfter(tc.err)
 			assert.Equal(t, tc.expected, result)
 		})
 	}

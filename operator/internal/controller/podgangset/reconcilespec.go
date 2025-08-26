@@ -19,6 +19,11 @@ package podgangset
 import (
 	"context"
 	"fmt"
+	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
+	"github.com/samber/lo"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -69,6 +74,79 @@ func (r *Reconciler) recordReconcileStart(ctx context.Context, logger logr.Logge
 	return ctrlcommon.ContinueReconcile()
 }
 
+// processGenerationHashChange computes the generation hash given a PodGangSet resource and if the generation has
+// changed from the previously persisted pgs.status.generationHash then it resets the pgs.status.rollingUpdateProgress
+func (r *Reconciler) processGenerationHashChange(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) ctrlcommon.ReconcileStepResult {
+	pgsObjectKey := client.ObjectKeyFromObject(pgs)
+	pgsObjectName := cache.NamespacedNameAsObjectName(pgsObjectKey).String()
+
+	// if the generationHash is not reflected correctly yet, requeue. Allow the informer cache to catch-up.
+	if !r.isGenerationHashExpectationSatisfied(pgsObjectName, pgs.Status.GenerationHash) {
+		return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, fmt.Sprintf("GenerationHash is not up-to-date for PodGangSet: %v", pgsObjectKey))
+	} else {
+		r.pgsGenerationHashExpectations.Delete(pgsObjectName)
+	}
+
+	newGenerationHash := computeGenerationHash(pgs)
+	if pgs.Status.GenerationHash == nil {
+		// update the generation hash and continue reconciliation. No rolling update is required.
+		if err := r.setGenerationHash(ctx, pgs, pgsObjectName, newGenerationHash); err != nil {
+			return ctrlcommon.ReconcileWithErrors("error updating generation hash", err)
+		}
+		return ctrlcommon.ContinueReconcile()
+	}
+
+	if newGenerationHash != *pgs.Status.GenerationHash {
+		// trigger rolling update by setting or overriding pgs.Status.RollingUpdateProgress.
+		if err := r.initRollingUpdateProgress(ctx, pgs, pgsObjectName, newGenerationHash); err != nil {
+			return ctrlcommon.ReconcileWithErrors(fmt.Sprintf("could not triggering rolling update for PGS: %v", pgsObjectKey), err)
+		}
+	}
+
+	return ctrlcommon.ContinueReconcile()
+}
+
+func (r *Reconciler) isGenerationHashExpectationSatisfied(pgsObjectName string, pgsGenerationHash *string) bool {
+	expectedGenerationHash, ok := r.pgsGenerationHashExpectations.Load(pgsObjectName)
+	return !ok || (pgsGenerationHash != nil && expectedGenerationHash.(string) == *pgsGenerationHash)
+}
+
+func computeGenerationHash(pgs *grovecorev1alpha1.PodGangSet) string {
+	podTemplateSpecs := lo.Map(pgs.Spec.Template.Cliques, func(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, _ int) *corev1.PodTemplateSpec {
+		podTemplateSpec := &corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels:      pclqTemplateSpec.Labels,
+				Annotations: pclqTemplateSpec.Annotations,
+			},
+			Spec: pclqTemplateSpec.Spec.PodSpec,
+		}
+		podTemplateSpec.Spec.PriorityClassName = pgs.Spec.Template.PriorityClassName
+		return podTemplateSpec
+	})
+	return k8sutils.ComputeHash(podTemplateSpecs...)
+}
+
+func (r *Reconciler) setGenerationHash(ctx context.Context, pgs *grovecorev1alpha1.PodGangSet, pgsObjectName, generationHash string) error {
+	pgs.Status.GenerationHash = &generationHash
+	if err := r.client.Status().Update(ctx, pgs); err != nil {
+		return fmt.Errorf("could not update GenerationHash for PodGangSet: %v: %w", client.ObjectKeyFromObject(pgs), err)
+	}
+	r.pgsGenerationHashExpectations.Store(pgsObjectName, generationHash)
+	return nil
+}
+
+func (r *Reconciler) initRollingUpdateProgress(ctx context.Context, pgs *grovecorev1alpha1.PodGangSet, pgsObjectName, newGenerationHash string) error {
+	pgs.Status.RollingUpdateProgress = &grovecorev1alpha1.PodGangSetRollingUpdateProgress{
+		UpdateStartedAt: metav1.Now(),
+	}
+	pgs.Status.GenerationHash = &newGenerationHash
+	if err := r.client.Status().Update(ctx, pgs); err != nil {
+		return fmt.Errorf("could not set RollingUpdateProgress for PodGangSet: %v: %w", client.ObjectKeyFromObject(pgs), err)
+	}
+	r.pgsGenerationHashExpectations.Store(pgsObjectName, newGenerationHash)
+	return nil
+}
+
 func (r *Reconciler) syncPodGangSetResources(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) ctrlcommon.ReconcileStepResult {
 	continueReconcileAndRequeueKinds := make([]component.Kind, 0)
 	for _, kind := range getOrderedKindsForSync() {
@@ -79,13 +157,13 @@ func (r *Reconciler) syncPodGangSetResources(ctx context.Context, logger logr.Lo
 		logger.Info("Syncing PodGangSet resource", "kind", kind)
 		if err = operator.Sync(ctx, logger, pgs); err != nil {
 			if ctrlutils.ShouldContinueReconcileAndRequeue(err) {
-				logger.Info("continuing sync due to component", "kind", kind)
+				logger.Info("component has registered a request to requeue post completion of all component syncs", "kind", kind, "message", err.Error())
 				continueReconcileAndRequeueKinds = append(continueReconcileAndRequeueKinds, kind)
 				continue
 			}
-			if shouldRequeue, msg := ctrlutils.ShouldRequeueAfter(err); shouldRequeue {
-				logger.Info("retrying sync due to component", "kind", kind, "syncRetryInterval", ctrlcommon.ComponentSyncRetryInterval)
-				return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, msg)
+			if shouldRequeue := ctrlutils.ShouldRequeueAfter(err); shouldRequeue {
+				logger.Info("retrying sync due to component", "kind", kind, "syncRetryInterval", ctrlcommon.ComponentSyncRetryInterval, "message", err.Error())
+				return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, err.Error())
 			}
 			logger.Error(err, "failed to sync PodGangSet resources", "kind", kind)
 			return ctrlcommon.ReconcileWithErrors("error syncing managed resources", fmt.Errorf("failed to sync %s: %w", kind, err))

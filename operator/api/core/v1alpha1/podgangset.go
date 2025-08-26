@@ -104,7 +104,7 @@ type PodGangSetRollingUpdateProgress struct {
 }
 
 type PodGangSetReplicaRollingUpdateProgress struct {
-	ReplicaIndex                  int32       `json:"replicaIndex,omitempty"`
+	ReplicaIndex                  int32       `json:"replicaIndex"`
 	UpdateStartedAt               metav1.Time `json:"updateStartedAt,omitempty"`
 	UpdatedPodCliqueScalingGroups []string    `json:"updatedPodCliqueScalingGroups,omitempty"`
 	UpdatedPodCliques             []string    `json:"updatedPodCliques,omitempty"`

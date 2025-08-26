@@ -72,9 +72,12 @@ func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Log
 	if err != nil {
 		return err
 	}
+
+	var lastUpdatedPGSReplicaIndex *int32
 	if pgs.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
+		lastUpdatedPGSReplicaIndex = &pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex
 		if !updateWork.currentlyUpdatingReplicaInfo.updateProgress.done {
-			if err := r.updatePGSWithReplicaUpdateProgress(ctx, logger, pgs, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
+			if err = r.updatePGSWithReplicaUpdateProgress(ctx, logger, pgs, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
 				return err
 			}
 			return groveerr.New(
@@ -84,9 +87,10 @@ func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Log
 			)
 		}
 	}
-	// pick the next replica idnex
+
+	// pick the next replica index to update.
 	nextReplicaToUpdate := updateWork.getNextReplicaToUpdate(pgs, minAvailableBreachedPGSReplicaIndices)
-	if err := r.onReplicaUpdateComplete(ctx, logger, pgs, nextReplicaToUpdate); err != nil {
+	if err = r.updatePGSWithNextSelectedReplica(ctx, logger, pgs, lastUpdatedPGSReplicaIndex, nextReplicaToUpdate); err != nil {
 		return err
 	}
 
@@ -168,18 +172,21 @@ func (r _resource) updatePGSWithReplicaUpdateProgress(ctx context.Context, logge
 	return nil
 }
 
-func (r _resource) onReplicaUpdateComplete(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, nextPGSReplicaIndex *int) error {
-	pgs.Status.UpdatedReplicas++
-	if nextPGSReplicaIndex == nil {
+func (r _resource) updatePGSWithNextSelectedReplica(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, previouslyUpdatedPGSReplica *int32, nextPGSReplicaToUpdate *int) error {
+	if nextPGSReplicaToUpdate == nil {
 		logger.Info("Rolling update has completed")
 		pgs.Status.RollingUpdateProgress.UpdateEndedAt = ptr.To(metav1.Now())
 		pgs.Status.RollingUpdateProgress.CurrentlyUpdating = nil
 	} else {
-		logger.Info("Initiating rolling update for next replica index", "nextReplicaIndex", *nextPGSReplicaIndex)
+		logger.Info("Initiating rolling update for next replica index", "nextReplicaIndex", *nextPGSReplicaToUpdate)
 		pgs.Status.RollingUpdateProgress.CurrentlyUpdating = &grovecorev1alpha1.PodGangSetReplicaRollingUpdateProgress{
-			ReplicaIndex:    int32(*nextPGSReplicaIndex),
+			ReplicaIndex:    int32(*nextPGSReplicaToUpdate),
 			UpdateStartedAt: metav1.Now(),
 		}
+	}
+	// update the PodGangSet.Status
+	if previouslyUpdatedPGSReplica != nil {
+		pgs.Status.UpdatedReplicas++
 	}
 	return r.updateRollingUpdateProgressStatus(ctx, logger, pgs)
 }

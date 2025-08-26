@@ -19,6 +19,10 @@ package podcliquescalinggroup
 import (
 	"context"
 	"fmt"
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	"github.com/NVIDIA/grove/operator/internal/component/utils"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"strconv"
 
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -35,6 +39,7 @@ func (r *Reconciler) reconcileSpec(ctx context.Context, logger logr.Logger, pcsg
 	reconcileStepFns := []ctrlcommon.ReconcileStepFn[grovecorev1alpha1.PodCliqueScalingGroup]{
 		r.ensureFinalizer,
 		r.recordReconcileStart,
+		r.processRollingUpdate,
 		r.syncPodCliqueScalingGroupResources,
 		r.recordReconcileSuccess,
 		r.updateObservedGeneration,
@@ -67,6 +72,52 @@ func (r *Reconciler) recordReconcileStart(ctx context.Context, logger logr.Logge
 	return ctrlcommon.ContinueReconcile()
 }
 
+func (r *Reconciler) processRollingUpdate(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) ctrlcommon.ReconcileStepResult {
+	pcsgObjectKey := client.ObjectKeyFromObject(pcsg)
+	pgs, err := utils.GetOwnerPodGangSet(ctx, r.client, pcsg.ObjectMeta)
+	if err != nil {
+		return ctrlcommon.ReconcileWithErrors(fmt.Sprintf("could not get owner PodGangSet for PodCliqueScalingGroup: %v", pcsgObjectKey), err)
+	}
+	if pgs.Status.RollingUpdateProgress == nil || pgs.Status.RollingUpdateProgress.CurrentlyUpdating == nil {
+		// No update has yet been triggered for the PodGangSet. Nothing to do here.
+		return ctrlcommon.ContinueReconcile()
+	}
+	pgsReplicaInUpdating := pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex
+	pgsReplicaIndexStr, ok := pcsg.Labels[apicommon.LabelPodGangSetReplicaIndex]
+	if !ok {
+		logger.Info("PodGangSet is currently under rolling update. Cannot process pending updates for this PodCliqueScalingGroup as no PodGangSet index label is found")
+		return ctrlcommon.ContinueReconcile()
+	}
+	if pgsReplicaIndexStr != strconv.Itoa(int(pgsReplicaInUpdating)) {
+		logger.Info("PodGangSet is currently under rolling update. Skipping processing pending updates for this PodCliqueScalingGroup as it does not belong to the PodGangSet Index in update", "currentlyUpdatingPGSIndex", pgsReplicaInUpdating, "pgsIndexForPCSG", pgsReplicaIndexStr)
+		return ctrlcommon.ContinueReconcile()
+	}
+
+	// Trigger processing of pending updates for this PCSG. Check if all pending updates for this PCSG and PGS GenerationHash
+	// has already been completed or are already in-progress. If that is true, then there is nothing more to do.
+	// If the rolling update is in-progress for a different PGS GenerationHash, or it has not even been started, then
+	// reset the rolling update progress so that it can be restarted.
+	if shouldResetOrTriggerRollingUpdate(pgs, pcsg) {
+		pcsg.Status.RollingUpdateProgress = &grovecorev1alpha1.PodCliqueScalingGroupRollingUpdateProgress{
+			UpdateStartedAt:          metav1.Now(),
+			PodGangSetGenerationHash: *pgs.Status.GenerationHash,
+		}
+		if err = r.client.Status().Update(ctx, pcsg); err != nil {
+			return ctrlcommon.ReconcileWithErrors(fmt.Sprintf("could not update PodCliqueScalingGroup.Status.RollingUpdateProgress:  %v", pcsgObjectKey), err)
+		}
+	}
+	return ctrlcommon.ContinueReconcile()
+}
+
+func shouldResetOrTriggerRollingUpdate(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) bool {
+	// If processing of rolling update of PCSG for PGS GenerationHash is either completed or in-progress,
+	// there is no need to reset or trigger another rolling update of this PCSG for the same PGS GenerationHash.
+	if pcsg.Status.RollingUpdateProgress != nil && pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash == *pgs.Status.GenerationHash {
+		return false
+	}
+	return true
+}
+
 func (r *Reconciler) syncPodCliqueScalingGroupResources(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) ctrlcommon.ReconcileStepResult {
 	for _, kind := range getOrderedKindsForSync() {
 		operator, err := r.operatorRegistry.GetOperator(kind)
@@ -75,9 +126,9 @@ func (r *Reconciler) syncPodCliqueScalingGroupResources(ctx context.Context, log
 		}
 		logger.Info("Syncing PodCliqueScalingGroup resource", "kind", kind)
 		if err = operator.Sync(ctx, logger, pcsg); err != nil {
-			if shouldRequeue, msg := ctrlutils.ShouldRequeueAfter(err); shouldRequeue {
-				logger.Info("retrying sync due to component", "kind", kind, "syncRetryInterval", ctrlcommon.ComponentSyncRetryInterval)
-				return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, msg)
+			if shouldRequeue := ctrlutils.ShouldRequeueAfter(err); shouldRequeue {
+				logger.Info("retrying sync due to component", "kind", kind, "syncRetryInterval", ctrlcommon.ComponentSyncRetryInterval, "message", err.Error())
+				return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, err.Error())
 			}
 			logger.Error(err, "failed to sync PodGangSet resources", "kind", kind)
 			return ctrlcommon.ReconcileWithErrors("error syncing managed resources", fmt.Errorf("failed to sync %s: %w", kind, err))

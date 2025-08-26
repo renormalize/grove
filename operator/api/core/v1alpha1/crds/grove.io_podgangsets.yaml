@@ -9843,6 +9843,8 @@ spec:
                         items:
                           type: string
                         type: array
+                    required:
+                    - replicaIndex
                     type: object
                   updateEndedAt:
                     format: date-time

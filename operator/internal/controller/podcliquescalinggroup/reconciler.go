@@ -18,7 +18,6 @@ package podcliquescalinggroup
 
 import (
 	"context"
-
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	groveconfigv1alpha1 "github.com/NVIDIA/grove/operator/api/config/v1alpha1"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
