@@ -131,7 +131,7 @@ func (r _resource) buildResource(pgs *v1alpha1.PodGangSet, sa *corev1.ServiceAcc
 
 func getLabels(pgsObjMeta metav1.ObjectMeta) map[string]string {
 	roleLabels := map[string]string{
-		apicommon.LabelComponentKey: component.NamePodServiceAccount,
+		apicommon.LabelComponentKey: apicommon.LabelComponentNamePodServiceAccount,
 		apicommon.LabelAppNameKey:   apicommon.GeneratePodServiceAccountName(pgsObjMeta.Name),
 	}
 	return lo.Assign(

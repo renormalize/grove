@@ -19,10 +19,10 @@ package hpa
 import (
 	"context"
 	"fmt"
-	"github.com/NVIDIA/grove/operator/api/common/constants"
 	"slices"
 
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
@@ -264,7 +264,7 @@ func (r _resource) buildResource(pgs *grovecorev1alpha1.PodGangSet, hpa *autosca
 func getLabels(pgsName, hpaName string) map[string]string {
 	hpaComponentLabels := map[string]string{
 		apicommon.LabelAppNameKey:   hpaName,
-		apicommon.LabelComponentKey: component.NameHorizontalPodAutoscaler,
+		apicommon.LabelComponentKey: apicommon.LabelComponentNameHorizontalPodAutoscaler,
 	}
 	return lo.Assign(
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
@@ -276,7 +276,7 @@ func getPodCliqueHPASelectorLabels(pgsObjectMeta metav1.ObjectMeta) map[string]s
 	return lo.Assign(
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjectMeta.Name),
 		map[string]string{
-			apicommon.LabelComponentKey: component.NameHorizontalPodAutoscaler,
+			apicommon.LabelComponentKey: apicommon.LabelComponentNameHorizontalPodAutoscaler,
 		},
 	)
 }

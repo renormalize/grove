@@ -53,12 +53,12 @@ func NewPCSGPodCliqueBuilder(name, namespace, pgsName, pcsgName string, pgsRepli
 			Name:      name,
 			Namespace: namespace,
 			Labels: map[string]string{
-				constants.LabelManagedByKey:                      constants.LabelManagedByValue,
-				constants.LabelPartOfKey:                         pgsName,
-				constants.LabelPodCliqueScalingGroup:             pcsgName,
-				constants.LabelComponentKey:                      constants.LabelComponentPCSGPodCliqueValue,
-				constants.LabelPodGangSetReplicaIndex:            strconv.Itoa(pgsReplicaIndex),
-				constants.LabelPodCliqueScalingGroupReplicaIndex: strconv.Itoa(pcsgReplicaIndex),
+				apicommon.LabelManagedByKey:                      apicommon.LabelManagedByValue,
+				apicommon.LabelPartOfKey:                         pgsName,
+				apicommon.LabelPodCliqueScalingGroup:             pcsgName,
+				apicommon.LabelComponentKey:                      apicommon.LabelComponentNamePodCliqueScalingGroupPodClique,
+				apicommon.LabelPodGangSetReplicaIndex:            strconv.Itoa(pgsReplicaIndex),
+				apicommon.LabelPodCliqueScalingGroupReplicaIndex: strconv.Itoa(pcsgReplicaIndex),
 			},
 		},
 		Spec: grovecorev1alpha1.PodCliqueSpec{
@@ -167,7 +167,7 @@ func createDefaultPodCliqueWithoutPodSpec(pgsName string, pgsUID types.UID, pclq
 func getDefaultLabels(pgsName, pclqName string, pgsReplicaIndex int32) map[string]string {
 	pclqComponentLabels := map[string]string{
 		apicommon.LabelAppNameKey:             pclqName,
-		apicommon.LabelComponentKey:           constants.LabelComponentPCSGPodCliqueValue,
+		apicommon.LabelComponentKey:           apicommon.LabelComponentNamePodCliqueScalingGroupPodClique,
 		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(int(pgsReplicaIndex)),
 	}
 	return lo.Assign(

@@ -142,7 +142,7 @@ func (r _resource) buildResource(pgs *grovecorev1alpha1.PodGangSet, secret *core
 
 func getLabels(pgsName, secretName string) map[string]string {
 	secretLabels := map[string]string{
-		apicommon.LabelComponentKey: component.NameServiceAccountTokenSecret,
+		apicommon.LabelComponentKey: apicommon.LabelComponentNameServiceAccountTokenSecret,
 		apicommon.LabelAppNameKey:   secretName,
 	}
 	return lo.Assign(

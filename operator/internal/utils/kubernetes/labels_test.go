@@ -18,8 +18,9 @@ package kubernetes
 
 import (
 	"errors"
-	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"testing"
+
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

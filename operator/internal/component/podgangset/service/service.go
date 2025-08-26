@@ -153,7 +153,7 @@ func (r _resource) buildResource(svc *corev1.Service, pgs *grovecorev1alpha1.Pod
 func getLabels(pgsName string, svcObjectKey client.ObjectKey, pgsReplicaIndex int) map[string]string {
 	svcLabels := map[string]string{
 		apicommon.LabelAppNameKey:             svcObjectKey.Name,
-		apicommon.LabelComponentKey:           component.NamePodGangHeadlessService,
+		apicommon.LabelComponentKey:           apicommon.LabelComponentNamePodGangSetReplicaHeadlessService,
 		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
 	}
 	return lo.Assign(
@@ -173,7 +173,7 @@ func getLabelSelectorForPodsInAPodGangSetReplica(pgsName string, pgsReplicaIndex
 
 func getSelectorLabelsForAllHeadlessServices(pgsName string) map[string]string {
 	svcMatchingLabels := map[string]string{
-		apicommon.LabelComponentKey: component.NamePodGangHeadlessService,
+		apicommon.LabelComponentKey: apicommon.LabelComponentNamePodGangSetReplicaHeadlessService,
 	}
 	return lo.Assign(
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),

@@ -189,7 +189,7 @@ func (r *Reconciler) getPodCliquesPerPCSGReplica(ctx context.Context, pgsName st
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		map[string]string{
 			apicommon.LabelPodCliqueScalingGroup: pcsgObjKey.Name,
-			apicommon.LabelComponentKey:          constants.LabelComponentPCSGPodCliqueValue,
+			apicommon.LabelComponentKey:          apicommon.LabelComponentNamePodCliqueScalingGroupPodClique,
 		},
 	)
 	pclqs, err := componentutils.GetPCLQsByOwner(ctx,

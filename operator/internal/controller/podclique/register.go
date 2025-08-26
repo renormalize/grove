@@ -18,9 +18,9 @@ package podclique
 
 import (
 	"context"
-	"github.com/NVIDIA/grove/operator/api/common/constants"
 	"strings"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	grovectrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
 	"github.com/NVIDIA/grove/operator/internal/utils"

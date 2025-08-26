@@ -47,6 +47,44 @@ const (
 	LabelPodGangSetGenerationHash = "grove.io/podgangset-generation-hash"
 )
 
+// Labels for setting component names for all managed resources whose lifecycle
+// is managed by grove operator and are provisioned as part of a PodGangSet
+// These component names will be set against LabelComponentKey label key on
+// respective components.
+const (
+	// LabelComponentNamePodGangSetReplicaHeadlessService is the label key representing the component name for a
+	// Headless service for a PodGangSet replica.
+	LabelComponentNamePodGangSetReplicaHeadlessService = "pgs-headless-service"
+	// LabelComponentNamePodRole is the label key representing the component name for a role that is associated to all
+	// Pods that are created for a PodGangSet.
+	LabelComponentNamePodRole = "pod-role"
+	// LabelComponentNamePodRoleBinding is the label key representing the component name for a RoleBinding to a Role
+	// that is associated to all Pods that are created for a PodGangSet.
+	LabelComponentNamePodRoleBinding = "pod-role-binding"
+	// LabelComponentNamePodServiceAccount is the label key representing the component name  for a ServiceAccount that
+	// is used by all Pods that are created for a PodGangSet.
+	LabelComponentNamePodServiceAccount = "pod-service-account"
+	// LabelComponentNameServiceAccountTokenSecret is the label key representing the component name for a Secret for
+	// generating service account token that is used by an init container responsible for enforcing start-up ordering in
+	// each Pod for a PodGangSet.
+	LabelComponentNameServiceAccountTokenSecret = "pod-sa-token-secret"
+	// LabelComponentNamePodCliqueScalingGroup is the label key representing the component name for a
+	// PodCliqueScalingGroup resource.
+	LabelComponentNamePodCliqueScalingGroup = "pgs-pod-clique-scaling-group"
+	// LabelComponentNameHorizontalPodAutoscaler is the label key representing the component name for
+	// a HorizontalPodAutoscaler that is created for every PodClique and/or PodCliqueScalingGroup that has
+	// ScaleConfig defined.
+	LabelComponentNameHorizontalPodAutoscaler = "pgs-hpa"
+	// LabelComponentNamePodGang is the label key representing the component name for a PodGang resource.
+	LabelComponentNamePodGang = "podgang"
+	// LabelComponentNamePodGangSetPodClique is the label key representing the component name for a PodClique
+	// whose owner is PodGangSet. These PodCliques do not belong to any PodCliqueScalingGroup.
+	LabelComponentNamePodGangSetPodClique = "pgs-podclique"
+	// LabelComponentNamePodCliqueScalingGroupPodClique is the label key representing the component name
+	// for a PodClique whose owner is a PodCliqueScalingGroup.
+	LabelComponentNamePodCliqueScalingGroupPodClique = "pcsg-podclique"
+)
+
 // GetDefaultLabelsForPodGangSetManagedResources gets the default labels for resources managed by PodGangset.
 func GetDefaultLabelsForPodGangSetManagedResources(pgsName string) map[string]string {
 	return map[string]string{

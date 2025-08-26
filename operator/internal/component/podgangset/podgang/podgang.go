@@ -135,7 +135,7 @@ func getPodGangSelectorLabels(pgsObjMeta metav1.ObjectMeta) map[string]string {
 	return lo.Assign(
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
 		map[string]string{
-			apicommon.LabelComponentKey: component.NamePodGang,
+			apicommon.LabelComponentKey: apicommon.LabelComponentNamePodGang,
 		})
 }
 
@@ -152,6 +152,6 @@ func getLabels(pgsName string) map[string]string {
 	return lo.Assign(
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		map[string]string{
-			apicommon.LabelComponentKey: component.NamePodGang,
+			apicommon.LabelComponentKey: apicommon.LabelComponentNamePodGang,
 		})
 }

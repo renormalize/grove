@@ -20,7 +20,6 @@ import (
 	"context"
 
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
-	"github.com/NVIDIA/grove/operator/internal/component"
 
 	groveschedulerv1alpha1 "github.com/NVIDIA/grove/scheduler/api/core/v1alpha1"
 	"github.com/samber/lo"
@@ -33,7 +32,7 @@ func GetPodGangSelectorLabels(pgsObjMeta metav1.ObjectMeta) map[string]string {
 	return lo.Assign(
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
 		map[string]string{
-			apicommon.LabelComponentKey: component.NamePodGang,
+			apicommon.LabelComponentKey: apicommon.LabelComponentNamePodGang,
 		})
 }
 

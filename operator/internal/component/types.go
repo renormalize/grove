@@ -36,29 +36,6 @@ const (
 	OperationDelete = "Delete"
 )
 
-// Following constants provide a name for each managed component whose lifecycle
-// is managed by grove operator and are provisioned as part of a PodGangSet
-// These component names will be set against grovecorev1alpha1.LabelComponentKey label key on
-// respective components.
-const (
-	// NamePodGangHeadlessService is the component name for a Headless service for a Pod Gang.
-	NamePodGangHeadlessService = "pgs-headless-service"
-	// NamePodRole is the component name for a role that is associated to all Pods that are created for a PodGangSet.
-	NamePodRole = "pod-role"
-	// NamePodRoleBinding is the component name for a RoleBinding to a Role that is associated to all Pods that are created for a PodGangSet.
-	NamePodRoleBinding = "pod-role-binding"
-	// NamePodServiceAccount is the component name for a ServiceAccount that is used by all Pods that are created for a PodGangSet.
-	NamePodServiceAccount = "pod-service-account"
-	// NameServiceAccountTokenSecret is the component name for a Secret for generating service account token that is used by start-up order enforcing init container in each Pod for a PodGangSet.
-	NameServiceAccountTokenSecret = "pod-sa-token-secret"
-	// NamePodCliqueScalingGroup is the component name for a PodCliqueScalingGroup resource.
-	NamePodCliqueScalingGroup = "pgs-pod-clique-scaling-group"
-	// NameHorizontalPodAutoscaler is the component name for a HorizontalPodAutoscaler that is created for a PodGangSet.
-	NameHorizontalPodAutoscaler = "pgs-hpa"
-	// NamePodGang is the component name for a PodGang resource.
-	NamePodGang = "podgang"
-)
-
 // GroveCustomResourceType defines a type bound for generic types.
 type GroveCustomResourceType interface {
 	grovecorev1alpha1.PodGangSet | grovecorev1alpha1.PodClique | grovecorev1alpha1.PodCliqueScalingGroup

@@ -17,9 +17,9 @@
 package utils
 
 import (
-	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"testing"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	"github.com/stretchr/testify/assert"

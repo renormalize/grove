@@ -507,7 +507,7 @@ func getLabelsToDeletePCSGReplicaIndexPCLQs(pgsName, pcsgName, pcsgReplicaIndex 
 	return lo.Assign(
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		map[string]string{
-			apicommon.LabelComponentKey:                      constants.LabelComponentPCSGPodCliqueValue,
+			apicommon.LabelComponentKey:                      apicommon.LabelComponentNamePodCliqueScalingGroupPodClique,
 			apicommon.LabelPodCliqueScalingGroup:             pcsgName,
 			apicommon.LabelPodCliqueScalingGroupReplicaIndex: pcsgReplicaIndex,
 		},
@@ -770,7 +770,7 @@ func getPodCliqueSelectorLabels(pcsgObjectMeta metav1.ObjectMeta) map[string]str
 	return lo.Assign(
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		map[string]string{
-			apicommon.LabelComponentKey:          constants.LabelComponentPCSGPodCliqueValue,
+			apicommon.LabelComponentKey:          apicommon.LabelComponentNamePodCliqueScalingGroupPodClique,
 			apicommon.LabelPodCliqueScalingGroup: pcsgObjectMeta.Name,
 		},
 	)
@@ -779,7 +779,7 @@ func getPodCliqueSelectorLabels(pcsgObjectMeta metav1.ObjectMeta) map[string]str
 func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pcsgReplicaIndex int, pclqObjectKey client.ObjectKey, pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, podGangName string) map[string]string {
 	pclqComponentLabels := map[string]string{
 		apicommon.LabelAppNameKey:                        pclqObjectKey.Name,
-		apicommon.LabelComponentKey:                      constants.LabelComponentPCSGPodCliqueValue,
+		apicommon.LabelComponentKey:                      apicommon.LabelComponentNamePodCliqueScalingGroupPodClique,
 		apicommon.LabelPodCliqueScalingGroup:             pcsg.Name,
 		apicommon.LabelPodGang:                           podGangName,
 		apicommon.LabelPodGangSetReplicaIndex:            strconv.Itoa(pgsReplicaIndex),

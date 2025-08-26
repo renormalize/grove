@@ -159,7 +159,7 @@ func (r _resource) buildResource(pgs *grovecorev1alpha1.PodGangSet, roleBinding 
 
 func getLabels(pgsObjMeta metav1.ObjectMeta) map[string]string {
 	roleLabels := map[string]string{
-		apicommon.LabelComponentKey: component.NamePodRoleBinding,
+		apicommon.LabelComponentKey: apicommon.LabelComponentNamePodRoleBinding,
 		apicommon.LabelAppNameKey:   strings.ReplaceAll(apicommon.GeneratePodRoleBindingName(pgsObjMeta.Name), ":", "-"),
 	}
 	return lo.Assign(

@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
-	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveevents "github.com/NVIDIA/grove/operator/internal/component/events"
@@ -343,7 +342,7 @@ func getPodCliqueSelectorLabels(pgsObjectMeta metav1.ObjectMeta) map[string]stri
 	return lo.Assign(
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjectMeta.Name),
 		map[string]string{
-			apicommon.LabelComponentKey: constants.LabelComponentPGSPodCliqueValue,
+			apicommon.LabelComponentKey: apicommon.LabelComponentNamePodGangSetPodClique,
 		},
 	)
 }
@@ -351,7 +350,7 @@ func getPodCliqueSelectorLabels(pgsObjectMeta metav1.ObjectMeta) map[string]stri
 func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplica int, pclqObjectKey client.ObjectKey, pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, podGangName string) map[string]string {
 	pclqComponentLabels := map[string]string{
 		apicommon.LabelAppNameKey:               pclqObjectKey.Name,
-		apicommon.LabelComponentKey:             constants.LabelComponentPGSPodCliqueValue,
+		apicommon.LabelComponentKey:             apicommon.LabelComponentNamePodGangSetPodClique,
 		apicommon.LabelPodGangSetReplicaIndex:   strconv.Itoa(pgsReplica),
 		apicommon.LabelPodGang:                  podGangName,
 		apicommon.LabelPodTemplateHash:          componentutils.GetPCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName),

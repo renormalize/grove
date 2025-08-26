@@ -81,7 +81,7 @@ func GroupPCLQsByPCSGReplicaIndex(pclqs []grovecorev1alpha1.PodClique) map[strin
 
 // GroupPCLQsByPGSReplicaIndex filters PCLQs that have a PodGangSetReplicaIndex label and groups them by the PGS replica.
 func GroupPCLQsByPGSReplicaIndex(pclqs []grovecorev1alpha1.PodClique) map[string][]grovecorev1alpha1.PodClique {
-	return groupPCLQsByLabel(pclqs, constants.LabelPodGangSetReplicaIndex)
+	return groupPCLQsByLabel(pclqs, apicommon.LabelPodGangSetReplicaIndex)
 }
 
 // GetMinAvailableBreachedPCLQInfo filters PodCliques that have grovecorev1alpha1.ConditionTypeMinAvailableBreached set to true.
@@ -116,7 +116,7 @@ func GetPodCliquesWithParentPGS(ctx context.Context, cl client.Client, pgsObjKey
 		client.MatchingLabels(lo.Assign(
 			apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjKey.Name),
 			map[string]string{
-				apicommon.LabelComponentKey: constants.LabelComponentPGSPodCliqueValue,
+				apicommon.LabelComponentKey: apicommon.LabelComponentNamePodGangSetPodClique,
 			},
 		)),
 	)
