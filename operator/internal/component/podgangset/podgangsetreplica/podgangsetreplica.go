@@ -62,16 +62,16 @@ func (r _resource) GetExistingResourceNames(_ context.Context, _ logr.Logger, _ 
 func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) error {
 	pgsObjectKey := client.ObjectKeyFromObject(pgs)
 
-	work, err := r.getPGSReplicaDeletionWork(ctx, logger, pgs)
+	delWork, err := r.getPGSReplicaDeletionWork(ctx, logger, pgs)
 	if err != nil {
 		return groveerr.WrapError(err,
 			errCodeComputingPGSReplicaDeletionWork,
 			component.OperationSync,
-			fmt.Sprintf("Could not compute pending replica deletion work for PGS: %v", pgsObjectKey))
+			fmt.Sprintf("Could not compute pending replica deletion delWork for PGS: %v", pgsObjectKey))
 	}
 
-	if work.hasPendingPGSReplicaDeletion() {
-		if runResult := utils.RunConcurrently(ctx, logger, work.deletionTasks); runResult.HasErrors() {
+	if delWork.hasPendingPGSReplicaDeletion() {
+		if runResult := utils.RunConcurrently(ctx, logger, delWork.deletionTasks); runResult.HasErrors() {
 			return groveerr.WrapError(runResult.GetAggregatedError(),
 				errCodeDeletePGSReplica,
 				component.OperationSync,
@@ -81,13 +81,13 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev
 	}
 
 	if isRollingUpdateInProgress(pgs) {
-		minAvailableBreachedPGSReplicaIndices := slices.Collect(maps.Keys(work.minAvailableBreachedConstituents))
-		if err := r.orchestrateRollingUpdate(ctx, logger, pgs, work.pgsIndicesToTerminate, minAvailableBreachedPGSReplicaIndices); err != nil {
+		minAvailableBreachedPGSReplicaIndices := slices.Collect(maps.Keys(delWork.minAvailableBreachedConstituents))
+		if err := r.orchestrateRollingUpdate(ctx, logger, pgs, delWork.pgsIndicesToTerminate, minAvailableBreachedPGSReplicaIndices); err != nil {
 			return err
 		}
 	}
 
-	if work.shouldRequeue() {
+	if delWork.shouldRequeue() {
 		return groveerr.New(groveerr.ErrCodeContinueReconcileAndRequeue,
 			component.OperationSync,
 			"Requeuing to re-process PGS replicas that have breached MinAvailable but not crossed TerminationDelay",

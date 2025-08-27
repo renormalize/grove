@@ -20,53 +20,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-/*
-	Fetch all PCLQs per PGS replica Index
-	Fetch all PCSGs per PGS replica Index
-
-	Check if there is a rolling update triggered -> check pgs.status.rollingUpdateProgress
-	if there is a rolling update -> get the chosen PGS replica if there is one set.
-		if there is no replica selected yet, select one replica and update the status by setting pgs.status.rollingUpdateProgress.currentlyUpdating
-		if there is a chosen replica, then check if the update is completed. If not continue and requeue at the end.
-		if the update is complete then {
-				update the rollingUpdateProgress
-				select next replica to update if there is one, update rollingUpdateProgress.currentlyUpdating
-				continue and requeue at the end.
-		else {
-				mark the updateEndedAt time
-				continue but do not requeue at the end.
-		}
-	} else
-		continue with no requeue at the end
-	}
-
-	How to check if the update of PGS replica has concluded successfully, and we can move to the next replica:
-	The criteria tells if the update is complete and we are ready to move to the next PGS replica.
-		* for each standalone PCLQ check:
-			* pclq.status.rollingUpdateProgress.UpdateEndedAt is set
-			* pclq.status.rollingUpdateProgress.podGangSetGenerationHash == pgs.status.generationHash
-			* len(pclq.status.rollingUpdateProgress.updatedPods) == pclq.spec.replicas
- 			* pclq.status.availableReplicas >= pclq.spec.minAvailable
-		* for each PCSG check:
-			* pcsg.status.rollingUpdateProgress.UpdateEndedAt is set
-			* pcsg.status.rollingUpdateProgress.podGangSetGenerationHash == pgs.status.generationHash
-			* pcsg.status.rollingUpdateProgress.updatedReplicas == pcsg.spec.replicas
-			* pcsg.status.availableReplicas >= pcsg.spec.minAvailable
-
-	How to progress to next replica for a resource:
-	1. Update all unscheduled replicas
-	2. Update all unavailable replicas
-	3. For each available replica:
-		* update the replica
-		* wait util availableReplicas >= minAvailable
-
-	Criteria to pick up next index for update:
-	1. First take pending replicas
-	2. Take unhealthy | unavailable replicas
-	3. Healthy ones in the reverser order of their ordinal value
-
-*/
-
 func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pgsIndicesToTerminate, minAvailableBreachedPGSReplicaIndices []int) error {
 	updateWork, err := r.computePendingUpdateWork(ctx, pgs, pgsIndicesToTerminate)
 	if err != nil {
