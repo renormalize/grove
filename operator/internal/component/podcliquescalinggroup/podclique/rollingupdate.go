@@ -180,7 +180,7 @@ func (r _resource) updatePCSGRollingUpdateProgress(ctx context.Context, logger l
 		}
 	}
 	if previouslyUpdated != nil {
-		pcsg.Status.RollingUpdateProgress.UpdatedReplicas++
+		pcsg.Status.UpdatedReplicas++
 	}
 	return r.patchRollingUpdateProgressStatus(ctx, logger, pcsg, patch)
 }

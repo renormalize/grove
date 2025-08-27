@@ -81,6 +81,8 @@ type PodCliqueScalingGroupStatus struct {
 	// AvailableReplicas is the number of PodCliqueScalingGroup replicas that are available.
 	// A PCSG replica is considered available when all constituent PodCliques have MinAvailableBreached condition = False.
 	AvailableReplicas int32 `json:"availableReplicas,omitempty"`
+	// UpdatedReplicas is the number of PodCliqueScalingGroup replicas that correspond with the latest PodGangSetGenerationHash.
+	UpdatedReplicas int32 `json:"updatedReplicas,omitempty"`
 	// Selector is the selector used to identify the pods that belong to this scaling group.
 	Selector *string `json:"selector,omitempty"`
 	// ObservedGeneration is the most recent generation observed by the controller.
@@ -98,7 +100,6 @@ type PodCliqueScalingGroupRollingUpdateProgress struct {
 	UpdateStartedAt          metav1.Time                                        `json:"updateStartedAt"`
 	UpdateEndedAt            *metav1.Time                                       `json:"updateEndedAt,omitempty"`
 	PodGangSetGenerationHash string                                             `json:"podGangSetGenerationHash"`
-	UpdatedReplicas          int32                                              `json:"updatedReplicas"`
 	UpdatedPodCliques        []string                                           `json:"updatedPodCliques,omitempty"`
 	CurrentlyUpdating        *PodCliqueScalingGroupReplicaRollingUpdateProgress `json:"currentlyUpdating,omitempty"`
 }

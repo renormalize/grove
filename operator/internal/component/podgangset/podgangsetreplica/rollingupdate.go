@@ -267,7 +267,7 @@ func isPCSGUpdateComplete(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pgsGene
 	if pcsg.Status.RollingUpdateProgress == nil ||
 		pcsg.Status.RollingUpdateProgress.UpdateEndedAt == nil ||
 		pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash != pgsGenerationHash ||
-		pcsg.Status.RollingUpdateProgress.UpdatedReplicas != pcsg.Spec.Replicas {
+		pcsg.Status.UpdatedReplicas != pcsg.Spec.Replicas {
 		// TODO: pcsg.status.availableReplicas < pcsg.spec.minAvailable should also be included in this check
 		return false
 	}

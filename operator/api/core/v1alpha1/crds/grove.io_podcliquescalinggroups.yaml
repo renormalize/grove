@@ -233,13 +233,9 @@ spec:
                     items:
                       type: string
                     type: array
-                  updatedReplicas:
-                    format: int32
-                    type: integer
                 required:
                 - podGangSetGenerationHash
                 - updateStartedAt
-                - updatedReplicas
                 type: object
               scheduledReplicas:
                 description: |-
@@ -252,6 +248,11 @@ spec:
                 description: Selector is the selector used to identify the pods that
                   belong to this scaling group.
                 type: string
+              updatedReplicas:
+                description: UpdatedReplicas is the number of PodCliqueScalingGroup
+                  replicas that correspond with the latest PodGangSetGenerationHash.
+                format: int32
+                type: integer
             type: object
         required:
         - spec

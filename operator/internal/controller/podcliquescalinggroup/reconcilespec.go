@@ -99,6 +99,7 @@ func (r *Reconciler) processRollingUpdate(ctx context.Context, logger logr.Logge
 	// If the rolling update is in-progress for a different PGS GenerationHash, or it has not even been started, then
 	// reset the rolling update progress so that it can be restarted.
 	if shouldResetOrTriggerRollingUpdate(pgs, pcsg) {
+		pcsg.Status.UpdatedReplicas = 0
 		pcsg.Status.RollingUpdateProgress = &grovecorev1alpha1.PodCliqueScalingGroupRollingUpdateProgress{
 			UpdateStartedAt:          metav1.Now(),
 			PodGangSetGenerationHash: *pgs.Status.GenerationHash,
