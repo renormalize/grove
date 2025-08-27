@@ -72,24 +72,27 @@ func orderPCSGReplicaInfoForPCSG(a, b pcsgReplicaInfo) int {
 }
 
 func (pri *pcsgReplicaInfo) computeUpdateProgress(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) {
-	updateProgress := pcsgReplicaUpdateProgress{scheduled: true}
+	updateProgress := pcsgReplicaUpdateProgress{}
+	allScheduled := true
 	for _, pclq := range pri.pclqs {
 		if pclq.Labels[apicommon.LabelPodGangSetGenerationHash] != pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash {
 			// PodClique not recreated yet to match the PodGangSet GenerationHash.
 			continue
 		}
-		if pclq.Status.ScheduledReplicas >= *pclq.Spec.MinAvailable {
-			updateProgress.scheduled = true
+		if pclq.Status.ScheduledReplicas < *pclq.Spec.MinAvailable {
+			allScheduled = false
 		}
+
 		if pclq.Status.ReadyReplicas >= *pclq.Spec.MinAvailable {
 			updateProgress.updatedPCLQFQNs = append(updateProgress.updatedPCLQFQNs, pclq.Name)
-			updateProgress.done = true
 		} else {
 			if k8sutils.IsConditionTrue(pclq.Status.Conditions, constants.ConditionTypeMinAvailableBreached) {
 				updateProgress.unhealthyPCLQFQNs = append(updateProgress.unhealthyPCLQFQNs, pclq.Name)
 			}
 		}
 	}
+	updateProgress.scheduled = allScheduled && len(pcsg.Spec.CliqueNames) == len(pri.pclqs)
+	updateProgress.done = len(updateProgress.updatedPCLQFQNs) == len(pcsg.Spec.CliqueNames)
 	pri.updateProgress = updateProgress
 }
 
