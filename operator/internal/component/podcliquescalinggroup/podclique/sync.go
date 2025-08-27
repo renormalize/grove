@@ -20,7 +20,6 @@ type syncContext struct {
 	pcsgIndicesToTerminate         []string
 	pcsgIndicesToRequeue           []string
 	expectedPCLQFQNsPerPCSGReplica map[int][]string
-	expectedPCSGReplicas           int
 	expectedPCLQPodTemplateHashMap map[string]string
 }
 
@@ -29,7 +28,7 @@ type syncContext struct {
 // operates on a consistent state of existing PCLQs.
 // NOTE: We will be adding expectations usage in this component as well. Then all deletions will be captured as expectations and after every
 // deletion of PCSG we will re-queued.
-func (sc *syncContext) refreshExistingPCLQs() error {
+func (sc *syncContext) refreshExistingPCLQs(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
 	revisedExistingPCLQs := make([]grovecorev1alpha1.PodClique, 0, len(sc.existingPCLQs))
 	for _, pclq := range sc.existingPCLQs {
 		pcsgReplicaIndexStr, ok := pclq.Labels[apicommon.LabelPodCliqueScalingGroupReplicaIndex]
@@ -44,7 +43,7 @@ func (sc *syncContext) refreshExistingPCLQs() error {
 				fmt.Sprintf("invalid pcsg replica index label value found on PodClique: %v", client.ObjectKeyFromObject(&pclq)),
 			)
 		}
-		if pcsgReplicaIndex < sc.expectedPCSGReplicas {
+		if pcsgReplicaIndex < int(pcsg.Spec.Replicas) {
 			revisedExistingPCLQs = append(revisedExistingPCLQs, pclq)
 		}
 	}
@@ -69,7 +68,7 @@ func (r _resource) prepareSyncContext(ctx context.Context, logger logr.Logger, p
 	}
 
 	// compute the expected state and get existing state.
-	syncCtx.expectedPCLQFQNsPerPCSGReplica, syncCtx.expectedPCSGReplicas = getExpectedPodCliqueFQNsByPCSGReplica(pcsg)
+	syncCtx.expectedPCLQFQNsPerPCSGReplica = getExpectedPodCliqueFQNsByPCSGReplica(pcsg)
 	syncCtx.existingPCLQs, err = r.getExistingPCLQs(ctx, pcsg)
 	if err != nil {
 		return nil, err

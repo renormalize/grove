@@ -104,12 +104,11 @@ func (r _resource) GetExistingResourceNames(ctx context.Context, logger logr.Log
 
 // Sync synchronizes all resources that the PodClique Operator manages.
 func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
-	pcsgObjectKey := client.ObjectKeyFromObject(pcsg)
 	syncCtx, err := r.prepareSyncContext(ctx, logger, pcsg)
 
 	// If there are excess PodCliques than expected, delete the ones that are no longer expected but existing.
 	// This can happen when PCSG replicas have been scaled-in.
-	if err = r.triggerDeletionOfExcessPCSGReplicas(ctx, logger, syncCtx, pcsgObjectKey); err != nil {
+	if err = r.triggerDeletionOfExcessPCSGReplicas(ctx, logger, syncCtx, pcsg); err != nil {
 		return err
 	}
 	// Create or update the expected PodCliques as per the PodCliqueScalingGroup configurations defined in the PodGangSet.
@@ -450,19 +449,20 @@ func (r _resource) getExistingPCLQs(ctx context.Context, pcsg *grovecorev1alpha1
 	return existingPCLQs, nil
 }
 
-func (r _resource) triggerDeletionOfExcessPCSGReplicas(ctx context.Context, logger logr.Logger, syncCtx *syncContext, pcsgObjectKey client.ObjectKey) error {
+func (r _resource) triggerDeletionOfExcessPCSGReplicas(ctx context.Context, logger logr.Logger, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
 	existingPCSGReplicas := getExistingNonTerminatingPCSGReplicas(syncCtx.existingPCLQs)
 	// Check if the number of existing PodCliques is greater than expected, if so, we need to delete the extra ones.
-	diff := existingPCSGReplicas - syncCtx.expectedPCSGReplicas
+	diff := existingPCSGReplicas - int(pcsg.Spec.Replicas)
 	if diff > 0 {
-		logger.Info("Found more PodCliques than expected, triggering deletion of excess PodCliques", "expected", syncCtx.expectedPCSGReplicas, "existing", existingPCSGReplicas, "diff", diff)
+		pcsgObjectKey := client.ObjectKeyFromObject(pcsg)
+		logger.Info("Found more PodCliques than expected, triggering deletion of excess PodCliques", "expected", int(pcsg.Spec.Replicas), "existing", existingPCSGReplicas, "diff", diff)
 		reason := "Delete excess PodCliqueScalingGroup replicas"
-		replicaIndicesToDelete := computePCSGReplicasToDelete(existingPCSGReplicas, syncCtx.expectedPCSGReplicas)
+		replicaIndicesToDelete := computePCSGReplicasToDelete(existingPCSGReplicas, int(pcsg.Spec.Replicas))
 		deletionTasks := r.createDeleteTasks(logger, syncCtx.pgs, pcsgObjectKey.Name, replicaIndicesToDelete, reason)
 		if err := r.triggerDeletionOfPodCliques(ctx, logger, pcsgObjectKey, deletionTasks); err != nil {
 			return err
 		}
-		return syncCtx.refreshExistingPCLQs()
+		return syncCtx.refreshExistingPCLQs(pcsg)
 	}
 	return nil
 }
@@ -483,7 +483,7 @@ func getExistingNonTerminatingPCSGReplicas(existingPCLQs []grovecorev1alpha1.Pod
 }
 
 func computePCSGReplicasToDelete(existingReplicas, expectedReplicas int) []string {
-	indices := make([]string, 0, expectedReplicas-existingReplicas)
+	indices := make([]string, 0, existingReplicas-expectedReplicas)
 	for i := expectedReplicas; i < existingReplicas; i++ {
 		indices = append(indices, strconv.Itoa(i))
 	}
@@ -745,10 +745,9 @@ func (r _resource) addEnvironmentVariablesToPodContainerSpecs(pclq *grovecorev1a
 // getExpectedPodCliqueFQNsByPCSGReplica computes expected PCLQ names per expected PCSG replica.
 // It returns a map with the key being the PCSG replica index and the value is the expected PCLQ FQNs for that replica. In addition
 // it also returns the total number of expected PCLQs.
-func getExpectedPodCliqueFQNsByPCSGReplica(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) (map[int][]string, int) {
+func getExpectedPodCliqueFQNsByPCSGReplica(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) map[int][]string {
 	var (
-		expectedPCLQFQNs   = make(map[int][]string)
-		totalExpectedPCLQs int
+		expectedPCLQFQNs = make(map[int][]string)
 	)
 	for pcsgReplicaIndex := range int(pcsg.Spec.Replicas) {
 		pclqFQNs := lo.Map(pcsg.Spec.CliqueNames, func(cliqueName string, _ int) string {
@@ -758,9 +757,8 @@ func getExpectedPodCliqueFQNsByPCSGReplica(pcsg *grovecorev1alpha1.PodCliqueScal
 			}, cliqueName)
 		})
 		expectedPCLQFQNs[pcsgReplicaIndex] = pclqFQNs
-		totalExpectedPCLQs += len(pclqFQNs)
 	}
-	return expectedPCLQFQNs, totalExpectedPCLQs
+	return expectedPCLQFQNs
 }
 
 func getPGSReplicaFromPCSG(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) (int, error) {

@@ -76,12 +76,14 @@ func TestComputeReplicaStatus(t *testing.T) {
 	logger := testutils.SetupTestLogger()
 
 	tests := []struct {
-		name          string
-		expectedSize  int
-		cliques       []grovecorev1alpha1.PodClique
-		minAvailable  int32
-		wantScheduled bool
-		wantAvailable bool
+		name              string
+		expectedSize      int
+		cliques           []grovecorev1alpha1.PodClique
+		minAvailable      int32
+		pgsGenerationHash *string
+		wantScheduled     bool
+		wantAvailable     bool
+		wantUpdated       bool
 	}{
 		{
 			name:          "healthy vs failed states",
@@ -90,6 +92,7 @@ func TestComputeReplicaStatus(t *testing.T) {
 			minAvailable:  1,
 			wantScheduled: false,
 			wantAvailable: false,
+			wantUpdated:   false,
 		},
 		{
 			name:          "incomplete replica counting",
@@ -98,6 +101,7 @@ func TestComputeReplicaStatus(t *testing.T) {
 			minAvailable:  1,
 			wantScheduled: false,
 			wantAvailable: false,
+			wantUpdated:   false,
 		},
 		{
 			name:          "scheduled but unavailable",
@@ -116,29 +120,23 @@ func TestComputeReplicaStatus(t *testing.T) {
 			wantAvailable: true,
 		},
 		{
-			name:          "available with minAvailable zero",
-			expectedSize:  2,
-			cliques:       []grovecorev1alpha1.PodClique{buildHealthyClique("frontend"), buildScheduledClique("backend")},
-			minAvailable:  0,
-			wantScheduled: true,
-			wantAvailable: true,
-		},
-		{
 			name:          "unavailable with high minAvailable",
 			expectedSize:  2,
 			cliques:       []grovecorev1alpha1.PodClique{buildHealthyClique("frontend"), buildHealthyClique("backend")},
 			minAvailable:  2,
 			wantScheduled: true,
 			wantAvailable: false,
+			wantUpdated:   false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scheduled, available := computeReplicaStatus(logger, tt.expectedSize, "0", tt.cliques, tt.minAvailable)
+			scheduled, available, updated := computeReplicaStatus(logger, nil, "0", tt.expectedSize, tt.cliques)
 
 			assert.Equal(t, tt.wantScheduled, scheduled, "scheduled mismatch")
 			assert.Equal(t, tt.wantAvailable, available, "available mismatch")
+			assert.Equal(t, tt.wantUpdated, updated, "updated mismatch")
 		})
 	}
 }
@@ -246,11 +244,11 @@ func TestGetPodCliquesPerPCSGReplica(t *testing.T) {
 		{
 			name: "find expected cliques",
 			objects: []client.Object{
-				testutils.NewPCSGPodCliqueBuilder("test-pgs-0-frontend-0", "test-ns", "test-pgs", "test-pcsg", 0, 0).
+				testutils.NewPCSGPodCliqueBuilder("test-pgs-0-frontend-0", "test-ns", "test-pgs", "test-pcsg", nil, 0, 0).
 					WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").Build(),
-				testutils.NewPCSGPodCliqueBuilder("test-pgs-0-backend-0", "test-ns", "test-pgs", "test-pcsg", 0, 0).
+				testutils.NewPCSGPodCliqueBuilder("test-pgs-0-backend-0", "test-ns", "test-pgs", "test-pcsg", nil, 0, 0).
 					WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").Build(),
-				testutils.NewPCSGPodCliqueBuilder("test-pgs-0-frontend-1", "test-ns", "test-pgs", "test-pcsg", 0, 1).
+				testutils.NewPCSGPodCliqueBuilder("test-pgs-0-frontend-1", "test-ns", "test-pgs", "test-pcsg", nil, 0, 1).
 					WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").Build(),
 			},
 			wantReplicas: 2,
@@ -289,6 +287,7 @@ func TestReconcileStatus(t *testing.T) {
 		setup         func() (*grovecorev1alpha1.PodCliqueScalingGroup, *grovecorev1alpha1.PodGangSet, []client.Object)
 		wantAvailable int32
 		wantScheduled int32
+		wantUpdated   int32
 		wantBreached  bool
 	}{
 		{

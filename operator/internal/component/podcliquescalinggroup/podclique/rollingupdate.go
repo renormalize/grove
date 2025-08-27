@@ -99,9 +99,7 @@ func (pri *pcsgReplicaInfo) computeUpdateProgress(pcsg *grovecorev1alpha1.PodCli
 func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Logger, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
 	updateWork := r.computePendingWork(logger, syncCtx, pcsg)
 
-	var lastUpdatedPCSGReplicaIndex *int32
 	if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
-		lastUpdatedPCSGReplicaIndex = &pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex
 		if err := r.updatePCSGWithReplicaUpdateProgress(ctx, logger, pcsg, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
 			return err
 		}
@@ -116,7 +114,7 @@ func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Log
 
 	// pick the next replica index to update
 	nextReplicaToUpdate := updateWork.getNextReplicaToUpdate()
-	if err := r.updatePCSGRollingUpdateProgress(ctx, logger, pcsg, lastUpdatedPCSGReplicaIndex, nextReplicaToUpdate); err != nil {
+	if err := r.updatePCSGRollingUpdateProgress(ctx, logger, pcsg, nextReplicaToUpdate); err != nil {
 		return err
 	}
 
@@ -165,7 +163,7 @@ func (r _resource) patchRollingUpdateProgressStatus(ctx context.Context, logger 
 	return nil
 }
 
-func (r _resource) updatePCSGRollingUpdateProgress(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, previouslyUpdated *int32, nextToUpdate *int) error {
+func (r _resource) updatePCSGRollingUpdateProgress(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, nextToUpdate *int) error {
 	patch := client.MergeFrom(pcsg.DeepCopy())
 	if nextToUpdate == nil {
 		logger.Info("Rolling update has completed for PodCliqueScalingGroup")
@@ -178,9 +176,6 @@ func (r _resource) updatePCSGRollingUpdateProgress(ctx context.Context, logger l
 			ReplicaIndex:    int32(*nextToUpdate),
 			UpdateStartedAt: metav1.Now(),
 		}
-	}
-	if previouslyUpdated != nil {
-		pcsg.Status.UpdatedReplicas++
 	}
 	return r.patchRollingUpdateProgressStatus(ctx, logger, pcsg, patch)
 }
