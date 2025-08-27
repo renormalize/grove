@@ -110,6 +110,7 @@ func TestComputeReplicaStatus(t *testing.T) {
 			minAvailable:  1,
 			wantScheduled: true,
 			wantAvailable: false,
+			wantUpdated:   false,
 		},
 		{
 			name:          "terminating clique filtering",
@@ -120,12 +121,12 @@ func TestComputeReplicaStatus(t *testing.T) {
 			wantAvailable: true,
 		},
 		{
-			name:          "unavailable with high minAvailable",
+			name:          "available",
 			expectedSize:  2,
 			cliques:       []grovecorev1alpha1.PodClique{buildHealthyClique("frontend"), buildHealthyClique("backend")},
 			minAvailable:  2,
 			wantScheduled: true,
-			wantAvailable: false,
+			wantAvailable: true,
 			wantUpdated:   false,
 		},
 	}
@@ -282,11 +283,13 @@ func TestReconcileStatus(t *testing.T) {
 	ctx := context.Background()
 	logger := testutils.SetupTestLogger()
 
+	pgsGenerationHash := ptr.To("oingo-boingo")
+
 	tests := []struct {
 		name          string
 		setup         func() (*grovecorev1alpha1.PodCliqueScalingGroup, *grovecorev1alpha1.PodGangSet, []client.Object)
-		wantAvailable int32
 		wantScheduled int32
+		wantAvailable int32
 		wantUpdated   int32
 		wantBreached  bool
 	}{
@@ -297,29 +300,30 @@ func TestReconcileStatus(t *testing.T) {
 					WithReplicas(2).
 					WithCliqueNames([]string{"frontend", "backend"}).
 					WithOptions(testutils.WithPCSGObservedGeneration(1)).Build()
-				pgs := testutils.NewPodGangSetBuilder("test-pgs", "test-ns").Build()
+				pgs := testutils.NewPodGangSetBuilder("test-pgs", "test-ns").WithStatus(pgsGenerationHash).Build()
 				cliques := []client.Object{
-					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-frontend-0", "test-ns", "test-pgs", "test-pcsg", 0, 0).
+					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-frontend-0", "test-ns", "test-pgs", "test-pcsg", pgsGenerationHash, 0, 0).
 						WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").
 						WithReplicas(2).
 						WithOptions(testutils.WithPCLQScheduledAndAvailable()).Build(),
-					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-backend-0", "test-ns", "test-pgs", "test-pcsg", 0, 0).
+					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-backend-0", "test-ns", "test-pgs", "test-pcsg", pgsGenerationHash, 0, 0).
 						WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").
 						WithReplicas(2).
 						WithOptions(testutils.WithPCLQScheduledAndAvailable()).Build(),
-					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-frontend-1", "test-ns", "test-pgs", "test-pcsg", 0, 1).
+					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-frontend-1", "test-ns", "test-pgs", "test-pcsg", pgsGenerationHash, 0, 1).
 						WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").
 						WithReplicas(2).
 						WithOptions(testutils.WithPCLQScheduledAndAvailable()).Build(),
-					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-backend-1", "test-ns", "test-pgs", "test-pcsg", 0, 1).
+					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-backend-1", "test-ns", "test-pgs", "test-pcsg", pgsGenerationHash, 0, 1).
 						WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").
 						WithReplicas(2).
 						WithOptions(testutils.WithPCLQScheduledAndAvailable()).Build(),
 				}
 				return pcsg, pgs, cliques
 			},
-			wantAvailable: 2,
 			wantScheduled: 2,
+			wantAvailable: 2,
+			wantUpdated:   2,
 			wantBreached:  false,
 		},
 		{
@@ -330,25 +334,26 @@ func TestReconcileStatus(t *testing.T) {
 					WithCliqueNames([]string{"worker"}).
 					WithMinAvailable(2).
 					WithOptions(testutils.WithPCSGObservedGeneration(1)).Build()
-				pgs := testutils.NewPodGangSetBuilder("test-pgs", "test-ns").Build()
+				pgs := testutils.NewPodGangSetBuilder("test-pgs", "test-ns").WithStatus(pgsGenerationHash).Build()
 				cliques := []client.Object{
-					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-worker-0", "test-ns", "test-pgs", "test-pcsg", 0, 0).
+					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-worker-0", "test-ns", "test-pgs", "test-pcsg", pgsGenerationHash, 0, 0).
 						WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").
 						WithReplicas(2).
 						WithOptions(testutils.WithPCLQScheduledAndAvailable()).Build(),
-					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-worker-1", "test-ns", "test-pgs", "test-pcsg", 0, 1).
+					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-worker-1", "test-ns", "test-pgs", "test-pcsg", pgsGenerationHash, 0, 1).
 						WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").
 						WithReplicas(2).
 						WithOptions(testutils.WithPCLQScheduledButBreached()).Build(),
-					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-worker-2", "test-ns", "test-pgs", "test-pcsg", 0, 2).
+					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-worker-2", "test-ns", "test-pgs", "test-pcsg", pgsGenerationHash, 0, 2).
 						WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").
 						WithReplicas(2).
 						WithOptions(testutils.WithPCLQNotScheduled()).Build(),
 				}
 				return pcsg, pgs, cliques
 			},
-			wantAvailable: 1,
 			wantScheduled: 2,
+			wantAvailable: 1,
+			wantUpdated:   1,
 			wantBreached:  true,
 		},
 		{
@@ -358,23 +363,23 @@ func TestReconcileStatus(t *testing.T) {
 					WithReplicas(2).
 					WithCliqueNames([]string{"frontend", "backend"}).
 					WithOptions(testutils.WithPCSGObservedGeneration(1)).Build()
-				pgs := testutils.NewPodGangSetBuilder("test-pgs", "test-ns").Build()
+				pgs := testutils.NewPodGangSetBuilder("test-pgs", "test-ns").WithStatus(pgsGenerationHash).Build()
 				cliques := []client.Object{
 					// Replica 0: healthy
-					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-frontend-0", "test-ns", "test-pgs", "test-pcsg", 0, 0).
+					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-frontend-0", "test-ns", "test-pgs", "test-pcsg", pgsGenerationHash, 0, 0).
 						WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").
 						WithReplicas(2).
 						WithOptions(testutils.WithPCLQScheduledAndAvailable()).Build(),
-					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-backend-0", "test-ns", "test-pgs", "test-pcsg", 0, 0).
+					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-backend-0", "test-ns", "test-pgs", "test-pcsg", pgsGenerationHash, 0, 0).
 						WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").
 						WithReplicas(2).
 						WithOptions(testutils.WithPCLQScheduledAndAvailable()).Build(),
 					// Replica 1: has one terminating clique
-					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-frontend-1", "test-ns", "test-pgs", "test-pcsg", 0, 1).
+					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-frontend-1", "test-ns", "test-pgs", "test-pcsg", pgsGenerationHash, 0, 1).
 						WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").
 						WithReplicas(2).
 						WithOptions(testutils.WithPCLQScheduledAndAvailable()).Build(),
-					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-backend-1", "test-ns", "test-pgs", "test-pcsg", 0, 1).
+					testutils.NewPCSGPodCliqueBuilder("test-pgs-0-backend-1", "test-ns", "test-pgs", "test-pcsg", pgsGenerationHash, 0, 1).
 						WithOwnerReference("PodCliqueScalingGroup", "test-pcsg", "").
 						WithReplicas(2).
 						WithOptions(testutils.WithPCLQTerminating()).Build(),
@@ -383,6 +388,7 @@ func TestReconcileStatus(t *testing.T) {
 			},
 			wantAvailable: 1,     // only replica 0 has all non-terminated cliques
 			wantScheduled: 1,     // only replica 0 has sufficient non-terminated cliques
+			wantUpdated:   1,     // only nonterminating cliques will count against updated
 			wantBreached:  false, // 1 >= 1 (default minAvailable)
 		},
 	}
@@ -397,8 +403,10 @@ func TestReconcileStatus(t *testing.T) {
 			result := reconciler.reconcileStatus(ctx, logger, client.ObjectKeyFromObject(pcsg))
 
 			require.False(t, result.HasErrors())
-			assert.Equal(t, tt.wantAvailable, pcsg.Status.AvailableReplicas)
+			assert.NoError(t, fakeClient.Get(context.Background(), client.ObjectKeyFromObject(pcsg), pcsg), "fake client object fetch failed")
 			assert.Equal(t, tt.wantScheduled, pcsg.Status.ScheduledReplicas)
+			assert.Equal(t, tt.wantAvailable, pcsg.Status.AvailableReplicas)
+			assert.Equal(t, tt.wantUpdated, pcsg.Status.UpdatedReplicas)
 
 			if pcsg.Status.ObservedGeneration != nil {
 				assertCondition(t, pcsg, tt.wantBreached)

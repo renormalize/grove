@@ -123,6 +123,11 @@ func (b *PodGangSetBuilder) WithScalingGroupConfig(name string, cliqueNames []st
 	return b
 }
 
+func (b *PodGangSetBuilder) WithStatus(pgsGenerationHash *string) *PodGangSetBuilder {
+	b.pgs.Status.GenerationHash = pgsGenerationHash
+	return b
+}
+
 // Build creates a PodGangSet object.
 func (b *PodGangSetBuilder) Build() *grovecorev1alpha1.PodGangSet {
 	return b.pgs

@@ -100,7 +100,7 @@ func mutateReplicas(logger logr.Logger, pgsGenerationHash *string, pcsg *groveco
 }
 
 // computeReplicaStatus processes a single PodCliqueScalingGroup replica and returns whether it is scheduled and available.
-func computeReplicaStatus(logger logr.Logger, pgsGenerationHash *string, pcsgReplicaIndex string, numPCSGCliqueNames int, pclqs []grovecorev1alpha1.PodClique) (isAvailable, isScheduled, isUpdated bool) {
+func computeReplicaStatus(logger logr.Logger, pgsGenerationHash *string, pcsgReplicaIndex string, numPCSGCliqueNames int, pclqs []grovecorev1alpha1.PodClique) (isScheduled, isAvailable, isUpdated bool) {
 	nonTerminatedPCSGPodCliques := lo.Filter(pclqs, func(pclq grovecorev1alpha1.PodClique, _ int) bool {
 		return !k8sutils.IsResourceTerminating(pclq.ObjectMeta)
 	})
@@ -119,7 +119,7 @@ func computeReplicaStatus(logger logr.Logger, pgsGenerationHash *string, pcsgRep
 		isAvailable = lo.EveryBy(nonTerminatedPCSGPodCliques, func(pclq grovecorev1alpha1.PodClique) bool {
 			return pclq.Status.ReadyReplicas >= *pclq.Spec.MinAvailable
 		})
-		isAvailable = isAvailable && len(pclqs) == numPCSGCliqueNames
+		isAvailable = isAvailable && len(nonTerminatedPCSGPodCliques) == numPCSGCliqueNames
 		isUpdated = isAvailable &&
 			pgsGenerationHash != nil &&
 			lo.EveryBy(nonTerminatedPCSGPodCliques, func(pclq grovecorev1alpha1.PodClique) bool {
