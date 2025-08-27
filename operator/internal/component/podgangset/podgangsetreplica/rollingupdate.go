@@ -33,7 +33,6 @@ func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Log
 			if err = r.updatePGSWithReplicaUpdateProgress(ctx, logger, pgs, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
 				return err
 			}
-			fmt.Printf("DEBUG: REQUEUE FOR REPLICA INDEX %v\n", updateWork.currentlyUpdatingReplicaInfo.replicaIndex)
 			return groveerr.New(
 				groveerr.ErrCodeContinueReconcileAndRequeue,
 				component.OperationSync,
@@ -67,7 +66,6 @@ func (r _resource) computePendingUpdateWork(ctx context.Context, pgs *grovecorev
 	pendingWork := &pendingUpdateWork{}
 	for _, replicaInfo := range replicaInfos {
 		replicaInfo.computeUpdateProgress(pgs)
-		fmt.Printf("DEBUG: REPLICAINFO.UPDATEPROGRESS.DONE: %d: %t\n", replicaInfo.replicaIndex, replicaInfo.updateProgress.done)
 
 		if pgs.Status.RollingUpdateProgress.CurrentlyUpdating != nil &&
 			pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex == int32(replicaInfo.replicaIndex) {
@@ -250,6 +248,15 @@ func (pri *pgsReplicaInfo) getNumScheduledPods(pgs *grovecorev1alpha1.PodGangSet
 }
 
 func isPCLQUpdateComplete(pclq *grovecorev1alpha1.PodClique, pgsGenerationHash string) bool {
+	// There can be two cases when the update is considered complete:
+	// 1. None of the PodCliques that are owned by the PodGangSet change. In this case, there is no
+	//    need to perform a traditional rolling update, and only the PodGangSetGenerationHash label
+	//    needs to be patched.
+	// 2. PodCliques owned by PodGangSet change. In this case, the rolling update is actually triggered,
+	//    and each pod is deleted and recreated. The update ends when all pods are deleted and recreated,
+	//    and the PodCliques become available.
+	// In both cases, the same checks of ReadyReplicas > MinAvailable, PodGangSetGenerationHash,
+	// and UpdatedReplicas == Spec.Replicas applies.
 	if pclq.Status.ReadyReplicas >= *pclq.Spec.MinAvailable &&
 		pclq.Labels[apicommon.LabelPodGangSetGenerationHash] == pgsGenerationHash &&
 		pclq.Status.UpdatedReplicas == pclq.Spec.Replicas {
@@ -260,12 +267,17 @@ func isPCLQUpdateComplete(pclq *grovecorev1alpha1.PodClique, pgsGenerationHash s
 }
 
 func isPCSGUpdateComplete(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pgsGenerationHash string) bool {
-	if pcsg.Status.RollingUpdateProgress != nil &&
-		pcsg.Status.RollingUpdateProgress.UpdateEndedAt != nil &&
-		pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash == pgsGenerationHash &&
-		pcsg.Status.UpdatedReplicas != pcsg.Spec.Replicas {
-		// TODO: the condition must look like below for it to actually work.
-		// (pcsg.Status.UpdatedReplicas != pcsg.Spec.Replicas && label is present) || pcsg.Status.RollingUpdateProgress != nil && pcsg.Status.RollingUpdateProgress.UpdateEndedAt != nil && pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash == pgsGenerationHash
+	// There can be two cases when the update is considered complete:
+	// 1. None of the PodCliques that belong to the PodCliqueScalingGroup change. In this case, there is no need to delete
+	//    and recreate PodCliqueScalingGroup replicas. The PodGangSetGenerationHash label on the PodCliqueScalingGroup
+	//    is simply updated. The PodCliques' PodGangSetGenerationHash labels that belong to this PodCliqueScalingGroup are updated.
+	//    For this, we simply check if the udpated replicas are equal to Spec.Replicas, and the PodGangSetGenerationHash matches.
+	// 2. PodCliques owned by PodCliqueScalingGroup change. In this case, the rolling update is actually triggered,
+	//    and each replica is deleted and recreated. The update ends when UpdateEndedAt is set, and the PodGangSetGenerationHash matches.
+	if (pcsg.Status.UpdatedReplicas == pcsg.Spec.Replicas && pcsg.Labels[apicommon.LabelPodGangSetGenerationHash] == pgsGenerationHash) ||
+		pcsg.Status.RollingUpdateProgress != nil &&
+			pcsg.Status.RollingUpdateProgress.UpdateEndedAt != nil &&
+			pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash == pgsGenerationHash {
 		// TODO: pcsg.status.availableReplicas < pcsg.spec.minAvailable should also be included in this check
 		return true
 	}

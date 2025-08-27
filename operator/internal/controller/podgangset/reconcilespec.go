@@ -140,6 +140,7 @@ func (r *Reconciler) initRollingUpdateProgress(ctx context.Context, pgs *groveco
 	pgs.Status.RollingUpdateProgress = &grovecorev1alpha1.PodGangSetRollingUpdateProgress{
 		UpdateStartedAt: metav1.Now(),
 	}
+	pgs.Status.UpdatedReplicas = 0
 	pgs.Status.GenerationHash = &newGenerationHash
 	if err := r.client.Status().Update(ctx, pgs); err != nil {
 		return fmt.Errorf("could not set RollingUpdateProgress for PodGangSet: %v: %w", client.ObjectKeyFromObject(pgs), err)

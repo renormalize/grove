@@ -115,6 +115,8 @@ func (r *Reconciler) processRollingUpdate(ctx context.Context, logger logr.Logge
 func shouldResetOrTriggerRollingUpdate(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) bool {
 	// If processing of rolling update of PCSG for PGS GenerationHash is either completed or in-progress,
 	// there is no need to reset or trigger another rolling update of this PCSG for the same PGS GenerationHash.
+	// TODO: @renormalize PodGangSetGenerationHash should not be used when the PGS PodCliques are updated.
+	// Currently, even changing PGS PodCliques causes rolling update for PCSG.
 	if pcsg.Status.RollingUpdateProgress != nil && pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash == *pgs.Status.GenerationHash {
 		return false
 	}
