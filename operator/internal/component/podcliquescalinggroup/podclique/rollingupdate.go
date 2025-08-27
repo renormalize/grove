@@ -99,8 +99,8 @@ func (pri *pcsgReplicaInfo) computeUpdateProgress(pcsg *grovecorev1alpha1.PodCli
 func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Logger, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
 	updateWork := r.computePendingWork(logger, syncCtx, pcsg)
 
-	if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
-		if err := r.updatePCSGWithReplicaUpdateProgress(ctx, logger, pcsg, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
+	if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil && updateWork.currentlyUpdatingReplicaInfo != nil {
+		if err := r.updatePCSGWithReplicaUpdateProgress(ctx, logger, syncCtx, pcsg, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
 			return err
 		}
 		if !updateWork.currentlyUpdatingReplicaInfo.updateProgress.done {
@@ -135,19 +135,27 @@ func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Log
 	return nil
 }
 
-func (r _resource) updatePCSGWithReplicaUpdateProgress(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, currentReplicaUpdateProgress pcsgReplicaUpdateProgress) error {
+func (r _resource) updatePCSGWithReplicaUpdateProgress(ctx context.Context, logger logr.Logger, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, currentReplicaUpdateProgress pcsgReplicaUpdateProgress) error {
 	patch := client.MergeFrom(pcsg.DeepCopy())
+
 	updatedCliqueFQNs := lo.Uniq(append(pcsg.Status.RollingUpdateProgress.UpdatedPodCliques, currentReplicaUpdateProgress.updatedPCLQFQNs...))
+	// There is a possibility that the replica that is currently getting updated has been deleted due to scale-in.
+	// We need to clean up the already recorded pcsg.Status.RollingUpdateProgress.UpdatedPodCliques.
+	expectedPCLQFQNs := lo.Flatten(lo.Values(syncCtx.expectedPCLQFQNsPerPCSGReplica))
+	updatedCliqueFQNs = slices.DeleteFunc(updatedCliqueFQNs, func(pclqFQN string) bool {
+		return !slices.Contains(expectedPCLQFQNs, pclqFQN)
+	})
 	slices.Sort(updatedCliqueFQNs)
 	pcsg.Status.RollingUpdateProgress.UpdatedPodCliques = updatedCliqueFQNs
+
 	pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.Scheduled = currentReplicaUpdateProgress.scheduled
 	pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.UnhealthyPodCliques = currentReplicaUpdateProgress.unhealthyPCLQFQNs
-	logger.Info("Updating PodCliqueScalingGroup status with newly updaed PodCliques")
+
 	if err := r.patchRollingUpdateProgressStatus(ctx, logger, pcsg, patch); err != nil {
 		logger.Error(err, "failed to update rolling update progress", "replicaIndex", pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex)
 		return err
 	}
-	return r.patchRollingUpdateProgressStatus(ctx, logger, pcsg, patch)
+	return nil
 }
 
 func (r _resource) patchRollingUpdateProgressStatus(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, patch client.Patch) error {
