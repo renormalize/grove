@@ -14,7 +14,6 @@ import (
 	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -175,7 +174,6 @@ func (r _resource) updatePCSGRollingUpdateProgress(ctx context.Context, logger l
 	patch := client.MergeFrom(pcsg.DeepCopy())
 	if nextToUpdate == nil {
 		logger.Info("Rolling update has completed for PodCliqueScalingGroup")
-		meta.RemoveStatusCondition(&pcsg.Status.Conditions, constants.ConditionTypeUpdateInProgress)
 		pcsg.Status.RollingUpdateProgress.UpdateEndedAt = ptr.To(metav1.Now())
 		pcsg.Status.RollingUpdateProgress.CurrentlyUpdating = nil
 	} else {

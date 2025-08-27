@@ -18,6 +18,7 @@ package podgangset
 
 import (
 	"context"
+	"reflect"
 
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -110,7 +111,7 @@ func podCliqueScalingGroupPredicate() predicate.Predicate {
 			if !okOld || !okNew {
 				return false
 			}
-			return hasMinAvailableBreachedConditionChanged(oldPCSG.Status.Conditions, newPCSG.Status.Conditions)
+			return hasMinAvailableBreachedConditionChanged(oldPCSG.Status.Conditions, newPCSG.Status.Conditions) || hasRollingUpdateStatusChanged(&oldPCSG.Status, &newPCSG.Status)
 		},
 		GenericFunc: func(_ event.TypedGenericEvent[client.Object]) bool { return false },
 	}
@@ -146,4 +147,8 @@ func hasMinAvailableBreachedConditionChanged(oldConditions, newConditions []meta
 		return oldMinAvailableBreachedCond.Status != newMinAvailableBreachedCond.Status
 	}
 	return false
+}
+
+func hasRollingUpdateStatusChanged(oldPCSGStatus, newPCSGStatus *grovecorev1alpha1.PodCliqueScalingGroupStatus) bool {
+	return !reflect.DeepEqual(oldPCSGStatus.RollingUpdateProgress, newPCSGStatus.RollingUpdateProgress)
 }

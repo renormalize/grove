@@ -126,9 +126,7 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 			}
 			return err
 		}
-	}
-
-	if isRollingUpdateInProgress(pcsg) {
+	} else {
 		if err = r.orchestrateRollingUpdate(ctx, logger, syncCtx, pcsg); err != nil {
 			return err
 		}

@@ -27,12 +27,13 @@ func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Log
 	}
 
 	var lastUpdatedPGSReplicaIndex *int32
-	if pgs.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
+	if pgs.Status.RollingUpdateProgress.CurrentlyUpdating != nil && updateWork.currentlyUpdatingReplicaInfo != nil {
 		lastUpdatedPGSReplicaIndex = &pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex
 		if !updateWork.currentlyUpdatingReplicaInfo.updateProgress.done {
 			if err = r.updatePGSWithReplicaUpdateProgress(ctx, logger, pgs, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
 				return err
 			}
+			fmt.Printf("DEBUG: REQUEUE FOR REPLICA INDEX %v\n", updateWork.currentlyUpdatingReplicaInfo.replicaIndex)
 			return groveerr.New(
 				groveerr.ErrCodeContinueReconcileAndRequeue,
 				component.OperationSync,
@@ -65,8 +66,8 @@ func (r _resource) computePendingUpdateWork(ctx context.Context, pgs *grovecorev
 	// iterate through each replica
 	pendingWork := &pendingUpdateWork{}
 	for _, replicaInfo := range replicaInfos {
-		updateProgress := replicaInfo.getUpdateProgress(pgs)
-		replicaInfo.updateProgress = updateProgress
+		replicaInfo.computeUpdateProgress(pgs)
+		fmt.Printf("DEBUG: REPLICAINFO.UPDATEPROGRESS.DONE: %d: %t\n", replicaInfo.replicaIndex, replicaInfo.updateProgress.done)
 
 		if pgs.Status.RollingUpdateProgress.CurrentlyUpdating != nil &&
 			pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex == int32(replicaInfo.replicaIndex) {
@@ -74,7 +75,7 @@ func (r _resource) computePendingUpdateWork(ctx context.Context, pgs *grovecorev
 			continue
 		}
 
-		if !updateProgress.done {
+		if !replicaInfo.updateProgress.done {
 			pendingWork.pendingUpdateReplicaInfos = append(pendingWork.pendingUpdateReplicaInfos, replicaInfo)
 		}
 	}
@@ -212,25 +213,21 @@ func (w *pendingUpdateWork) getNextReplicaToUpdate(pgs *grovecorev1alpha1.PodGan
 	return nil
 }
 
-func (pri *pgsReplicaInfo) getUpdateProgress(pgs *grovecorev1alpha1.PodGangSet) replicaUpdateProgress {
+func (pri *pgsReplicaInfo) computeUpdateProgress(pgs *grovecorev1alpha1.PodGangSet) {
 	progress := replicaUpdateProgress{}
-	updateComplete := true
 	for _, pclq := range pri.pclqs {
 		if isPCLQUpdateComplete(&pclq, *pgs.Status.GenerationHash) {
 			progress.updatedPCLQFQNs = append(progress.updatedPCLQFQNs, pclq.Name)
-		} else {
-			updateComplete = false
 		}
 	}
 	for _, pcsg := range pri.pcsgs {
 		if isPCSGUpdateComplete(&pcsg, *pgs.Status.GenerationHash) {
 			progress.updatedPCSGFQNs = append(progress.updatedPCSGFQNs, pcsg.Name)
-		} else {
-			updateComplete = false
 		}
 	}
-	progress.done = updateComplete
-	return progress
+	progress.done = len(progress.updatedPCLQFQNs) == len(componentutils.GetPodCliqueFQNsForPGSReplicaNotInPCSG(pgs, pri.replicaIndex)) &&
+		len(progress.updatedPCSGFQNs) == len(pgs.Spec.Template.PodCliqueScalingGroupConfigs)
+	pri.updateProgress = progress
 }
 
 // getNumScheduledPods returns a normalized value, which is a sum of number of pending pods
@@ -253,25 +250,26 @@ func (pri *pgsReplicaInfo) getNumScheduledPods(pgs *grovecorev1alpha1.PodGangSet
 }
 
 func isPCLQUpdateComplete(pclq *grovecorev1alpha1.PodClique, pgsGenerationHash string) bool {
-	if pclq.Status.RollingUpdateProgress == nil ||
-		pclq.Status.RollingUpdateProgress.UpdateEndedAt == nil ||
-		pclq.Status.RollingUpdateProgress.PodGangSetGenerationHash != pgsGenerationHash ||
-		len(pclq.Status.RollingUpdateProgress.UpdatedPods) != int(pclq.Spec.Replicas) {
+	if pclq.Status.ReadyReplicas >= *pclq.Spec.MinAvailable &&
+		pclq.Labels[apicommon.LabelPodGangSetGenerationHash] == pgsGenerationHash &&
+		pclq.Status.UpdatedReplicas == pclq.Spec.Replicas {
 		// TODO: pclq.status.availableReplicas < pclq.spec.minAvailable should also be included in this check
-		return false
+		return true
 	}
-	return true
+	return false
 }
 
 func isPCSGUpdateComplete(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pgsGenerationHash string) bool {
-	if pcsg.Status.RollingUpdateProgress == nil ||
-		pcsg.Status.RollingUpdateProgress.UpdateEndedAt == nil ||
-		pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash != pgsGenerationHash ||
+	if pcsg.Status.RollingUpdateProgress != nil &&
+		pcsg.Status.RollingUpdateProgress.UpdateEndedAt != nil &&
+		pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash == pgsGenerationHash &&
 		pcsg.Status.UpdatedReplicas != pcsg.Spec.Replicas {
+		// TODO: the condition must look like below for it to actually work.
+		// (pcsg.Status.UpdatedReplicas != pcsg.Spec.Replicas && label is present) || pcsg.Status.RollingUpdateProgress != nil && pcsg.Status.RollingUpdateProgress.UpdateEndedAt != nil && pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash == pgsGenerationHash
 		// TODO: pcsg.status.availableReplicas < pcsg.spec.minAvailable should also be included in this check
-		return false
+		return true
 	}
-	return true
+	return false
 }
 
 func isRollingUpdateInProgress(pgs *grovecorev1alpha1.PodGangSet) bool {

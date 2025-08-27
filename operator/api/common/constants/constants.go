@@ -72,8 +72,8 @@ const (
 	// ConditionTypePodCliqueScheduled indicates that the PodClique has been successfully scheduled.
 	// This condition is set to true when number of scheduled pods in the PodClique is greater than or equal to PodCliqueSpec.MinAvailable.
 	ConditionTypePodCliqueScheduled = "PodCliqueScheduled"
-	// ConditionTypeUpdateInProgress indicates that update is in progress for the PodClique or PodCliqueScalingGroup.
-	ConditionTypeUpdateInProgress = "UpdateInProgress"
+	// // ConditionTypeUpdateInProgress indicates that update is in progress for the PodClique or PodCliqueScalingGroup.
+	// ConditionTypeUpdateInProgress = "UpdateInProgress"
 )
 
 // Constants for Condition Reasons.
