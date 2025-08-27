@@ -62,7 +62,7 @@ const (
 	errCodeListPodCliquesForPCSG                  grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUE_FOR_PCSG"
 	errCodeCreatePodClique                        grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODCLIQUE"
 	errCodeParsePodCliqueScalingGroupReplicaIndex grovecorev1alpha1.ErrorCode = "ERR_PARSE_PODCLIQUESCALINGGROUP_REPLICA_INDEX"
-	errCodeUpdateStatusCondition                  grovecorev1alpha1.ErrorCode = "ERR_UPDATE_STATUS_CONDITION"
+	errCodeUpdateStatus                           grovecorev1alpha1.ErrorCode = "ERR_UPDATE_STATUS"
 	errCodeUpdateLastIndexSelectedForUpdate       grovecorev1alpha1.ErrorCode = "ERR_UPDATE_STATUS_LAST_INDEX_SELECTED_FOR_UPDATE"
 )
 
@@ -130,8 +130,10 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 		}
 	}
 
-	if err = r.processPendingUpdates(ctx, syncCtx, pcsg); err != nil {
-		return err
+	if isRollingUpdateInProgress(pcsg) {
+		if err = r.orchestrateRollingUpdate(ctx, logger, syncCtx, pcsg); err != nil {
+			return err
+		}
 	}
 
 	// If there are any PCSG replicas which have minAvailableBreached but the terminationDelay has not yet expired, then
@@ -146,99 +148,100 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 	return nil
 }
 
-func (r _resource) processPendingUpdates(ctx context.Context, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
-	if pcsg.Status.RollingUpdateProgress == nil || pcsg.Status.RollingUpdateProgress.UpdateEndedAt != nil {
-		// There are no pending updates, return early.
-		return nil
-	}
+// func (r _resource) processPendingUpdates(ctx context.Context, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
+// 	if pcsg.Status.RollingUpdateProgress == nil || pcsg.Status.RollingUpdateProgress.UpdateEndedAt != nil {
+// 		// There are no pending updates, return early.
+// 		return nil
+// 	}
 
-	if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
+// 	if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
 
-	}
+// 	}
 
-	/*
-		if there is a currently updating replica {
-			update its progress { update updatedPCLQs and currentlyUpdating }
-			check if it is complete
-			if the currently updating replica is now complete {
-				set currentlyUpdating to nil
-				increment the updatedReplicas
-			} else {
-				requeue
-			}
-		} else {
-			get next replica to update
-			if there are no more any replicas to update {
-				mark end of update
-				set currentlyUpdating to is set to nil
-				return
-			} else {
-				set currentlyUpdating to this replica
-				trigger update of the next replica
-				requeue
-			}
-		}
-	*/
+// 	/*
+// 		if there is a currently updating replica {
+// 			update its progress { update updatedPCLQs and currentlyUpdating }
+// 			check if it is complete
+// 			if the currently updating replica is now complete {
+// 				set currentlyUpdating to nil
+// 				increment the updatedReplicas
+// 			} else {
+// 				requeue
+// 			}
+// 		} else {
+// 			get next replica to update
+// 			if there are no more any replicas to update {
+// 				mark end of update
+// 				set currentlyUpdating to is set to nil
+// 				return
+// 			} else {
+// 				set currentlyUpdating to this replica
+// 				trigger update of the next replica
+// 				requeue
+// 			}
+// 		}
+// 	*/
 
-	pcsgReplicaIndicesPendingUpdate := getPCSGReplicaIndicesPendingUpdate(syncCtx.pgs, pcsg, syncCtx.existingPCLQs)
-	if len(pcsgReplicaIndicesPendingUpdate) > 0 {
-		// Progress with rolling update only when any pending update for previously selected PCSG replica has completed.
-		updatedPCLQFQNs := make([]string, 0)
-		var allUpdated bool
-		if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
-			updatedPCLQFQNs, allUpdated = getUpdatedPCLQFQNsForCurrentlyUpdatingIndex(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs)
-		}
-		if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil && !allUpdated {
-			// update the status with the currenlty updated replicas
-			// use updatedPCLQFQNs to indicate progress
-			if err := r.updatePCLQUpdateProgressForReplica(ctx, pcsg, updatedPCLQFQNs); err != nil {
-				return err
-			}
-			return groveerr.New(groveerr.ErrCodeRequeueAfter,
-				component.OperationSync,
-				fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex),
-			)
-		}
-		// Order the PCSG replicas based on a criteria and select the next PCSG index to update.
-		orderedPCSGReplicaIndicesToUpdate := getOrderedPCSGIndicesPendingUpdate(pcsgReplicaIndicesPendingUpdate, pcsgIndicesToTerminate, pcsgIndicesToRequeue)
-		replicaPickedForUpdate := orderedPCSGReplicaIndicesToUpdate[0]
-		logger.Info("Found PCSG replicas pending update, picking up one replica to update", "pcsgReplicaIndicesPendingUpdate", pcsgReplicaIndicesPendingUpdate, "replicaPickedForUpdate", replicaPickedForUpdate)
-		// TODO: FIX IMMEDIATELY
-		if err := r.updatePCLQUpdateProgressForReplica(ctx, pcsg, updatedPCLQFQNs); err != nil {
-			return err
-		}
-		if err = r.updatePCSGReplica(ctx, logger, pgs, pcsg, replicaPickedForUpdate); err != nil {
-			return err
-		}
-		// Requeue after a fixed interval.
-		return groveerr.New(groveerr.ErrCodeRequeueAfter,
-			component.OperationSync,
-			"Requeuing to continue PCSG replica updates",
-		)
-	} else {
-		updatedPCLQFQNs := make([]string, 0)
-		var allUpdated bool
-		if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
-			updatedPCLQFQNs, allUpdated = getUpdatedPCLQFQNsForCurrentlyUpdatingIndex(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs)
-		}
-		if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil && !allUpdated {
-			if err := r.updatePCLQUpdateProgressForReplica(ctx, pcsg, updatedPCLQFQNs); err != nil {
-				return err
-			}
-			return groveerr.New(groveerr.ErrCodeRequeueAfter,
-				component.OperationSync,
-				fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex),
-			)
-		}
-		// TODO: FIX IMMEDIATELY
-		if err := r.updatePCLQUpdateProgressForReplica(ctx, pcsg, updatedPCLQFQNs); err != nil {
-			return err
-		}
-		if err = r.resetUpdateStatus(ctx, pcsg); err != nil {
-			return err
-		}
-	}
-}
+// 	pcsgReplicaIndicesPendingUpdate := getPCSGReplicaIndicesPendingUpdate(syncCtx.pgs, pcsg, syncCtx.existingPCLQs)
+// 	if len(pcsgReplicaIndicesPendingUpdate) > 0 {
+// 		// Progress with rolling update only when any pending update for previously selected PCSG replica has completed.
+// 		updatedPCLQFQNs := make([]string, 0)
+// 		var allUpdated bool
+// 		if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
+// 			updatedPCLQFQNs, allUpdated = getUpdatedPCLQFQNsForCurrentlyUpdatingIndex(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs)
+// 		}
+// 		if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil && !allUpdated {
+// 			// update the status with the currenlty updated replicas
+// 			// use updatedPCLQFQNs to indicate progress
+// 			if err := r.updatePCLQUpdateProgressForReplica(ctx, pcsg, updatedPCLQFQNs); err != nil {
+// 				return err
+// 			}
+// 			return groveerr.New(groveerr.ErrCodeRequeueAfter,
+// 				component.OperationSync,
+// 				fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex),
+// 			)
+// 		}
+// 		// Order the PCSG replicas based on a criteria and select the next PCSG index to update.
+// 		orderedPCSGReplicaIndicesToUpdate := getOrderedPCSGIndicesPendingUpdate(pcsgReplicaIndicesPendingUpdate, pcsgIndicesToTerminate, pcsgIndicesToRequeue)
+// 		replicaPickedForUpdate := orderedPCSGReplicaIndicesToUpdate[0]
+// 		logger.Info("Found PCSG replicas pending update, picking up one replica to update", "pcsgReplicaIndicesPendingUpdate", pcsgReplicaIndicesPendingUpdate, "replicaPickedForUpdate", replicaPickedForUpdate)
+// 		// TODO: FIX IMMEDIATELY
+// 		if err := r.updatePCLQUpdateProgressForReplica(ctx, pcsg, updatedPCLQFQNs); err != nil {
+// 			return err
+// 		}
+// 		if err = r.updatePCSGReplica(ctx, logger, pgs, pcsg, replicaPickedForUpdate); err != nil {
+// 			return err
+// 		}
+// 		// Requeue after a fixed interval.
+// 		return groveerr.New(groveerr.ErrCodeRequeueAfter,
+// 			component.OperationSync,
+// 			"Requeuing to continue PCSG replica updates",
+// 		)
+// 	} else {
+// 		updatedPCLQFQNs := make([]string, 0)
+// 		var allUpdated bool
+// 		if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
+// 			updatedPCLQFQNs, allUpdated = getUpdatedPCLQFQNsForCurrentlyUpdatingIndex(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs)
+// 		}
+// 		if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil && !allUpdated {
+// 			if err := r.updatePCLQUpdateProgressForReplica(ctx, pcsg, updatedPCLQFQNs); err != nil {
+// 				return err
+// 			}
+// 			return groveerr.New(groveerr.ErrCodeRequeueAfter,
+// 				component.OperationSync,
+// 				fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex),
+// 			)
+// 		}
+// 		// TODO: FIX IMMEDIATELY
+// 		if err := r.updatePCLQUpdateProgressForReplica(ctx, pcsg, updatedPCLQFQNs); err != nil {
+// 			return err
+// 		}
+// 		if err = r.resetUpdateStatus(ctx, pcsg); err != nil {
+// 			return err
+// 		}
+// 	}
+// 	return
+// }
 
 func (r _resource) processMinAvailableBreachedPCSGReplicas(ctx context.Context, logger logr.Logger, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
 	// If pcsg.spec.minAvailable is breached, then delegate the responsibility to the PodGangSet reconciler which after
@@ -272,7 +275,7 @@ func (r _resource) updatePCLQUpdateProgressForReplica(ctx context.Context, pcsg 
 	if err := r.client.Status().Patch(ctx, pcsg, pcsgPatch); err != nil {
 		return groveerr.WrapError(
 			err,
-			errCodeUpdateStatusCondition,
+			errCodeUpdateStatus,
 			component.OperationSync,
 			"failed to update the updated PodCliques in the PodCliqueScalingGroup status",
 		)
@@ -290,7 +293,7 @@ func (r _resource) resetUpdateStatus(ctx context.Context, pcsg *grovecorev1alpha
 		if err := r.client.Status().Update(ctx, pcsg); err != nil {
 			return groveerr.WrapError(
 				err,
-				errCodeUpdateStatusCondition,
+				errCodeUpdateStatus,
 				component.OperationSync,
 				fmt.Sprintf("failed to remove the %s condition in the PodCliqueScalingGroup status", constants.ConditionReasonInsufficientReadyPCSGReplicas),
 			)
@@ -395,7 +398,7 @@ func (r _resource) updatePCSGStatusWithRollingUpdateProgress(ctx context.Context
 	}
 	if err := r.client.Status().Update(ctx, pcsg); err != nil {
 		return groveerr.WrapError(err,
-			errCodeUpdateStatusCondition,
+			errCodeUpdateStatus,
 			component.OperationSync,
 			fmt.Sprintf("could not set %s condition on PCSG: %v", constants.ConditionTypeUpdateInProgress, client.ObjectKeyFromObject(pcsg)),
 		)
