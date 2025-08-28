@@ -185,3 +185,8 @@ func GetPCLQTemplateHashes(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1a
 	}
 	return cliqueTemplateSpecHashes
 }
+
+// IsPCSGUpdateComplete returns whether the rolling update of the PodCliqueScalingGroup is complete.
+func IsPCSGUpdateComplete(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pgsGenerationHash string) bool {
+	return pcsg.Status.CurrentPodGangSetGenerationHash != nil && *pcsg.Status.CurrentPodGangSetGenerationHash == pgsGenerationHash
+}

@@ -233,7 +233,7 @@ func (pri *pgsReplicaInfo) computeUpdateProgress(pgs *grovecorev1alpha1.PodGangS
 		}
 	}
 	for _, pcsg := range pri.pcsgs {
-		if isPCSGUpdateComplete(&pcsg, *pgs.Status.CurrentGenerationHash) {
+		if componentutils.IsPCSGUpdateComplete(&pcsg, *pgs.Status.CurrentGenerationHash) {
 			progress.updatedPCSGFQNs = append(progress.updatedPCSGFQNs, pcsg.Name)
 		}
 	}
@@ -262,15 +262,6 @@ func (pri *pgsReplicaInfo) getNumScheduledPods(pgs *grovecorev1alpha1.PodGangSet
 }
 
 func isPCLQUpdateComplete(pclq *grovecorev1alpha1.PodClique, currentPGSGenerationHash string) bool {
-	// There can be two cases when the update is considered complete:
-	// 1. None of the PodCliques that are owned by the PodGangSet change. In this case, there is no
-	//    need to perform a traditional rolling update, and only the PodGangSetGenerationHash label
-	//    needs to be patched.
-	// 2. PodCliques owned by PodGangSet change. In this case, the rolling update is actually triggered,
-	//    and each pod is deleted and recreated. The update ends when all pods are deleted and recreated,
-	//    and the PodCliques become available.
-	// In both cases, the same checks of ReadyReplicas > MinAvailable, PodGangSetGenerationHash,
-	// and UpdatedReplicas == Spec.Replicas applies.
 	//if pclq.Status.ReadyReplicas >= *pclq.Spec.MinAvailable &&
 	//	pclq.Status.CurrentPodGangSetGenerationHash != nil &&
 	//	*pclq.Status.CurrentPodGangSetGenerationHash == currentPGSGenerationHash &&
@@ -279,17 +270,6 @@ func isPCLQUpdateComplete(pclq *grovecorev1alpha1.PodClique, currentPGSGeneratio
 	return true
 	//}
 	//return false
-}
-
-func isPCSGUpdateComplete(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pgsGenerationHash string) bool {
-	// There can be two cases when the update is considered complete:
-	// 1. None of the PodCliques that belong to the PodCliqueScalingGroup change. In this case, there is no need to delete
-	//    and recreate PodCliqueScalingGroup replicas. The PodGangSetGenerationHash label on the PodCliqueScalingGroup
-	//    is simply updated. The PodCliques' PodGangSetGenerationHash labels that belong to this PodCliqueScalingGroup are updated.
-	//    For this, we simply check if the updated replicas are equal to Spec.Replicas, and the PodGangSetGenerationHash matches.
-	// 2. PodCliques owned by PodCliqueScalingGroup change. In this case, the rolling update is actually triggered,
-	//    and each replica is deleted and recreated. The update ends when UpdateEndedAt is set, and the PodGangSetGenerationHash matches.
-	return pcsg.Status.CurrentPodGangSetGenerationHash != nil && *pcsg.Status.CurrentPodGangSetGenerationHash == pgsGenerationHash
 }
 
 func isRollingUpdateInProgress(pgs *grovecorev1alpha1.PodGangSet) bool {

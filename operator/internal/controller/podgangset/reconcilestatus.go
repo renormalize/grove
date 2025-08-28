@@ -49,7 +49,7 @@ func (r *Reconciler) mutateReplicas(ctx context.Context, logger logr.Logger, pgs
 
 	// Set basic replica count
 	pgs.Status.Replicas = pgs.Spec.Replicas
-	availableReplicas, updatedReplicas, err := r.computeAvailableReplicas(ctx, logger, pgs)
+	availableReplicas, updatedReplicas, err := r.computeAvailableAndUpdatedReplicas(ctx, logger, pgs)
 	if err != nil {
 		return fmt.Errorf("could not compute available replicas: %w", err)
 	}
@@ -58,10 +58,10 @@ func (r *Reconciler) mutateReplicas(ctx context.Context, logger logr.Logger, pgs
 	return nil
 }
 
-// computeAvailableReplicas calculates the number of available replicas for a PodGangSet.
+// computeAvailableAndUpdatedReplicas calculates the number of available replicas for a PodGangSet.
 // It checks both standalone PodCliques and PodCliqueScalingGroups to determine availability.
 // A replica is considered available if it has all its required components (PCSGs and standalone PCLQs) available.
-func (r *Reconciler) computeAvailableReplicas(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) (int32, int32, error) {
+func (r *Reconciler) computeAvailableAndUpdatedReplicas(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) (int32, int32, error) {
 	var availableReplicas, updatedReplicas int32
 	// Calculate expected resource counts per replica (same for all replicas)
 	expectedStandalonePCLQs, expectedPCSGs := r.computeExpectedResourceCounts(pgs)
@@ -70,7 +70,7 @@ func (r *Reconciler) computeAvailableReplicas(ctx context.Context, logger logr.L
 	// Fetch all PCSGs for this PGS
 	pcsgs, err := componentutils.GetPCSGsForPGS(ctx, r.client, pgsObjectKey)
 	if err != nil {
-		return -availableReplicas, updatedReplicas, err
+		return availableReplicas, updatedReplicas, err
 	}
 
 	// Fetch all standalone PodCliques for this PGS
@@ -88,7 +88,7 @@ func (r *Reconciler) computeAvailableReplicas(ctx context.Context, logger logr.L
 		replicaStandalonePCLQs := standalonePCLQsByReplica[replicaIndexStr]
 		replicaPCSGs := pcsgsByReplica[replicaIndexStr]
 		// Check if this PGS replica is available based on all its components
-		isReplicaAvailable, isReplicaUpdated := r.computeReplicaStatus(replicaPCSGs,
+		isReplicaAvailable, isReplicaUpdated := r.computeReplicaStatus(pgs.Status.CurrentGenerationHash, replicaPCSGs,
 			replicaStandalonePCLQs, expectedPCSGs, expectedStandalonePCLQs)
 		if isReplicaAvailable {
 			availableReplicas++
@@ -119,10 +119,10 @@ func (r *Reconciler) computeExpectedResourceCounts(pgs *grovecorev1alpha1.PodGan
 	return expectedStandalonePCLQs, expectedPCSGs
 }
 
-func (r *Reconciler) computeReplicaStatus(replicaPCSGs []grovecorev1alpha1.PodCliqueScalingGroup, standalonePCLQs []grovecorev1alpha1.PodClique, expectedPCSGs int, expectedStandalonePCLQs int) (bool, bool) {
+func (r *Reconciler) computeReplicaStatus(pgsGenerationHash *string, replicaPCSGs []grovecorev1alpha1.PodCliqueScalingGroup, standalonePCLQs []grovecorev1alpha1.PodClique, expectedPCSGs int, expectedStandalonePCLQs int) (bool, bool) {
 	pclqsAvailable, pclqsUpdated := r.computePCLQsStatus(expectedStandalonePCLQs, standalonePCLQs)
 
-	pcsgsAvailable, pcsgsUpdated := r.computePCSGsStatus(expectedPCSGs, replicaPCSGs)
+	pcsgsAvailable, pcsgsUpdated := r.computePCSGsStatus(pgsGenerationHash, expectedPCSGs, replicaPCSGs)
 
 	return pclqsAvailable && pcsgsAvailable, pclqsUpdated && pcsgsUpdated
 }
@@ -144,7 +144,7 @@ func (r *Reconciler) computePCLQsStatus(expectedStandalonePCLQs int, existingPCL
 	return
 }
 
-func (r *Reconciler) computePCSGsStatus(expectedPCSGs int, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup) (isAvailable, isUpdated bool) {
+func (r *Reconciler) computePCSGsStatus(pgsGenerationHash *string, expectedPCSGs int, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup) (isAvailable, isUpdated bool) {
 	nonTerminatedPCSGs := lo.Filter(pcsgs, func(pcsg grovecorev1alpha1.PodCliqueScalingGroup, _ int) bool {
 		return !k8sutils.IsResourceTerminating(pcsg.ObjectMeta)
 	})
@@ -155,7 +155,7 @@ func (r *Reconciler) computePCSGsStatus(expectedPCSGs int, pcsgs []grovecorev1al
 		})
 
 	isUpdated = isAvailable && lo.EveryBy(nonTerminatedPCSGs, func(pcsg grovecorev1alpha1.PodCliqueScalingGroup) bool {
-		return pcsg.Status.UpdatedReplicas >= *pcsg.Spec.MinAvailable
+		return pgsGenerationHash != nil && componentutils.IsPCSGUpdateComplete(&pcsg, *pgsGenerationHash)
 	})
 
 	return
