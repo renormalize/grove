@@ -163,3 +163,25 @@ func GetPCSGsByPGSReplicaIndex(ctx context.Context, cl client.Client, pgsObjKey 
 	}
 	return pcsgsByPGSReplicaIndex, nil
 }
+
+// GetPCLQTemplateHashes generates the Pod template hash for all PCLQs in a PCSG. Returns a map of [PCLQ Name : PodTemplateHas]
+func GetPCLQTemplateHashes(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) map[string]string {
+	pclqTemplateSpecs := make([]*grovecorev1alpha1.PodCliqueTemplateSpec, 0, len(pcsg.Spec.CliqueNames))
+	for _, cliqueName := range pcsg.Spec.CliqueNames {
+		pclqTemplateSpec, ok := lo.Find(pgs.Spec.Template.Cliques, func(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec) bool {
+			return cliqueName == pclqTemplateSpec.Name
+		})
+		if !ok {
+			continue
+		}
+		pclqTemplateSpecs = append(pclqTemplateSpecs, pclqTemplateSpec)
+	}
+	cliqueTemplateSpecHashes := make(map[string]string, len(pclqTemplateSpecs))
+	for pcsgReplicaIndex := range int(pcsg.Spec.Replicas) {
+		for _, pclqTemplateSpec := range pclqTemplateSpecs {
+			pclqFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcsg.Name, Replica: pcsgReplicaIndex}, pclqTemplateSpec.Name)
+			cliqueTemplateSpecHashes[pclqFQN] = GetPCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName)
+		}
+	}
+	return cliqueTemplateSpecHashes
+}

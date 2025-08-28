@@ -60,9 +60,14 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pc
 	}
 
 	// mutate the selector that will be used by an autoscaler.
-	if err := mutateSelector(pgsName, pclq); err != nil {
+	if err = mutateSelector(pgsName, pclq); err != nil {
 		logger.Error(err, "failed to update selector for PodClique")
 		return ctrlcommon.ReconcileWithErrors("failed to set selector for PodClique", err)
+	}
+
+	if err = r.mutateCurrentPodGangSetGenerationHash(ctx, logger, pclq); err != nil {
+		logger.Error(err, "failed to update current pod GangSet generation")
+		return ctrlcommon.ReconcileWithErrors("failed to update current pod GangSet generation", err)
 	}
 
 	// update the PodClique status.
@@ -99,6 +104,18 @@ func mutateSelector(pgsName string, pclq *grovecorev1alpha1.PodClique) error {
 		return fmt.Errorf("%w: failed to create label selector for PodClique %v", err, client.ObjectKeyFromObject(pclq))
 	}
 	pclq.Status.Selector = ptr.To(selector.String())
+	return nil
+}
+
+func (r *Reconciler) mutateCurrentPodGangSetGenerationHash(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) error {
+	pgs, err := componentutils.GetOwnerPodGangSet(ctx, r.client, pclq.ObjectMeta)
+	if err != nil {
+		logger.Error(err, "failed to get owner PodGangSet")
+		return fmt.Errorf("could not get owner PodGangSet for PodClique %v :%w", client.ObjectKeyFromObject(pclq), err)
+	}
+	if !componentutils.IsPCLQUpdateInProgress(pclq) {
+		pclq.Status.CurrentPodGangSetGenerationHash = pgs.Status.CurrentGenerationHash
+	}
 	return nil
 }
 

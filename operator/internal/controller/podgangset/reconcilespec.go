@@ -81,14 +81,14 @@ func (r *Reconciler) processGenerationHashChange(ctx context.Context, logger log
 	pgsObjectName := cache.NamespacedNameAsObjectName(pgsObjectKey).String()
 
 	// if the generationHash is not reflected correctly yet, requeue. Allow the informer cache to catch-up.
-	if !r.isGenerationHashExpectationSatisfied(pgsObjectName, pgs.Status.GenerationHash) {
-		return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, fmt.Sprintf("GenerationHash is not up-to-date for PodGangSet: %v", pgsObjectKey))
+	if !r.isGenerationHashExpectationSatisfied(pgsObjectName, pgs.Status.CurrentGenerationHash) {
+		return ctrlcommon.ReconcileAfter(ctrlcommon.ComponentSyncRetryInterval, fmt.Sprintf("CurrentGenerationHash is not up-to-date for PodGangSet: %v", pgsObjectKey))
 	} else {
 		r.pgsGenerationHashExpectations.Delete(pgsObjectName)
 	}
 
 	newGenerationHash := computeGenerationHash(pgs)
-	if pgs.Status.GenerationHash == nil {
+	if pgs.Status.CurrentGenerationHash == nil {
 		// update the generation hash and continue reconciliation. No rolling update is required.
 		if err := r.setGenerationHash(ctx, pgs, pgsObjectName, newGenerationHash); err != nil {
 			logger.Error(err, "failed to set generation hash on PGS", "newGenerationHash", newGenerationHash)
@@ -97,7 +97,7 @@ func (r *Reconciler) processGenerationHashChange(ctx context.Context, logger log
 		return ctrlcommon.ContinueReconcile()
 	}
 
-	if newGenerationHash != *pgs.Status.GenerationHash {
+	if newGenerationHash != *pgs.Status.CurrentGenerationHash {
 		// trigger rolling update by setting or overriding pgs.Status.RollingUpdateProgress.
 		if err := r.initRollingUpdateProgress(ctx, pgs, pgsObjectName, newGenerationHash); err != nil {
 			return ctrlcommon.ReconcileWithErrors(fmt.Sprintf("could not triggering rolling update for PGS: %v", pgsObjectKey), err)
@@ -128,9 +128,9 @@ func computeGenerationHash(pgs *grovecorev1alpha1.PodGangSet) string {
 }
 
 func (r *Reconciler) setGenerationHash(ctx context.Context, pgs *grovecorev1alpha1.PodGangSet, pgsObjectName, generationHash string) error {
-	pgs.Status.GenerationHash = &generationHash
+	pgs.Status.CurrentGenerationHash = &generationHash
 	if err := r.client.Status().Update(ctx, pgs); err != nil {
-		return fmt.Errorf("could not update GenerationHash for PodGangSet: %v: %w", client.ObjectKeyFromObject(pgs), err)
+		return fmt.Errorf("could not update CurrentGenerationHash for PodGangSet: %v: %w", client.ObjectKeyFromObject(pgs), err)
 	}
 	r.pgsGenerationHashExpectations.Store(pgsObjectName, generationHash)
 	return nil
@@ -141,7 +141,7 @@ func (r *Reconciler) initRollingUpdateProgress(ctx context.Context, pgs *groveco
 		UpdateStartedAt: metav1.Now(),
 	}
 	pgs.Status.UpdatedReplicas = 0
-	pgs.Status.GenerationHash = &newGenerationHash
+	pgs.Status.CurrentGenerationHash = &newGenerationHash
 	if err := r.client.Status().Update(ctx, pgs); err != nil {
 		return fmt.Errorf("could not set RollingUpdateProgress for PodGangSet: %v: %w", client.ObjectKeyFromObject(pgs), err)
 	}

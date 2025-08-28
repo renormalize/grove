@@ -83,13 +83,13 @@ type PodGangSetStatus struct {
 	Selector *string `json:"hpaPodSelector,omitempty"`
 	// PodGangStatuses captures the status for all the PodGang's that are part of the PodGangSet.
 	PodGangStatutes []PodGangStatus `json:"podGangStatuses,omitempty"`
-	// GenerationHash is a hash value generated out of a collection of fields in a PodGangSet.
+	// CurrentGenerationHash is a hash value generated out of a collection of fields in a PodGangSet.
 	// Since only a subset of fields is taken into account when generating the hash, not every change in the PodGangSetSpec will
 	// be accounted for when generating this hash value. A field in PodGangSetSpec is included if a change to it triggers
 	// a rolling update of PodCliques and/or PodCliqueScalingGroups.
-	// Only if this value is not nil and the newly computed hash value is different from the persisted GenerationHash value
+	// Only if this value is not nil and the newly computed hash value is different from the persisted CurrentGenerationHash value
 	// then a rolling update needs to be triggerred.
-	GenerationHash *string `json:"generationHash,omitempty"`
+	CurrentGenerationHash *string `json:"currentGenerationHash,omitempty"`
 	// RollingUpdateProgress represents the progress of a rolling update.
 	RollingUpdateProgress *PodGangSetRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
 }

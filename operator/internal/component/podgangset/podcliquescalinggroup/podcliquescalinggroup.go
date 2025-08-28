@@ -215,10 +215,9 @@ func (r _resource) buildResource(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, 
 
 func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplica int, pclqScalingGroupObjKey client.ObjectKey) map[string]string {
 	componentLabels := map[string]string{
-		apicommon.LabelAppNameKey:               pclqScalingGroupObjKey.Name,
-		apicommon.LabelComponentKey:             apicommon.LabelComponentNamePodCliqueScalingGroup,
-		apicommon.LabelPodGangSetReplicaIndex:   strconv.Itoa(pgsReplica),
-		apicommon.LabelPodGangSetGenerationHash: *pgs.Status.GenerationHash,
+		apicommon.LabelAppNameKey:             pclqScalingGroupObjKey.Name,
+		apicommon.LabelComponentKey:           apicommon.LabelComponentNamePodCliqueScalingGroup,
+		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplica),
 	}
 	return lo.Assign(
 		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgs.Name),

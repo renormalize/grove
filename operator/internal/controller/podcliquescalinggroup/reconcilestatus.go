@@ -19,7 +19,6 @@ package podcliquescalinggroup
 import (
 	"context"
 	"fmt"
-
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -60,13 +59,15 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pc
 		logger.Error(err, "failed to list PodCliques for PodCliqueScalingGroup")
 		return ctrlcommon.ReconcileWithErrors(fmt.Sprintf("failed to list PodCliques for PodCliqueScalingGroup: %q", client.ObjectKeyFromObject(pcsg)), err)
 	}
-	mutateReplicas(logger, pgs.Status.GenerationHash, pcsg, pclqsPerPCSGReplica)
+	mutateReplicas(logger, pgs.Status.CurrentGenerationHash, pcsg, pclqsPerPCSGReplica)
 	mutateMinAvailableBreachedCondition(logger, pcsg, pclqsPerPCSGReplica)
 
 	if err = mutateSelector(pgs, pcsg); err != nil {
 		logger.Error(err, "failed to update selector for PodCliqueScalingGroup")
 		return ctrlcommon.ReconcileWithErrors("failed to update selector for PodCliqueScalingGroup", err)
 	}
+
+	mutateCurrentPodGangSetGenerationHash(logger, pgs, pcsg, lo.Flatten(lo.Values(pclqsPerPCSGReplica)))
 
 	if err = r.client.Status().Patch(ctx, pcsg, patchObj); err != nil {
 		logger.Error(err, "failed to update PodCliqueScalingGroup status")
@@ -76,11 +77,11 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pc
 	return ctrlcommon.ContinueReconcile()
 }
 
-func mutateReplicas(logger logr.Logger, pgsGenerationHash *string, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pclqsPerPCSGReplica map[string][]grovecorev1alpha1.PodClique) {
+func mutateReplicas(logger logr.Logger, currentPGSGenerationHash *string, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pclqsPerPCSGReplica map[string][]grovecorev1alpha1.PodClique) {
 	pcsg.Status.Replicas = pcsg.Spec.Replicas
 	var scheduledReplicas, availableReplicas, updatedReplicas int32
 	for pcsgReplicaIndex, pclqs := range pclqsPerPCSGReplica {
-		isScheduled, isAvailable, isUpdated := computeReplicaStatus(logger, pgsGenerationHash, pcsgReplicaIndex, len(pcsg.Spec.CliqueNames), pclqs)
+		isScheduled, isAvailable, isUpdated := computeReplicaStatus(logger, currentPGSGenerationHash, pcsgReplicaIndex, len(pcsg.Spec.CliqueNames), pclqs)
 		if isScheduled {
 			scheduledReplicas++
 		}
@@ -100,7 +101,7 @@ func mutateReplicas(logger logr.Logger, pgsGenerationHash *string, pcsg *groveco
 }
 
 // computeReplicaStatus processes a single PodCliqueScalingGroup replica and returns whether it is scheduled and available.
-func computeReplicaStatus(logger logr.Logger, pgsGenerationHash *string, pcsgReplicaIndex string, numPCSGCliqueNames int, pclqs []grovecorev1alpha1.PodClique) (isScheduled, isAvailable, isUpdated bool) {
+func computeReplicaStatus(logger logr.Logger, currentPGSGenerationHash *string, pcsgReplicaIndex string, numPCSGCliqueNames int, pclqs []grovecorev1alpha1.PodClique) (isScheduled, isAvailable, isUpdated bool) {
 	nonTerminatedPCSGPodCliques := lo.Filter(pclqs, func(pclq grovecorev1alpha1.PodClique, _ int) bool {
 		return !k8sutils.IsResourceTerminating(pclq.ObjectMeta)
 	})
@@ -121,9 +122,9 @@ func computeReplicaStatus(logger logr.Logger, pgsGenerationHash *string, pcsgRep
 		})
 		isAvailable = isAvailable && len(nonTerminatedPCSGPodCliques) == numPCSGCliqueNames
 		isUpdated = isAvailable &&
-			pgsGenerationHash != nil &&
+			currentPGSGenerationHash != nil &&
 			lo.EveryBy(nonTerminatedPCSGPodCliques, func(pclq grovecorev1alpha1.PodClique) bool {
-				return pclq.Labels[apicommon.LabelPodGangSetGenerationHash] == *pgsGenerationHash
+				return pclq.Status.CurrentPodGangSetGenerationHash != nil && *pclq.Status.CurrentPodGangSetGenerationHash == *currentPGSGenerationHash
 			})
 	}
 	return
@@ -249,4 +250,21 @@ func mutateSelector(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.P
 	}
 	pcsg.Status.Selector = ptr.To(selector.String())
 	return nil
+}
+
+func mutateCurrentPodGangSetGenerationHash(logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, existingPCLQs []grovecorev1alpha1.PodClique) {
+	expectedPCLQPodTemplateHashes := componentutils.GetPCLQTemplateHashes(pgs, pcsg)
+	for _, existingPCLQ := range existingPCLQs {
+		existingPodTemplateHash := existingPCLQ.Labels[apicommon.LabelPodTemplateHash]
+		expectedPodTemplateHash := expectedPCLQPodTemplateHashes[existingPCLQ.Name]
+		if existingPodTemplateHash != expectedPodTemplateHash {
+			logger.Info("PodClique in PodCliqueScalingGroup does not have the expected hash", "name", existingPCLQ.Name, "gotPodTemplateHash", existingPodTemplateHash, "expectedPodTemplateHash", expectedPodTemplateHash)
+			return
+		}
+	}
+	if componentutils.IsPCSGUpdateInProgress(pcsg) {
+		logger.Info("PodCliqueScalingGroup is currently updating, cannot set PodGangSet CurrentGenerationHash yet")
+		return
+	}
+	pcsg.Status.CurrentPodGangSetGenerationHash = pgs.Status.CurrentGenerationHash
 }

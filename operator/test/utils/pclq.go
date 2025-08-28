@@ -68,9 +68,6 @@ func NewPCSGPodCliqueBuilder(name, namespace, pgsName, pcsgName string, pgsGener
 		},
 		Status: grovecorev1alpha1.PodCliqueStatus{},
 	}
-	if pgsGenerationHash != nil {
-		pclq.Labels[apicommon.LabelPodGangSetGenerationHash] = *pgsGenerationHash
-	}
 
 	return &PodCliqueBuilder{
 		pgsName:         pgsName,

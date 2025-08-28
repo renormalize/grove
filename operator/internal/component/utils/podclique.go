@@ -150,3 +150,8 @@ func GetPCLQPodTemplateHash(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplat
 	podTemplateSpec.Spec.PriorityClassName = priorityClassName
 	return k8sutils.ComputeHash(&podTemplateSpec)
 }
+
+// IsPCLQUpdateInProgress checks if PodClique is under rolling update.
+func IsPCLQUpdateInProgress(pclq *grovecorev1alpha1.PodClique) bool {
+	return pclq.Status.RollingUpdateProgress != nil && pclq.Status.RollingUpdateProgress.UpdateEndedAt == nil
+}

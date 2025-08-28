@@ -28,14 +28,25 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// GetPodCliqueScalingGroupFQNsForPGSReplica computes the FQNs for all PodCliqueScalingGroups defined in PGS for the given replica.
-func GetPodCliqueScalingGroupFQNsForPGSReplica(pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int) []string {
+// GetPodCliqueScalingGroupFQNsForPGS computes the FQNs for all PodCliqueScalingGroups defined in PGS for the given replica.
+func GetPodCliqueScalingGroupFQNsForPGS(pgs *grovecorev1alpha1.PodGangSet) []string {
 	pcsgNames := make([]string, 0, len(pgs.Spec.Template.PodCliqueScalingGroupConfigs))
-	for _, pcsgConfig := range pgs.Spec.Template.PodCliqueScalingGroupConfigs {
-		pcsgName := common.GeneratePodCliqueScalingGroupName(common.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, pcsgConfig.Name)
-		pcsgNames = append(pcsgNames, pcsgName)
+	for pgsReplicaIndex := range int(pgs.Spec.Replicas) {
+		for _, pcsgConfig := range pgs.Spec.Template.PodCliqueScalingGroupConfigs {
+			pcsgName := common.GeneratePodCliqueScalingGroupName(common.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, pcsgConfig.Name)
+			pcsgNames = append(pcsgNames, pcsgName)
+		}
 	}
 	return pcsgNames
+}
+
+// GetPodCliqueFQNsForPGSNotInPCSG computes the FQNs for all PodCliques for all PGS replicas which are not part of any PCSG.
+func GetPodCliqueFQNsForPGSNotInPCSG(pgs *grovecorev1alpha1.PodGangSet) []string {
+	pclqFQNs := make([]string, 0, int(pgs.Spec.Replicas)*len(pgs.Spec.Template.Cliques))
+	for pgsReplicaIndex := range int(pgs.Spec.Replicas) {
+		pclqFQNs = append(pclqFQNs, GetPodCliqueFQNsForPGSReplicaNotInPCSG(pgs, pgsReplicaIndex)...)
+	}
+	return pclqFQNs
 }
 
 // GetPodCliqueFQNsForPGSReplicaNotInPCSG computes the FQNs for all PodCliques for a PGS replica which are not part of any PCSG.
@@ -87,4 +98,9 @@ func GetExpectedPCLQNamesGroupByOwner(pgs *grovecorev1alpha1.PodGangSet) (expect
 	})
 	expectedPCLQNamesForPGS, _ = lo.Difference(pgsCliqueNames, expectedPCLQNamesForPCSG)
 	return
+}
+
+// IsPGSUpdateInProgress checks if PodGangSet is under rolling update.
+func IsPGSUpdateInProgress(pgs *grovecorev1alpha1.PodGangSet) bool {
+	return pgs.Status.RollingUpdateProgress != nil && pgs.Status.RollingUpdateProgress.UpdateEndedAt == nil
 }

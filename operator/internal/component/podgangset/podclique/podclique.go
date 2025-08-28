@@ -358,12 +358,11 @@ func getPodCliqueSelectorLabels(pgsObjectMeta metav1.ObjectMeta) map[string]stri
 
 func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplica int, pclqObjectKey client.ObjectKey, pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, podGangName string) map[string]string {
 	pclqComponentLabels := map[string]string{
-		apicommon.LabelAppNameKey:               pclqObjectKey.Name,
-		apicommon.LabelComponentKey:             apicommon.LabelComponentNamePodGangSetPodClique,
-		apicommon.LabelPodGangSetReplicaIndex:   strconv.Itoa(pgsReplica),
-		apicommon.LabelPodGang:                  podGangName,
-		apicommon.LabelPodTemplateHash:          componentutils.GetPCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName),
-		apicommon.LabelPodGangSetGenerationHash: *pgs.Status.GenerationHash,
+		apicommon.LabelAppNameKey:             pclqObjectKey.Name,
+		apicommon.LabelComponentKey:           apicommon.LabelComponentNamePodGangSetPodClique,
+		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplica),
+		apicommon.LabelPodGang:                podGangName,
+		apicommon.LabelPodTemplateHash:        componentutils.GetPCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName),
 	}
 	return lo.Assign(
 		pclqTemplateSpec.Labels,

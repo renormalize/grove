@@ -74,14 +74,12 @@ func (pri *pcsgReplicaInfo) computeUpdateProgress(pcsg *grovecorev1alpha1.PodCli
 	updateProgress := pcsgReplicaUpdateProgress{}
 	allScheduled := true
 	for _, pclq := range pri.pclqs {
-		if pclq.Labels[apicommon.LabelPodGangSetGenerationHash] != pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash {
-			// PodClique not recreated yet to match the PodGangSet GenerationHash.
+		if pclq.Status.CurrentPodGangSetGenerationHash == nil || *pclq.Status.CurrentPodGangSetGenerationHash != pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash {
 			continue
 		}
 		if pclq.Status.ScheduledReplicas < *pclq.Spec.MinAvailable {
 			allScheduled = false
 		}
-
 		if pclq.Status.ReadyReplicas >= *pclq.Spec.MinAvailable {
 			updateProgress.updatedPCLQFQNs = append(updateProgress.updatedPCLQFQNs, pclq.Name)
 		} else {

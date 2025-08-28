@@ -124,7 +124,7 @@ func (b *PodGangSetBuilder) WithScalingGroupConfig(name string, cliqueNames []st
 }
 
 func (b *PodGangSetBuilder) WithStatus(pgsGenerationHash *string) *PodGangSetBuilder {
-	b.pgs.Status.GenerationHash = pgsGenerationHash
+	b.pgs.Status.CurrentGenerationHash = pgsGenerationHash
 	return b
 }
 
