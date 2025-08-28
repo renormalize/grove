@@ -26,9 +26,7 @@ func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Log
 		return err
 	}
 
-	var lastUpdatedPGSReplicaIndex *int32
 	if pgs.Status.RollingUpdateProgress.CurrentlyUpdating != nil && updateWork.currentlyUpdatingReplicaInfo != nil {
-		lastUpdatedPGSReplicaIndex = &pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex
 		if err = r.updatePGSWithReplicaUpdateProgress(ctx, logger, pgs, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
 			return err
 		}
@@ -43,7 +41,7 @@ func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Log
 
 	// pick the next replica index to update.
 	nextReplicaToUpdate := updateWork.getNextReplicaToUpdate(pgs, minAvailableBreachedPGSReplicaIndices)
-	if err = r.updatePGSWithNextSelectedReplica(ctx, logger, pgs, lastUpdatedPGSReplicaIndex, nextReplicaToUpdate); err != nil {
+	if err = r.updatePGSWithNextSelectedReplica(ctx, logger, pgs, nextReplicaToUpdate); err != nil {
 		return err
 	}
 
@@ -146,7 +144,7 @@ func (r _resource) updatePGSWithReplicaUpdateProgress(ctx context.Context, logge
 	return nil
 }
 
-func (r _resource) updatePGSWithNextSelectedReplica(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, previouslyUpdatedPGSReplica *int32, nextPGSReplicaToUpdate *int) error {
+func (r _resource) updatePGSWithNextSelectedReplica(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, nextPGSReplicaToUpdate *int) error {
 	if nextPGSReplicaToUpdate == nil {
 		logger.Info("Rolling update has completed")
 		pgs.Status.RollingUpdateProgress.UpdateEndedAt = ptr.To(metav1.Now())
@@ -159,9 +157,9 @@ func (r _resource) updatePGSWithNextSelectedReplica(ctx context.Context, logger 
 		}
 	}
 	// update the PodGangSet.Status
-	if previouslyUpdatedPGSReplica != nil {
-		pgs.Status.UpdatedReplicas++
-	}
+	// if previouslyUpdatedPGSReplica != nil {
+	// 	pgs.Status.UpdatedReplicas++
+	// }
 	return r.updateRollingUpdateProgressStatus(ctx, logger, pgs)
 }
 
