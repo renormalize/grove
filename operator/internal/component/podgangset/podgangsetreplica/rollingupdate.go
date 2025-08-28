@@ -29,10 +29,10 @@ func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Log
 	var lastUpdatedPGSReplicaIndex *int32
 	if pgs.Status.RollingUpdateProgress.CurrentlyUpdating != nil && updateWork.currentlyUpdatingReplicaInfo != nil {
 		lastUpdatedPGSReplicaIndex = &pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex
+		if err = r.updatePGSWithReplicaUpdateProgress(ctx, logger, pgs, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
+			return err
+		}
 		if !updateWork.currentlyUpdatingReplicaInfo.updateProgress.done {
-			if err = r.updatePGSWithReplicaUpdateProgress(ctx, logger, pgs, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
-				return err
-			}
 			return groveerr.New(
 				groveerr.ErrCodeContinueReconcileAndRequeue,
 				component.OperationSync,

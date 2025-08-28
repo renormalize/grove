@@ -17,10 +17,10 @@
 package podclique
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -111,7 +111,7 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 		return err
 	}
 	// Create or update the expected PodCliques as per the PodCliqueScalingGroup configurations defined in the PodGangSet.
-	if err = r.createOrUpdateExpectedPCLQs(ctx, logger, syncCtx, pcsg); err != nil {
+	if err = r.createExpectedPCLQs(ctx, logger, syncCtx, pcsg); err != nil {
 		return err
 	}
 
@@ -143,101 +143,6 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecore
 	return nil
 }
 
-// func (r _resource) processPendingUpdates(ctx context.Context, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
-// 	if pcsg.Status.RollingUpdateProgress == nil || pcsg.Status.RollingUpdateProgress.UpdateEndedAt != nil {
-// 		// There are no pending updates, return early.
-// 		return nil
-// 	}
-
-// 	if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
-
-// 	}
-
-// 	/*
-// 		if there is a currently updating replica {
-// 			update its progress { update updatedPCLQs and currentlyUpdating }
-// 			check if it is complete
-// 			if the currently updating replica is now complete {
-// 				set currentlyUpdating to nil
-// 				increment the updatedReplicas
-// 			} else {
-// 				requeue
-// 			}
-// 		} else {
-// 			get next replica to update
-// 			if there are no more any replicas to update {
-// 				mark end of update
-// 				set currentlyUpdating to is set to nil
-// 				return
-// 			} else {
-// 				set currentlyUpdating to this replica
-// 				trigger update of the next replica
-// 				requeue
-// 			}
-// 		}
-// 	*/
-
-// 	pcsgReplicaIndicesPendingUpdate := getPCSGReplicaIndicesPendingUpdate(syncCtx.pgs, pcsg, syncCtx.existingPCLQs)
-// 	if len(pcsgReplicaIndicesPendingUpdate) > 0 {
-// 		// Progress with rolling update only when any pending update for previously selected PCSG replica has completed.
-// 		updatedPCLQFQNs := make([]string, 0)
-// 		var allUpdated bool
-// 		if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
-// 			updatedPCLQFQNs, allUpdated = getUpdatedPCLQFQNsForCurrentlyUpdatingIndex(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs)
-// 		}
-// 		if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil && !allUpdated {
-// 			// update the status with the currenlty updated replicas
-// 			// use updatedPCLQFQNs to indicate progress
-// 			if err := r.updatePCLQUpdateProgressForReplica(ctx, pcsg, updatedPCLQFQNs); err != nil {
-// 				return err
-// 			}
-// 			return groveerr.New(groveerr.ErrCodeRequeueAfter,
-// 				component.OperationSync,
-// 				fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex),
-// 			)
-// 		}
-// 		// Order the PCSG replicas based on a criteria and select the next PCSG index to update.
-// 		orderedPCSGReplicaIndicesToUpdate := getOrderedPCSGIndicesPendingUpdate(pcsgReplicaIndicesPendingUpdate, pcsgIndicesToTerminate, pcsgIndicesToRequeue)
-// 		replicaPickedForUpdate := orderedPCSGReplicaIndicesToUpdate[0]
-// 		logger.Info("Found PCSG replicas pending update, picking up one replica to update", "pcsgReplicaIndicesPendingUpdate", pcsgReplicaIndicesPendingUpdate, "replicaPickedForUpdate", replicaPickedForUpdate)
-// 		// TODO: FIX IMMEDIATELY
-// 		if err := r.updatePCLQUpdateProgressForReplica(ctx, pcsg, updatedPCLQFQNs); err != nil {
-// 			return err
-// 		}
-// 		if err = r.updatePCSGReplica(ctx, logger, pgs, pcsg, replicaPickedForUpdate); err != nil {
-// 			return err
-// 		}
-// 		// Requeue after a fixed interval.
-// 		return groveerr.New(groveerr.ErrCodeRequeueAfter,
-// 			component.OperationSync,
-// 			"Requeuing to continue PCSG replica updates",
-// 		)
-// 	} else {
-// 		updatedPCLQFQNs := make([]string, 0)
-// 		var allUpdated bool
-// 		if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
-// 			updatedPCLQFQNs, allUpdated = getUpdatedPCLQFQNsForCurrentlyUpdatingIndex(pcsg, expectedPCLQsPerPCSGReplica, existingPCLQs)
-// 		}
-// 		if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil && !allUpdated {
-// 			if err := r.updatePCLQUpdateProgressForReplica(ctx, pcsg, updatedPCLQFQNs); err != nil {
-// 				return err
-// 			}
-// 			return groveerr.New(groveerr.ErrCodeRequeueAfter,
-// 				component.OperationSync,
-// 				fmt.Sprintf("Requeuing to allow pending PCSG replica index %d to finish update", pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex),
-// 			)
-// 		}
-// 		// TODO: FIX IMMEDIATELY
-// 		if err := r.updatePCLQUpdateProgressForReplica(ctx, pcsg, updatedPCLQFQNs); err != nil {
-// 			return err
-// 		}
-// 		if err = r.resetUpdateStatus(ctx, pcsg); err != nil {
-// 			return err
-// 		}
-// 	}
-// 	return
-// }
-
 func (r _resource) processMinAvailableBreachedPCSGReplicas(ctx context.Context, logger logr.Logger, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
 	// If pcsg.spec.minAvailable is breached, then delegate the responsibility to the PodGangSet reconciler which after
 	// termination delay terminate the PodGangSet replica. No further processing is required to be done here.
@@ -260,178 +165,6 @@ func (r _resource) processMinAvailableBreachedPCSGReplicas(ctx context.Context, 
 		)
 	}
 	return nil
-}
-
-func (r _resource) updatePCLQUpdateProgressForReplica(ctx context.Context, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, updatedPCLQFQNs []string) error {
-	pcsgPatch := client.MergeFrom(pcsg.DeepCopy())
-	updatedUniquePCLQNames := lo.Uniq(append(pcsg.Status.RollingUpdateProgress.UpdatedPodCliques, updatedPCLQFQNs...))
-	slices.Sort(updatedUniquePCLQNames)
-	pcsg.Status.RollingUpdateProgress.UpdatedPodCliques = updatedUniquePCLQNames
-	if err := r.client.Status().Patch(ctx, pcsg, pcsgPatch); err != nil {
-		return groveerr.WrapError(
-			err,
-			errCodeUpdateStatus,
-			component.OperationSync,
-			"failed to update the updated PodCliques in the PodCliqueScalingGroup status",
-		)
-	}
-	return nil
-}
-
-// func (r _resource) resetUpdateStatus(ctx context.Context, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
-// 	if meta.FindStatusCondition(pcsg.Status.Conditions, constants.ConditionTypeUpdateInProgress) != nil {
-// 		meta.RemoveStatusCondition(&pcsg.Status.Conditions, constants.ConditionTypeUpdateInProgress)
-// 		// The final replica was updated, which caused the rolling update to end
-// 		pcsg.Status.RollingUpdateProgress.UpdatedReplicas++
-// 		pcsg.Status.RollingUpdateProgress.CurrentlyUpdating = nil
-// 		pcsg.Status.RollingUpdateProgress.UpdateEndedAt = ptr.To(metav1.Now())
-// 		if err := r.client.Status().Update(ctx, pcsg); err != nil {
-// 			return groveerr.WrapError(
-// 				err,
-// 				errCodeUpdateStatus,
-// 				component.OperationSync,
-// 				fmt.Sprintf("failed to remove the %s condition in the PodCliqueScalingGroup status", constants.ConditionReasonInsufficientReadyPCSGReplicas),
-// 			)
-// 		}
-// 	}
-// 	return nil
-// }
-
-// getUpdatedPCLQFQNsForCurrentlyUpdatingIndex returns all the updated PCLQ FQNs of the currently updating PCSG replica, and whether all the PCLQs have been updated or not
-func getUpdatedPCLQFQNsForCurrentlyUpdatingIndex(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, expectedPCLQsPerPCSGReplica map[int][]string, existingPCLQs []grovecorev1alpha1.PodClique) ([]string, bool) {
-	updatedPCLQFQNs := make([]string, 0, len(expectedPCLQsPerPCSGReplica))
-	lastUpdatingReplica := int(pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex)
-	pclqToBeCheckedForAvailabilityFQNs := expectedPCLQsPerPCSGReplica[lastUpdatingReplica]
-	for _, pclqFQN := range pclqToBeCheckedForAvailabilityFQNs {
-		pclqToBeChecked, ok := lo.Find(existingPCLQs, func(pclq grovecorev1alpha1.PodClique) bool {
-			return pclqFQN == pclq.Name
-		})
-		if ok && pclqToBeChecked.Status.ReadyReplicas >= *pclqToBeChecked.Spec.MinAvailable &&
-			pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash == pclqToBeChecked.Labels[apicommon.LabelPodGangSetGenerationHash] {
-			updatedPCLQFQNs = append(updatedPCLQFQNs, pclqToBeChecked.Name)
-		}
-	}
-	return updatedPCLQFQNs, len(pclqToBeCheckedForAvailabilityFQNs) == len(updatedPCLQFQNs)
-}
-
-// func (r _resource) updatePCSGReplica(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pcsgIndexToUpdate string) error {
-// 	if err := r.updatePCSGStatusWithRollingUpdateProgress(ctx, pcsg, pcsgIndexToUpdate); err != nil {
-// 		return err
-// 	}
-// 	logger.Info("triggering deletion of PCSG replica to update", "pcsgIndexToUpdate", pcsgIndexToUpdate)
-// 	deletionTasks := r.createDeleteTasks(logger, pgs, pcsg.Name, []string{pcsgIndexToUpdate}, "deleting PCSG replica to perform update")
-// 	return r.triggerDeletionOfPodCliques(ctx, logger, client.ObjectKeyFromObject(pcsg), deletionTasks)
-// }
-
-// getOrderedPCSGIndicesPendingUpdate sorts the PCSG indices that require an update.
-// It will first consider the PCSG indices that have their MinAvailableBreached condition set to true and the TerminationDelay expired.
-// It will then consider the PCSG indices that have their MinAvailableBreached condition set to true and the TerminationDelay yet to expire.
-// For the remaining PCSG replicas that require an update it will go in the reverse of their ordinal.
-// TODO order the non-MinAvailableBreached indices by numPending pods
-func getOrderedPCSGIndicesPendingUpdate(pcsgReplicaIndicesPendingUpdate, pcsgIndicesToTerminate, pcsgIndicesToRequeue []string) []string {
-	var (
-		pcsgTerminationCandidateIndices []string
-		pcsgRequeueCandidateIndices     []string
-		remainingPCSGReplicas           []string
-		orderedPCSGReplicas             = make([]string, 0, len(pcsgReplicaIndicesPendingUpdate))
-	)
-	// order the PCSG indices in the descending order
-	slices.SortFunc(pcsgReplicaIndicesPendingUpdate, func(a, b string) int {
-		return cmp.Compare(b, a)
-	})
-
-	for _, pcsgReplicaIndex := range pcsgReplicaIndicesPendingUpdate {
-		if slices.Contains(pcsgIndicesToTerminate, pcsgReplicaIndex) {
-			pcsgTerminationCandidateIndices = append(pcsgTerminationCandidateIndices, pcsgReplicaIndex)
-		} else if slices.Contains(pcsgIndicesToRequeue, pcsgReplicaIndex) {
-			pcsgRequeueCandidateIndices = append(pcsgRequeueCandidateIndices, pcsgReplicaIndex)
-		} else {
-			remainingPCSGReplicas = append(remainingPCSGReplicas, pcsgReplicaIndex)
-		}
-	}
-
-	orderedPCSGReplicas = append(orderedPCSGReplicas, pcsgTerminationCandidateIndices...)
-	orderedPCSGReplicas = append(orderedPCSGReplicas, pcsgRequeueCandidateIndices...)
-
-	// For remaining PCSG indices which do not have MinAvailableBreached condition set to true, order them in descending order.
-	slices.SortFunc(remainingPCSGReplicas, func(a, b string) int {
-		return cmp.Compare(b, a)
-	})
-
-	orderedPCSGReplicas = append(orderedPCSGReplicas, remainingPCSGReplicas...)
-	return orderedPCSGReplicas
-}
-
-// func (r _resource) updatePCSGStatusWithRollingUpdateProgress(ctx context.Context, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, replicaIndex string) error {
-// 	index, err := strconv.Atoi(replicaIndex)
-// 	if err != nil {
-// 		return groveerr.WrapError(err,
-// 			errCodeParsePodCliqueScalingGroupReplicaIndex,
-// 			component.OperationSync,
-// 			fmt.Sprintf("invalid pcsg replica index: %s", replicaIndex),
-// 		)
-// 	}
-// 	// Increase updated replicas if a previous CurrentlyUpdating replica has finished update.
-// 	if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil && index != int(pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex) {
-// 		pcsg.Status.RollingUpdateProgress.UpdatedReplicas++
-// 	}
-// 	pcsg.Status.RollingUpdateProgress.CurrentlyUpdating = &grovecorev1alpha1.PodCliqueScalingGroupReplicaRollingUpdateProgress{
-// 		ReplicaIndex:    int32(index),
-// 		UpdateStartedAt: metav1.Now(),
-// 	}
-// 	if !componentutils.IsPCSGUpdateInProgress(pcsg) {
-// 		if pcsg.Status.Conditions == nil {
-// 			pcsg.Status.Conditions = []metav1.Condition{}
-// 		}
-// 		pcsg.Status.Conditions = append(pcsg.Status.Conditions, metav1.Condition{
-// 			Type:               constants.ConditionTypeUpdateInProgress,
-// 			Status:             metav1.ConditionTrue,
-// 			Reason:             constants.ConditionReasonUpdateInProgress,
-// 			LastTransitionTime: metav1.Now(),
-// 			Message:            "At least one of the constituent PodClique templates have been updated",
-// 		})
-// 	}
-// 	if err := r.client.Status().Update(ctx, pcsg); err != nil {
-// 		return groveerr.WrapError(err,
-// 			errCodeUpdateStatus,
-// 			component.OperationSync,
-// 			fmt.Sprintf("could not set %s condition on PCSG: %v", constants.ConditionTypeUpdateInProgress, client.ObjectKeyFromObject(pcsg)),
-// 		)
-// 	}
-// 	return nil
-// }
-
-func getPCSGReplicaIndicesPendingUpdate(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, existingPCLQS []grovecorev1alpha1.PodClique) []string {
-	pclqFQNToHash := make(map[string]string)
-	pcsgPCLQNames := pcsg.Spec.CliqueNames
-	for _, pcsgCliqueName := range pcsgPCLQNames {
-		pclqTemplateSpec, ok := lo.Find(pgs.Spec.Template.Cliques, func(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec) bool {
-			return pclqTemplateSpec.Name == pcsgCliqueName
-		})
-		if !ok {
-			continue
-		}
-		podTemplateHash := componentutils.GetPCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName)
-		for pcsgReplicaIndex := range int(pcsg.Spec.Replicas) {
-			cliqueFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{
-				Name:    pcsg.Name,
-				Replica: pcsgReplicaIndex,
-			}, pcsgCliqueName)
-			pclqFQNToHash[cliqueFQN] = podTemplateHash
-		}
-	}
-
-	pcsgReplicaIndicesPendingUpdate := make([]string, 0, pcsg.Spec.Replicas)
-	for _, pclq := range existingPCLQS {
-		if pclq.Labels[apicommon.LabelPodTemplateHash] != pclqFQNToHash[pclq.Name] {
-			pcsgReplicaIndex, ok := pclq.Labels[apicommon.LabelPodCliqueScalingGroupReplicaIndex]
-			if !ok {
-				continue
-			}
-			pcsgReplicaIndicesPendingUpdate = append(pcsgReplicaIndicesPendingUpdate, pcsgReplicaIndex)
-		}
-	}
-	return lo.Uniq(pcsgReplicaIndicesPendingUpdate)
 }
 
 func (r _resource) getExistingPCLQs(ctx context.Context, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) ([]grovecorev1alpha1.PodClique, error) {
@@ -506,18 +239,22 @@ func getMinAvailableBreachedPCSGIndices(logger logr.Logger, existingPCLQs []grov
 	return
 }
 
-func (r _resource) createOrUpdateExpectedPCLQs(ctx context.Context, logger logr.Logger, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
+func (r _resource) createExpectedPCLQs(ctx context.Context, logger logr.Logger, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
 	var tasks []utils.Task
+	existingPCLQFQNs := lo.Map(syncCtx.existingPCLQs, func(pclq grovecorev1alpha1.PodClique, _ int) string { return pclq.Name })
 	for pcsgReplicaIndex, expectedPCLQNames := range syncCtx.expectedPCLQFQNsPerPCSGReplica {
 		for _, pclqFQN := range expectedPCLQNames {
+			if slices.Contains(existingPCLQFQNs, pclqFQN) {
+				continue
+			}
 			pclqObjectKey := client.ObjectKey{
 				Name:      pclqFQN,
 				Namespace: pcsg.Namespace,
 			}
 			createTask := utils.Task{
-				Name: fmt.Sprintf("CreateOrUpdatePodClique-%s", pclqObjectKey),
+				Name: fmt.Sprintf("CreatePodClique-%s", pclqObjectKey),
 				Fn: func(ctx context.Context) error {
-					return r.doCreateOrUpdate(ctx, logger, syncCtx.pgs, pcsg, pcsgReplicaIndex, pclqObjectKey)
+					return r.doCreate(ctx, logger, syncCtx.pgs, pcsg, pcsgReplicaIndex, pclqObjectKey)
 				},
 			}
 			tasks = append(tasks, createTask)
@@ -638,27 +375,27 @@ func (r _resource) getPCSGTemplateNumPods(pgs *grovecorev1alpha1.PodGangSet, pcs
 	return pcsgTemplateNumPods
 }
 
-func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pcsgReplicaIndex int, pclqObjectKey client.ObjectKey) error {
+func (r _resource) doCreate(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pcsgReplicaIndex int, pclqObjectKey client.ObjectKey) error {
 	logger.Info("Running CreateOrUpdate PodClique", "pclqObjectKey", pclqObjectKey)
 	pclq := emptyPodClique(pclqObjectKey)
 	pcsgObjKey := client.ObjectKeyFromObject(pclq)
-
-	if _, err := controllerutil.CreateOrPatch(ctx, r.client, pclq, func() error {
-		if err := r.buildResource(logger, pgs, pcsg, pcsgReplicaIndex, pclq); err != nil {
-			r.eventRecorder.Eventf(pcsg, corev1.EventTypeWarning, groveevents.ReasonPodCliqueCreationOrUpdationFailed, "PodClique %v creation or updation failed: %v", pclqObjectKey, err)
-			return groveerr.WrapError(err,
-				errCodeCreatePodClique,
-				component.OperationSync,
-				fmt.Sprintf("Error creating or updating PodClique: %v for PodCliqueScalingGroup: %v", pclqObjectKey, pcsgObjKey),
-			)
-		}
-		return nil
-	}); err != nil {
+	if err := r.buildResource(logger, pgs, pcsg, pcsgReplicaIndex, pclq); err != nil {
 		return err
 	}
-
+	if err := r.client.Create(ctx, pclq); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			logger.Info("PodClique creation failed as it already exists", "pclq", pclqObjectKey)
+			return nil
+		}
+		r.eventRecorder.Eventf(pcsg, corev1.EventTypeWarning, groveevents.ReasonPodCliqueCreationFailed, "PodClique %v creation failed: %v", pclqObjectKey, err)
+		return groveerr.WrapError(err,
+			errCodeCreatePodClique,
+			component.OperationSync,
+			fmt.Sprintf("Error creating PodClique: %v for PodCliqueScalingGroup: %v", pclqObjectKey, pcsgObjKey),
+		)
+	}
 	r.eventRecorder.Eventf(pcsg, corev1.EventTypeNormal, groveevents.ReasonPodCliqueCreationSuccessful, "PodClique %v created successfully", pclqObjectKey)
-	logger.Info("Successfully created or updated PodClique", "pclqObjectKey", pclqObjectKey)
+	logger.Info("Successfully created PodClique", "pclqObjectKey", pclqObjectKey)
 	return nil
 }
 
