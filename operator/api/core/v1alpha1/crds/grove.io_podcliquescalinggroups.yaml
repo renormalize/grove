@@ -210,10 +210,6 @@ spec:
                         type: integer
                       scheduled:
                         type: boolean
-                      unhealthyPodCliques:
-                        items:
-                          type: string
-                        type: array
                       updateStartedAt:
                         format: date-time
                         type: string

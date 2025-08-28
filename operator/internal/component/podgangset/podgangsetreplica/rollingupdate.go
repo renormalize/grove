@@ -114,8 +114,30 @@ func (r _resource) getPGSReplicaInfos(ctx context.Context, pgs *grovecorev1alpha
 }
 
 func (r _resource) updatePGSWithReplicaUpdateProgress(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, currentReplicaUpdateProgress replicaUpdateProgress) error {
-	pgs.Status.RollingUpdateProgress.CurrentlyUpdating.UpdatedPodCliques = currentReplicaUpdateProgress.updatedPCLQFQNs
-	pgs.Status.RollingUpdateProgress.CurrentlyUpdating.UpdatedPodCliqueScalingGroups = currentReplicaUpdateProgress.updatedPCSGFQNs
+	currentlyUpdatingPGSReplicaIndex := int(pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex)
+
+	// Set the updatedCliques
+	updatedCliqueFQNs := lo.Uniq(append(pgs.Status.RollingUpdateProgress.UpdatedPodCliques, currentReplicaUpdateProgress.updatedPCLQFQNs...))
+	// There is a possibility that the replica that is currently getting updated has been deleted due to scale-in.
+	// We need to clean up the already recorded pcsg.Status.RollingUpdateProgress.UpdatedPodCliques.
+	expectedPCLQFQNs := componentutils.GetPodCliqueFQNsForPGSReplicaNotInPCSG(pgs, currentlyUpdatingPGSReplicaIndex)
+	updatedCliqueFQNs = slices.DeleteFunc(updatedCliqueFQNs, func(pclqFQN string) bool {
+		return !slices.Contains(expectedPCLQFQNs, pclqFQN)
+	})
+	slices.Sort(updatedCliqueFQNs)
+	pgs.Status.RollingUpdateProgress.UpdatedPodCliques = updatedCliqueFQNs
+
+	// Set the updatedPodCliqueScalingGroups
+	updatedPCSGFQNs := lo.Uniq(append(pgs.Status.RollingUpdateProgress.UpdatedPodCliqueScalingGroups, currentReplicaUpdateProgress.updatedPCSGFQNs...))
+	// There is a possibility that the replica that is currently getting updated has been deleted due to scale-in.
+	// We need to clean up the already recorded pcsg.Status.RollingUpdateProgress.UpdatedPodCliques.
+	expectedPCSGFQNs := componentutils.GetPodCliqueScalingGroupFQNsForPGSReplica(pgs, currentlyUpdatingPGSReplicaIndex)
+	updatedPCSGFQNs = slices.DeleteFunc(updatedPCSGFQNs, func(pcsgFQN string) bool {
+		return !slices.Contains(expectedPCSGFQNs, pcsgFQN)
+	})
+	slices.Sort(updatedPCSGFQNs)
+	pgs.Status.RollingUpdateProgress.UpdatedPodCliqueScalingGroups = updatedPCSGFQNs
+
 	logger.Info("Updating PodGangSet status with newly updated PodCliques and PodClique")
 	if err := r.updateRollingUpdateProgressStatus(ctx, logger, pgs); err != nil {
 		logger.Error(err, "failed to update rolling update progress", "replicaIndex", pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex)
@@ -271,7 +293,7 @@ func isPCSGUpdateComplete(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pgsGene
 	// 1. None of the PodCliques that belong to the PodCliqueScalingGroup change. In this case, there is no need to delete
 	//    and recreate PodCliqueScalingGroup replicas. The PodGangSetGenerationHash label on the PodCliqueScalingGroup
 	//    is simply updated. The PodCliques' PodGangSetGenerationHash labels that belong to this PodCliqueScalingGroup are updated.
-	//    For this, we simply check if the udpated replicas are equal to Spec.Replicas, and the PodGangSetGenerationHash matches.
+	//    For this, we simply check if the updated replicas are equal to Spec.Replicas, and the PodGangSetGenerationHash matches.
 	// 2. PodCliques owned by PodCliqueScalingGroup change. In this case, the rolling update is actually triggered,
 	//    and each replica is deleted and recreated. The update ends when UpdateEndedAt is set, and the PodGangSetGenerationHash matches.
 	if (pcsg.Status.UpdatedReplicas == pcsg.Spec.Replicas && pcsg.Labels[apicommon.LabelPodGangSetGenerationHash] == pgsGenerationHash) ||

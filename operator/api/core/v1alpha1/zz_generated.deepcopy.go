@@ -325,11 +325,6 @@ func (in *PodCliqueScalingGroupList) DeepCopyObject() runtime.Object {
 func (in *PodCliqueScalingGroupReplicaRollingUpdateProgress) DeepCopyInto(out *PodCliqueScalingGroupReplicaRollingUpdateProgress) {
 	*out = *in
 	in.UpdateStartedAt.DeepCopyInto(&out.UpdateStartedAt)
-	if in.UnhealthyPodCliques != nil {
-		in, out := &in.UnhealthyPodCliques, &out.UnhealthyPodCliques
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
 	return
 }
 
@@ -628,21 +623,6 @@ func (in *PodGangSetList) DeepCopyObject() runtime.Object {
 func (in *PodGangSetReplicaRollingUpdateProgress) DeepCopyInto(out *PodGangSetReplicaRollingUpdateProgress) {
 	*out = *in
 	in.UpdateStartedAt.DeepCopyInto(&out.UpdateStartedAt)
-	if in.UpdatedPodCliqueScalingGroups != nil {
-		in, out := &in.UpdatedPodCliqueScalingGroups, &out.UpdatedPodCliqueScalingGroups
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
-	if in.UpdatedPodCliques != nil {
-		in, out := &in.UpdatedPodCliques, &out.UpdatedPodCliques
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
-	if in.UnhealthyPodCliques != nil {
-		in, out := &in.UnhealthyPodCliques, &out.UnhealthyPodCliques
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
 	return
 }
 
@@ -663,6 +643,16 @@ func (in *PodGangSetRollingUpdateProgress) DeepCopyInto(out *PodGangSetRollingUp
 	if in.UpdateEndedAt != nil {
 		in, out := &in.UpdateEndedAt, &out.UpdateEndedAt
 		*out = (*in).DeepCopy()
+	}
+	if in.UpdatedPodCliqueScalingGroups != nil {
+		in, out := &in.UpdatedPodCliqueScalingGroups, &out.UpdatedPodCliqueScalingGroups
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.UpdatedPodCliques != nil {
+		in, out := &in.UpdatedPodCliques, &out.UpdatedPodCliques
+		*out = make([]string, len(*in))
+		copy(*out, *in)
 	}
 	if in.CurrentlyUpdating != nil {
 		in, out := &in.CurrentlyUpdating, &out.CurrentlyUpdating

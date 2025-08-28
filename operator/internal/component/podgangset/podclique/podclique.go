@@ -19,6 +19,7 @@ package podclique
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -84,20 +85,7 @@ func (r _resource) GetExistingResourceNames(ctx context.Context, logger logr.Log
 
 // Sync synchronizes all resources that the PodClique Operator manages.
 func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) error {
-	expectedPCLQNames, _ := componentutils.GetExpectedPCLQNamesGroupByOwner(pgs)
-
-	if err := r.triggerDeletionOfExcessPCLQs(ctx, logger, pgs, expectedPCLQNames); err != nil {
-		return err
-	}
-	if err := r.createOrUpdatePCLQs(ctx, logger, pgs, expectedPCLQNames); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (r _resource) triggerDeletionOfExcessPCLQs(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, expectedPCLQNames []string) error {
-	existingPCLQNames, err := r.GetExistingResourceNames(ctx, logger, pgs.ObjectMeta)
+	existingPCLQFQNs, err := r.GetExistingResourceNames(ctx, logger, pgs.ObjectMeta)
 	if err != nil {
 		return groveerr.WrapError(err,
 			errSyncPodClique,
@@ -105,13 +93,26 @@ func (r _resource) triggerDeletionOfExcessPCLQs(ctx context.Context, logger logr
 			fmt.Sprintf("Unable to fetch existing PodClique names for PodGangSet: %v", client.ObjectKeyFromObject(pgs)),
 		)
 	}
+	expectedPCLQNames, _ := componentutils.GetExpectedPCLQNamesGroupByOwner(pgs)
+
+	if err := r.triggerDeletionOfExcessPCLQs(ctx, logger, pgs, expectedPCLQNames, existingPCLQFQNs); err != nil {
+		return err
+	}
+	if err := r.createOrUpdatePCLQs(ctx, logger, pgs, expectedPCLQNames, existingPCLQFQNs); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r _resource) triggerDeletionOfExcessPCLQs(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, expectedPCLQNames []string, existingPCLQFQNs []string) error {
 	// Check if the number of existing PodCliques is greater than expected, if so, we need to delete the extra ones.
-	diff := len(existingPCLQNames) - len(expectedPCLQNames)
+	diff := len(existingPCLQFQNs) - len(expectedPCLQNames)
 	if diff > 0 {
-		logger.Info("Found more PodCliques than expected", "expected", expectedPCLQNames, "existing", existingPCLQNames)
+		logger.Info("Found more PodCliques than expected", "expected", expectedPCLQNames, "existing", existingPCLQFQNs)
 		logger.Info("Triggering deletion of extra PodCliques", "count", diff)
 		// collect the names of the extra PodCliques to delete
-		deletionCandidateNames, err := getPodCliqueNamesToDelete(pgs.Name, int(pgs.Spec.Replicas), existingPCLQNames)
+		deletionCandidateNames, err := getPodCliqueNamesToDelete(pgs.Name, int(pgs.Spec.Replicas), existingPCLQFQNs)
 		if err != nil {
 			return err
 		}
@@ -121,7 +122,7 @@ func (r _resource) triggerDeletionOfExcessPCLQs(ctx context.Context, logger logr
 	return nil
 }
 
-func (r _resource) createOrUpdatePCLQs(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, expectedPCLQNames []string) error {
+func (r _resource) createOrUpdatePCLQs(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, expectedPCLQNames []string, existingPCLQFQNs []string) error {
 	tasks := make([]utils.Task, 0, len(expectedPCLQNames))
 
 	for pgsReplica := range pgs.Spec.Replicas {
@@ -130,13 +131,14 @@ func (r _resource) createOrUpdatePCLQs(ctx context.Context, logger logr.Logger, 
 				Name:      apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: int(pgsReplica)}, expectedPCLQName),
 				Namespace: pgs.Namespace,
 			}
-			createTask := utils.Task{
+			pclqExists := slices.Contains(existingPCLQFQNs, pclqObjectKey.Name)
+			createOrUpdateTask := utils.Task{
 				Name: fmt.Sprintf("CreateOrUpdatePodClique-%s", pclqObjectKey),
 				Fn: func(ctx context.Context) error {
-					return r.doCreateOrUpdate(ctx, logger, pgs, pgsReplica, pclqObjectKey)
+					return r.doCreateOrUpdate(ctx, logger, pgs, pgsReplica, pclqObjectKey, pclqExists)
 				},
 			}
-			tasks = append(tasks, createTask)
+			tasks = append(tasks, createOrUpdateTask)
 		}
 	}
 	if runResult := utils.RunConcurrently(ctx, logger, tasks); runResult.HasErrors() {
@@ -248,13 +250,13 @@ func (r _resource) Delete(ctx context.Context, logger logr.Logger, pgsObjectMeta
 	return nil
 }
 
-func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pgsReplica int32, pclqObjectKey client.ObjectKey) error {
+func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pgsReplica int32, pclqObjectKey client.ObjectKey, pclqExists bool) error {
 	logger.Info("Running CreateOrUpdate PodClique", "pclqObjectKey", pclqObjectKey)
 	pclq := emptyPodClique(pclqObjectKey)
 	pgsObjKey := client.ObjectKeyFromObject(pgs)
 
 	opResult, err := controllerutil.CreateOrPatch(ctx, r.client, pclq, func() error {
-		return r.buildResource(logger, pclq, pgs, int(pgsReplica))
+		return r.buildResource(logger, pclq, pgs, int(pgsReplica), pclqExists)
 	})
 	if err != nil {
 		r.eventRecorder.Eventf(pgs, corev1.EventTypeWarning, groveevents.ReasonPodCliqueCreationOrUpdationFailed, "PodClique %v creation or updation failed: %v", pclqObjectKey, err)
@@ -270,7 +272,7 @@ func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs
 	return nil
 }
 
-func (r _resource) buildResource(logger logr.Logger, pclq *grovecorev1alpha1.PodClique, pgs *grovecorev1alpha1.PodGangSet, pgsReplica int) error {
+func (r _resource) buildResource(logger logr.Logger, pclq *grovecorev1alpha1.PodClique, pgs *grovecorev1alpha1.PodGangSet, pgsReplica int, pclqExists bool) error {
 	var err error
 	pclqObjectKey, pgsObjectKey := client.ObjectKeyFromObject(pclq), client.ObjectKeyFromObject(pgs)
 	pclqTemplateSpec, foundAtIndex, ok := lo.FindIndexOf(pgs.Spec.Template.Cliques, func(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec) bool {
@@ -296,7 +298,14 @@ func (r _resource) buildResource(logger logr.Logger, pclq *grovecorev1alpha1.Pod
 	pclq.Annotations = pclqTemplateSpec.Annotations
 	// set PodCliqueSpec
 	// ------------------------------------
-	pclq.Spec = pclqTemplateSpec.Spec
+	if pclqExists {
+		// If an HPA is mutating the number of replicas, then it should not be overwritten by the template spec replicas.
+		currentPCLQReplicas := pclq.Spec.Replicas
+		pclq.Spec = pclqTemplateSpec.Spec
+		pclq.Spec.Replicas = currentPCLQReplicas
+	} else {
+		pclq.Spec = pclqTemplateSpec.Spec
+	}
 	var dependentPclqNames []string
 	if dependentPclqNames, err = identifyFullyQualifiedStartupDependencyNames(pgs, pclq, pgsReplica, foundAtIndex); err != nil {
 		return err

@@ -105,10 +105,9 @@ type PodCliqueScalingGroupRollingUpdateProgress struct {
 }
 
 type PodCliqueScalingGroupReplicaRollingUpdateProgress struct {
-	ReplicaIndex        int32       `json:"replicaIndex"`
-	UpdateStartedAt     metav1.Time `json:"updateStartedAt,omitempty"`
-	Scheduled           bool        `json:"scheduled"`
-	UnhealthyPodCliques []string    `json:"unhealthyPodCliques,omitempty"`
+	ReplicaIndex    int32       `json:"replicaIndex"`
+	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
+	Scheduled       bool        `json:"scheduled"`
 }
 
 // SetLastErrors sets the last errors observed by the controller when reconciling the PodCliqueScalingGroup.

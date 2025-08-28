@@ -146,9 +146,7 @@ func (r _resource) updatePCSGWithReplicaUpdateProgress(ctx context.Context, logg
 	})
 	slices.Sort(updatedCliqueFQNs)
 	pcsg.Status.RollingUpdateProgress.UpdatedPodCliques = updatedCliqueFQNs
-
 	pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.Scheduled = currentReplicaUpdateProgress.scheduled
-	pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.UnhealthyPodCliques = currentReplicaUpdateProgress.unhealthyPCLQFQNs
 
 	if err := r.patchRollingUpdateProgressStatus(ctx, logger, pcsg, patch); err != nil {
 		logger.Error(err, "failed to update rolling update progress", "replicaIndex", pcsg.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex)

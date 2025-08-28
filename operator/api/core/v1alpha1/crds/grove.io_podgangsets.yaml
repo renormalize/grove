@@ -9828,21 +9828,9 @@ spec:
                       replicaIndex:
                         format: int32
                         type: integer
-                      unhealthyPodCliques:
-                        items:
-                          type: string
-                        type: array
                       updateStartedAt:
                         format: date-time
                         type: string
-                      updatedPodCliqueScalingGroups:
-                        items:
-                          type: string
-                        type: array
-                      updatedPodCliques:
-                        items:
-                          type: string
-                        type: array
                     required:
                     - replicaIndex
                     type: object
@@ -9852,6 +9840,14 @@ spec:
                   updateStartedAt:
                     format: date-time
                     type: string
+                  updatedPodCliqueScalingGroups:
+                    items:
+                      type: string
+                    type: array
+                  updatedPodCliques:
+                    items:
+                      type: string
+                    type: array
                   updatedReplicas:
                     format: int32
                     type: integer

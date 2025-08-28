@@ -28,8 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// GetAllPodCliqueScalingGroupFQNsForPGSReplica computes the FQNs for all PodCliqueScalingGroups defined in PGS for all its replicas.
-func GetAllPodCliqueScalingGroupFQNsForPGSReplica(pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int) []string {
+// GetPodCliqueScalingGroupFQNsForPGSReplica computes the FQNs for all PodCliqueScalingGroups defined in PGS for the given replica.
+func GetPodCliqueScalingGroupFQNsForPGSReplica(pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int) []string {
 	pcsgNames := make([]string, 0, len(pgs.Spec.Template.PodCliqueScalingGroupConfigs))
 	for _, pcsgConfig := range pgs.Spec.Template.PodCliqueScalingGroupConfigs {
 		pcsgName := common.GeneratePodCliqueScalingGroupName(common.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, pcsgConfig.Name)
