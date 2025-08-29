@@ -3,6 +3,7 @@ package podclique
 import (
 	"context"
 	"fmt"
+	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
 	"slices"
 	"strconv"
 
@@ -183,8 +184,13 @@ func (r _resource) updatePCSGRollingUpdateProgress(ctx context.Context, logger l
 }
 
 func (r _resource) computePendingWork(logger logr.Logger, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) *pendingUpdateWork {
-	pcsgReplicaInfos := buildPCSGReplicaInfos(logger, syncCtx, pcsg)
 	pendingWork := &pendingUpdateWork{}
+	pclqFQNsPendingUpdate := componentutils.GetPCLQsInPCSGPendingUpdate(syncCtx.pgs, pcsg, syncCtx.existingPCLQs)
+	if len(pclqFQNsPendingUpdate) == 0 {
+		logger.Info("No pending updates found for PCSG")
+		return pendingWork
+	}
+	pcsgReplicaInfos := buildPCSGReplicaInfos(logger, syncCtx, pcsg)
 	for _, replicaInfo := range pcsgReplicaInfos {
 		replicaInfo.computeUpdateProgress(pcsg)
 		if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil &&
@@ -229,8 +235,4 @@ func groupPCLQsByPCSGReplicaIndex(logger logr.Logger, pclqs []grovecorev1alpha1.
 		pclqsByPCSGReplicaIndex[pcsgReplicaIndex] = append(pclqsByPCSGReplicaIndex[pcsgReplicaIndex], pclq)
 	}
 	return pclqsByPCSGReplicaIndex
-}
-
-func isRollingUpdateInProgress(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) bool {
-	return pcsg.Status.RollingUpdateProgress != nil && pcsg.Status.RollingUpdateProgress.UpdateEndedAt == nil
 }

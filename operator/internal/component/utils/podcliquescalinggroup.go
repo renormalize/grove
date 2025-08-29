@@ -186,6 +186,22 @@ func GetPCLQTemplateHashes(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1a
 	return cliqueTemplateSpecHashes
 }
 
+// GetPCLQsInPCSGPendingUpdate collects the PodClique FQNs that are pending updates.
+// It identifies PCLQ pending update by comparing the current PodTemplateHash label on an existing PCLQ with that of
+// a computed PodTemplateHash from the latest PodGangSet resource.
+func GetPCLQsInPCSGPendingUpdate(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, existingPCLQs []grovecorev1alpha1.PodClique) []string {
+	pclqFQNsPendingUpdate := make([]string, 0, len(existingPCLQs))
+	expectedPCLQPodTemplateHashes := GetPCLQTemplateHashes(pgs, pcsg)
+	for _, existingPCLQ := range existingPCLQs {
+		existingPodTemplateHash := existingPCLQ.Labels[apicommon.LabelPodTemplateHash]
+		expectedPodTemplateHash := expectedPCLQPodTemplateHashes[existingPCLQ.Name]
+		if existingPodTemplateHash != expectedPodTemplateHash {
+			pclqFQNsPendingUpdate = append(pclqFQNsPendingUpdate, expectedPodTemplateHash)
+		}
+	}
+	return pclqFQNsPendingUpdate
+}
+
 // IsPCSGUpdateComplete returns whether the rolling update of the PodCliqueScalingGroup is complete.
 func IsPCSGUpdateComplete(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pgsGenerationHash string) bool {
 	return pcsg.Status.CurrentPodGangSetGenerationHash != nil && *pcsg.Status.CurrentPodGangSetGenerationHash == pgsGenerationHash

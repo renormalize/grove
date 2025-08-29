@@ -137,9 +137,6 @@ type PodCliqueRollingUpdateProgress struct {
 	UpdateStartedAt          metav1.Time  `json:"updateStartedAt,omitempty"`
 	UpdateEndedAt            *metav1.Time `json:"updateEndedAt,omitempty"`
 	PodGangSetGenerationHash string       `json:"podGangSetGenerationHash"`
-	UpdatedPods              []string     `json:"updatedPods"`
-	UnscheduledPods          []string     `json:"unscheduledPods"`
-	UnhealthyPods            []string     `json:"unhealthyPods"`
 }
 
 // SetLastErrors sets the last errors observed by the controller when reconciling the PodClique.

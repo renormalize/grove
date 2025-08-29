@@ -196,21 +196,6 @@ func (in *PodCliqueRollingUpdateProgress) DeepCopyInto(out *PodCliqueRollingUpda
 		in, out := &in.UpdateEndedAt, &out.UpdateEndedAt
 		*out = (*in).DeepCopy()
 	}
-	if in.UpdatedPods != nil {
-		in, out := &in.UpdatedPods, &out.UpdatedPods
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
-	if in.UnscheduledPods != nil {
-		in, out := &in.UnscheduledPods, &out.UnscheduledPods
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
-	if in.UnhealthyPods != nil {
-		in, out := &in.UnhealthyPods, &out.UnhealthyPods
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
 	return
 }
 

@@ -253,14 +253,10 @@ func mutateSelector(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.P
 }
 
 func mutateCurrentPodGangSetGenerationHash(logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, existingPCLQs []grovecorev1alpha1.PodClique) {
-	expectedPCLQPodTemplateHashes := componentutils.GetPCLQTemplateHashes(pgs, pcsg)
-	for _, existingPCLQ := range existingPCLQs {
-		existingPodTemplateHash := existingPCLQ.Labels[apicommon.LabelPodTemplateHash]
-		expectedPodTemplateHash := expectedPCLQPodTemplateHashes[existingPCLQ.Name]
-		if existingPodTemplateHash != expectedPodTemplateHash {
-			logger.Info("PodClique in PodCliqueScalingGroup does not have the expected hash", "name", existingPCLQ.Name, "gotPodTemplateHash", existingPodTemplateHash, "expectedPodTemplateHash", expectedPodTemplateHash)
-			return
-		}
+	pclqFQNsPendingUpdate := componentutils.GetPCLQsInPCSGPendingUpdate(pgs, pcsg, existingPCLQs)
+	if len(pclqFQNsPendingUpdate) > 0 {
+		logger.Info("Found PodCliques associated to PodCliqueScalingGroup pending update", "pclqFQNsPendingUpdate", pclqFQNsPendingUpdate)
+		return
 	}
 	if componentutils.IsPCSGUpdateInProgress(pcsg) {
 		logger.Info("PodCliqueScalingGroup is currently updating, cannot set PodGangSet CurrentGenerationHash yet")

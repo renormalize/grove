@@ -8689,29 +8689,14 @@ spec:
                 properties:
                   podGangSetGenerationHash:
                     type: string
-                  unhealthyPods:
-                    items:
-                      type: string
-                    type: array
-                  unscheduledPods:
-                    items:
-                      type: string
-                    type: array
                   updateEndedAt:
                     format: date-time
                     type: string
                   updateStartedAt:
                     format: date-time
                     type: string
-                  updatedPods:
-                    items:
-                      type: string
-                    type: array
                 required:
                 - podGangSetGenerationHash
-                - unhealthyPods
-                - unscheduledPods
-                - updatedPods
                 type: object
               scheduleGatedReplicas:
                 default: 0
