@@ -9657,6 +9657,7 @@ spec:
             description: Status defines the status of the PodGangSet.
             properties:
               availableReplicas:
+                default: 0
                 description: |-
                   AvailableReplicas is the number of PodGangSet replicas that are available.
                   A PodGangSet replica is considered available when all standalone PodCliques within that replica
@@ -9848,15 +9849,16 @@ spec:
                     items:
                       type: string
                     type: array
-                  updatedReplicas:
-                    format: int32
-                    type: integer
                 type: object
               updatedReplicas:
+                default: 0
                 description: UpdatedReplicas is the number of replicas that have been
                   updated to the desired revision of the PodGangSet.
                 format: int32
                 type: integer
+            required:
+            - availableReplicas
+            - updatedReplicas
             type: object
         required:
         - spec

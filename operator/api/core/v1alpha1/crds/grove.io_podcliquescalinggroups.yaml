@@ -79,6 +79,7 @@ spec:
             description: Status is the status of the PodCliqueScalingGroup.
             properties:
               availableReplicas:
+                default: 0
                 description: |-
                   AvailableReplicas is the number of PodCliqueScalingGroup replicas that are available.
                   A PCSG replica is considered available when all constituent PodCliques have MinAvailableBreached condition = False.
@@ -237,6 +238,7 @@ spec:
                 - updateStartedAt
                 type: object
               scheduledReplicas:
+                default: 0
                 description: |-
                   ScheduledReplicas is the number of replicas that are scheduled for the PodCliqueScalingGroup.
                   A replica of PodCliqueScalingGroup is considered "scheduled" when at least MinAvailable number
@@ -248,10 +250,15 @@ spec:
                   belong to this scaling group.
                 type: string
               updatedReplicas:
+                default: 0
                 description: UpdatedReplicas is the number of PodCliqueScalingGroup
                   replicas that correspond with the latest PodGangSetGenerationHash.
                 format: int32
                 type: integer
+            required:
+            - availableReplicas
+            - scheduledReplicas
+            - updatedReplicas
             type: object
         required:
         - spec

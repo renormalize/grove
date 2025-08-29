@@ -77,12 +77,15 @@ type PodCliqueScalingGroupStatus struct {
 	// ScheduledReplicas is the number of replicas that are scheduled for the PodCliqueScalingGroup.
 	// A replica of PodCliqueScalingGroup is considered "scheduled" when at least MinAvailable number
 	// of pods in each constituent PodClique has been scheduled.
-	ScheduledReplicas int32 `json:"scheduledReplicas,omitempty"`
+	// +kubebuilder:default=0
+	ScheduledReplicas int32 `json:"scheduledReplicas"`
 	// AvailableReplicas is the number of PodCliqueScalingGroup replicas that are available.
 	// A PCSG replica is considered available when all constituent PodCliques have MinAvailableBreached condition = False.
-	AvailableReplicas int32 `json:"availableReplicas,omitempty"`
+	// +kubebuilder:default=0
+	AvailableReplicas int32 `json:"availableReplicas"`
 	// UpdatedReplicas is the number of PodCliqueScalingGroup replicas that correspond with the latest PodGangSetGenerationHash.
-	UpdatedReplicas int32 `json:"updatedReplicas,omitempty"`
+	// +kubebuilder:default=0
+	UpdatedReplicas int32 `json:"updatedReplicas"`
 	// Selector is the selector used to identify the pods that belong to this scaling group.
 	Selector *string `json:"selector,omitempty"`
 	// ObservedGeneration is the most recent generation observed by the controller.

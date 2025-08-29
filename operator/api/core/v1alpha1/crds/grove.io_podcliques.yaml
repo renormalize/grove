@@ -8675,6 +8675,7 @@ spec:
                 format: int64
                 type: integer
               readyReplicas:
+                default: 0
                 description: ReadyReplicas is the number of ready Pods targeted by
                   this PodClique.
                 format: int32
@@ -8713,21 +8714,29 @@ spec:
                 - updatedPods
                 type: object
               scheduleGatedReplicas:
+                default: 0
                 description: |-
                   ScheduleGatedReplicas is the number of Pods that have been created with one or more scheduling gate(s) set.
                   Sum of ReadyReplicas and ScheduleGatedReplicas will always be <= Replicas.
                 format: int32
                 type: integer
               scheduledReplicas:
+                default: 0
                 description: ScheduledReplicas is the number of Pods that have been
                   scheduled by the kube-scheduler.
                 format: int32
                 type: integer
               updatedReplicas:
+                default: 0
                 description: UpdatedReplicas is the number of Pods that have been
                   updated and are at the desired revision of the PodClique.
                 format: int32
                 type: integer
+            required:
+            - readyReplicas
+            - scheduleGatedReplicas
+            - scheduledReplicas
+            - updatedReplicas
             type: object
         required:
         - spec
