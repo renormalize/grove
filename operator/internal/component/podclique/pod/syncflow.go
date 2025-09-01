@@ -308,7 +308,7 @@ type updateWork struct {
 }
 
 func (w *updateWork) getPodNamesPendingUpdate(deletionExpectedPodUIDs []types.UID) []string {
-	allOldPods := lo.Union(w.oldTemplateHashPendingPods, w.oldTemplateHashUnhealthyPods, w.newTemplateHashReadyPods)
+	allOldPods := lo.Union(w.oldTemplateHashPendingPods, w.oldTemplateHashUnhealthyPods, w.oldTemplateHashReadyPods)
 	return lo.FilterMap(allOldPods, func(pod *corev1.Pod, _ int) (string, bool) {
 		if slices.Contains(deletionExpectedPodUIDs, pod.UID) {
 			return "", false
@@ -318,11 +318,11 @@ func (w *updateWork) getPodNamesPendingUpdate(deletionExpectedPodUIDs []types.UI
 }
 
 func (w *updateWork) getNextPodToUpdate() *corev1.Pod {
-	if len(w.newTemplateHashReadyPods) > 0 {
-		slices.SortFunc(w.newTemplateHashReadyPods, func(a, b *corev1.Pod) int {
+	if len(w.oldTemplateHashReadyPods) > 0 {
+		slices.SortFunc(w.oldTemplateHashPendingPods, func(a, b *corev1.Pod) int {
 			return a.CreationTimestamp.Compare(b.CreationTimestamp.Time)
 		})
-		return w.newTemplateHashReadyPods[0]
+		return w.oldTemplateHashReadyPods[0]
 	}
 	return nil
 }
