@@ -94,7 +94,7 @@ func (pri *pcsgReplicaInfo) computeUpdateProgress(pcsg *grovecorev1alpha1.PodCli
 	pri.updateProgress = updateProgress
 }
 
-func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Logger, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
+func (r _resource) processPendingUpdates(ctx context.Context, logger logr.Logger, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
 	updateWork := r.computePendingWork(logger, syncCtx, pcsg)
 
 	if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil && updateWork.currentlyUpdatingReplicaInfo != nil {

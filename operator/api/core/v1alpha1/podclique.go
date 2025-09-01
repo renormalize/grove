@@ -137,8 +137,16 @@ type PodCliqueRollingUpdateProgress struct {
 	UpdateStartedAt          metav1.Time  `json:"updateStartedAt,omitempty"`
 	UpdateEndedAt            *metav1.Time `json:"updateEndedAt,omitempty"`
 	PodGangSetGenerationHash string       `json:"podGangSetGenerationHash"`
-	// +kubebuilder:default=0
-	OldSelectedReadyReplicas int32 `json:"oldSelectedReadyReplicas"`
+	// ReadyPodsSelectedToUpdate captures the pod names of ready Pods that are either currently being updated or have been previously updated.
+	ReadyPodsSelectedToUpdate *PodsSelectedToUpdate `json:"readyPodsSelectedToUpdate,omitempty"`
+}
+
+// PodsSelectedToUpdate captures the current and previous set of pod names that have been selected for update in a rolling update.
+type PodsSelectedToUpdate struct {
+	// Current captures the current pod name that is a target for update.
+	Current string `json:"current"`
+	// Previous captures the previous pod names that have now been updated.
+	Previous []string `json:"previous,omitempty"`
 }
 
 // SetLastErrors sets the last errors observed by the controller when reconciling the PodClique.

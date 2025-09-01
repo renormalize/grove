@@ -159,8 +159,10 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) syncFlowResu
 		}
 	}
 
-	if err := r.processPendingUpdates(logger, sc); err != nil {
-		result.recordError(err)
+	if componentutils.IsPCLQUpdateInProgress(sc.pclq) {
+		if err := r.processPendingUpdates(logger, sc); err != nil {
+			result.recordError(err)
+		}
 	}
 
 	skippedScheduleGatedPods, err := r.checkAndRemovePodSchedulingGates(sc, logger)
@@ -171,25 +173,79 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) syncFlowResu
 	return result
 }
 
+/*
+	compute update work
+	check if there is any current pod selected for update and is the update of the pod complete.
+	if no {
+		requeue
+	}
+	pickNext pod to update
+	if there is next pod to update {
+		update the status
+		trigger deletion of pod
+		requeue
+	} else {
+		update status to end rolling update.
+	}
+*/
+
 func (r _resource) processPendingUpdates(logger logr.Logger, sc *syncContext) error {
 	work := r.computeUpdateWork(logger, sc)
-	if work.isUpdateComplete(sc.pclq) {
-		// update pclq with rolling update complete
-	}
-
+	pclq := sc.pclq
 	// always delete pods that have old pod template hash and are either Pending or Unhealthy.
 	if err := r.deleteOldPendingAndUnhealthyPods(logger, sc, work); err != nil {
 		return err
 	}
 
+	if isAnyPodSelectedForUpdate(pclq) && !isCurrentPodUpdateComplete(sc, work) {
+		return groveerr.New(
+			groveerr.ErrCodeContinueReconcileAndRequeue,
+			component.OperationSync,
+			fmt.Sprintf("rolling update of currently selected Pod: %s is not complete, requeuing", pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Current),
+		)
+	}
+
+	var nextPodToUpdate *corev1.Pod
+	if podNamesPendingUpdate := work.getPodNamesPendingUpdate(r.expectationsStore.GetDeleteExpectations(sc.pclqExpectationsStoreKey)); len(podNamesPendingUpdate) > 0 {
+		if pclq.Status.ReadyReplicas < *pclq.Spec.MinAvailable {
+			return groveerr.New(
+				groveerr.ErrCodeContinueReconcileAndRequeue,
+				component.OperationSync,
+				fmt.Sprintf("ready replicas %d lesser than minAvailable %d, requeuing", pclq.Status.ReadyReplicas, *pclq.Spec.MinAvailable),
+			)
+		}
+		nextPodToUpdate = work.getNextPodToUpdate()
+	}
+
+	if nextPodToUpdate != nil {
+		// update the status
+		// trigger deletion of nextPodToUpdate
+		// requeue
+	}
+
+	// mark the end of update
+	// update the status
+
 	if err := r.updatePCLQStatusWithNewReadyReplicas(sc.ctx, logger, sc.pclq, work.newTemplateHashReadyPods); err != nil {
 		return err
 	}
-	if !canPickNextPodForUpdate(sc.pclq) {
-
-	}
 
 	return nil
+}
+
+func isAnyPodSelectedForUpdate(pclq *grovecorev1alpha1.PodClique) bool {
+	return pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate != nil
+}
+
+func isCurrentPodUpdateComplete(sc *syncContext, work *updateWork) bool {
+	// Get the pod corresponding to the currently updating pod. If the pod exists and still does not have a deletion timestamp
+	// then the current update is not complete
+	currentlyUpdatingPodName := sc.pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Current
+	_, ok := lo.Find(sc.existingPCLQPods, func(pod *corev1.Pod) bool {
+		return currentlyUpdatingPodName == pod.Name
+	})
+	podsSelectedToUpdate := len(sc.pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Previous) + 1
+	return !ok || len(work.newTemplateHashReadyPods) >= podsSelectedToUpdate
 }
 
 func (r _resource) updatePCLQStatusWithNewReadyReplicas(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique, newReadyPods []*corev1.Pod) error {
@@ -214,6 +270,26 @@ type updateWork struct {
 	oldTemplateHashUnhealthyPods []*corev1.Pod
 	oldTemplateHashReadyPods     []*corev1.Pod
 	newTemplateHashReadyPods     []*corev1.Pod
+}
+
+func (w *updateWork) getPodNamesPendingUpdate(deletionExpectedPodUIDs []types.UID) []string {
+	allOldPods := lo.Union(w.oldTemplateHashPendingPods, w.oldTemplateHashUnhealthyPods, w.newTemplateHashReadyPods)
+	return lo.FilterMap(allOldPods, func(pod *corev1.Pod, _ int) (string, bool) {
+		if slices.Contains(deletionExpectedPodUIDs, pod.UID) {
+			return "", false
+		}
+		return pod.Name, true
+	})
+}
+
+func (w *updateWork) getNextPodToUpdate() *corev1.Pod {
+	if len(w.newTemplateHashReadyPods) > 0 {
+		slices.SortFunc(w.newTemplateHashReadyPods, func(a, b *corev1.Pod) int {
+			return a.CreationTimestamp.Compare(b.CreationTimestamp.Time)
+		})
+		return w.newTemplateHashReadyPods[0]
+	}
+	return nil
 }
 
 func (w *updateWork) isUpdateComplete(pclq *grovecorev1alpha1.PodClique) bool {
@@ -282,11 +358,6 @@ func (r _resource) computeUpdateWork(logger logr.Logger, sc *syncContext) *updat
 
 func (r _resource) hasPodDeletionBeenTriggered(sc *syncContext, pod *corev1.Pod) bool {
 	return k8sutils.IsResourceTerminating(pod.ObjectMeta) || r.expectationsStore.HasDeleteExpectation(sc.pclqExpectationsStoreKey, pod.GetUID())
-}
-
-func canPickNextPodForUpdate(pclq *grovecorev1alpha1.PodClique) bool {
-	return pclq.Status.ReadyReplicas >= *pclq.Spec.MinAvailable ||
-		pclq.Status.UpdatedReplicas >= pclq.Status.RollingUpdateProgress.OldSelectedReadyReplicas
 }
 
 // syncExpectationsAndComputeDifference synchronizes expectations that are captured against the owning PodClique resource.

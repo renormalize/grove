@@ -8687,12 +8687,26 @@ spec:
                 type: integer
               rollingUpdateProgress:
                 properties:
-                  oldSelectedReadyReplicas:
-                    default: 0
-                    format: int32
-                    type: integer
                   podGangSetGenerationHash:
                     type: string
+                  readyPodsSelectedToUpdate:
+                    description: ReadyPodsSelectedToUpdate captures the pod names
+                      of ready Pods that are either currently being updated or have
+                      been previously updated.
+                    properties:
+                      current:
+                        description: Current captures the current pod name that is
+                          a target for update.
+                        type: string
+                      previous:
+                        description: Previous captures the previous pod names that
+                          have now been updated.
+                        items:
+                          type: string
+                        type: array
+                    required:
+                    - current
+                    type: object
                   updateEndedAt:
                     format: date-time
                     type: string
@@ -8700,7 +8714,6 @@ spec:
                     format: date-time
                     type: string
                 required:
-                - oldSelectedReadyReplicas
                 - podGangSetGenerationHash
                 type: object
               scheduleGatedReplicas:
