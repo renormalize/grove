@@ -58,7 +58,7 @@ func (r _resource) prepareSyncContext(ctx context.Context, logger logr.Logger, p
 	)
 
 	// get the PodGangSet
-	syncCtx.pgs, err = componentutils.GetOwnerPodGangSet(ctx, r.client, pcsg.ObjectMeta)
+	syncCtx.pgs, err = componentutils.GetPodGangSet(ctx, r.client, pcsg.ObjectMeta)
 	if err != nil {
 		return nil, groveerr.WrapError(err,
 			errCodeGetPodGangSet,

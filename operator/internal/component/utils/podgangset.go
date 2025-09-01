@@ -53,21 +53,22 @@ func GetPodCliqueFQNsForPGSNotInPCSG(pgs *grovecorev1alpha1.PodGangSet) []string
 func GetPodCliqueFQNsForPGSReplicaNotInPCSG(pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int) []string {
 	pclqNames := make([]string, 0, len(pgs.Spec.Template.Cliques))
 	for _, pclqTemplateSpec := range pgs.Spec.Template.Cliques {
-		if !isPCLQInPCSG(pclqTemplateSpec.Name, pgs.Spec.Template.PodCliqueScalingGroupConfigs) {
+		if IsStandalonePCLQ(pgs, pclqTemplateSpec.Name) {
 			pclqNames = append(pclqNames, common.GeneratePodCliqueName(common.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, pclqTemplateSpec.Name))
 		}
 	}
 	return pclqNames
 }
 
-func isPCLQInPCSG(pclqName string, pcsgConfigs []grovecorev1alpha1.PodCliqueScalingGroupConfig) bool {
-	return lo.Reduce(pcsgConfigs, func(agg bool, pcsgConfig grovecorev1alpha1.PodCliqueScalingGroupConfig, _ int) bool {
+// IsStandalonePCLQ checks if the PodClique is managed by PodGangSet or not
+func IsStandalonePCLQ(pgs *grovecorev1alpha1.PodGangSet, pclqName string) bool {
+	return !lo.Reduce(pgs.Spec.Template.PodCliqueScalingGroupConfigs, func(agg bool, pcsgConfig grovecorev1alpha1.PodCliqueScalingGroupConfig, _ int) bool {
 		return agg || slices.Contains(pcsgConfig.CliqueNames, pclqName)
 	}, false)
 }
 
-// GetOwnerPodGangSet gets the owner PodGangSet object.
-func GetOwnerPodGangSet(ctx context.Context, cl client.Client, objectMeta metav1.ObjectMeta) (*grovecorev1alpha1.PodGangSet, error) {
+// GetPodGangSet gets the owner PodGangSet object.
+func GetPodGangSet(ctx context.Context, cl client.Client, objectMeta metav1.ObjectMeta) (*grovecorev1alpha1.PodGangSet, error) {
 	pgsName := GetPodGangSetName(objectMeta)
 	pgs := &grovecorev1alpha1.PodGangSet{
 		ObjectMeta: metav1.ObjectMeta{

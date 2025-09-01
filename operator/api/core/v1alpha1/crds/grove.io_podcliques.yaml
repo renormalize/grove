@@ -8614,6 +8614,8 @@ spec:
               currentPodGangSetGenerationHash:
                 description: CurrentPodGangSetGenerationHash
                 type: string
+              currentPodTemplateHash:
+                type: string
               hpaPodSelector:
                 description: |-
                   Selector is the label selector that determines which pods are part of the PodClique.
@@ -8736,6 +8738,7 @@ spec:
                 format: int32
                 type: integer
             required:
+            - currentPodTemplateHash
             - readyReplicas
             - scheduleGatedReplicas
             - scheduledReplicas

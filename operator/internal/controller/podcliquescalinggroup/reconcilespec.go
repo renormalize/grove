@@ -75,7 +75,7 @@ func (r *Reconciler) recordReconcileStart(ctx context.Context, logger logr.Logge
 
 func (r *Reconciler) processRollingUpdate(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) ctrlcommon.ReconcileStepResult {
 	pcsgObjectKey := client.ObjectKeyFromObject(pcsg)
-	pgs, err := utils.GetOwnerPodGangSet(ctx, r.client, pcsg.ObjectMeta)
+	pgs, err := utils.GetPodGangSet(ctx, r.client, pcsg.ObjectMeta)
 	if err != nil {
 		return ctrlcommon.ReconcileWithErrors(fmt.Sprintf("could not get owner PodGangSet for PodCliqueScalingGroup: %v", pcsgObjectKey), err)
 	}
@@ -115,8 +115,6 @@ func (r *Reconciler) processRollingUpdate(ctx context.Context, logger logr.Logge
 func shouldResetOrTriggerRollingUpdate(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) bool {
 	// If processing of rolling update of PCSG for PGS CurrentGenerationHash is either completed or in-progress,
 	// there is no need to reset or trigger another rolling update of this PCSG for the same PGS CurrentGenerationHash.
-	// TODO: @renormalize PodGangSetGenerationHash should not be used when the PGS PodCliques are updated.
-	// Currently, even changing PGS PodCliques causes rolling update for PCSG.
 	if pcsg.Status.RollingUpdateProgress != nil && pcsg.Status.RollingUpdateProgress.PodGangSetGenerationHash == *pgs.Status.CurrentGenerationHash {
 		return false
 	}

@@ -108,12 +108,12 @@ func mutateSelector(pgsName string, pclq *grovecorev1alpha1.PodClique) error {
 }
 
 func (r *Reconciler) mutateCurrentPodGangSetGenerationHash(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) error {
-	pgs, err := componentutils.GetOwnerPodGangSet(ctx, r.client, pclq.ObjectMeta)
+	pgs, err := componentutils.GetPodGangSet(ctx, r.client, pclq.ObjectMeta)
 	if err != nil {
 		logger.Error(err, "failed to get owner PodGangSet")
 		return fmt.Errorf("could not get owner PodGangSet for PodClique %v :%w", client.ObjectKeyFromObject(pclq), err)
 	}
-	if !componentutils.IsPCLQUpdateInProgress(pclq) {
+	if pclq.Status.RollingUpdateProgress == nil || !componentutils.IsPCLQUpdateInProgress(pclq) {
 		pclq.Status.CurrentPodGangSetGenerationHash = pgs.Status.CurrentGenerationHash
 	}
 	return nil

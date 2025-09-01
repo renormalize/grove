@@ -40,6 +40,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -51,7 +52,7 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 	)
 
 	// Get associated PodGangSet for this PodClique.
-	sc.pgs, err = componentutils.GetOwnerPodGangSet(ctx, r.client, pclq.ObjectMeta)
+	sc.pgs, err = componentutils.GetPodGangSet(ctx, r.client, pclq.ObjectMeta)
 	if err != nil {
 		return nil, groveerr.WrapError(err,
 			errCodeGetPodGangSet,
@@ -218,19 +219,33 @@ func (r _resource) processPendingUpdates(logger logr.Logger, sc *syncContext) er
 	}
 
 	if nextPodToUpdate != nil {
+		nextPodToUpdateObjectKey := client.ObjectKeyFromObject(nextPodToUpdate)
+		logger.Info("Selected nextPodToUpdate", "pod", nextPodToUpdateObjectKey)
 		// update the status
+		if err := r.updatePCLQStatusWithNewNextPodToUpdate(sc.ctx, logger, sc.pclq, nextPodToUpdate.Name); err != nil {
+			return err
+		}
+
 		// trigger deletion of nextPodToUpdate
+		deletionTask := r.createPodDeletionTask(logger, pclq, nextPodToUpdate, sc.pclqExpectationsStoreKey)
+		if err := deletionTask.Fn(sc.ctx); err != nil {
+			return groveerr.WrapError(
+				err,
+				errCodeDeletePod,
+				component.OperationSync,
+				fmt.Sprintf("failed to delete pod %s selected for update", nextPodToUpdateObjectKey),
+			)
+		}
 		// requeue
+		return groveerr.New(
+			groveerr.ErrCodeContinueReconcileAndRequeue,
+			component.OperationSync,
+			fmt.Sprintf("deleted pod %s selected for rolling update, requeuing", nextPodToUpdateObjectKey),
+		)
 	}
 
 	// mark the end of update
-	// update the status
-
-	if err := r.updatePCLQStatusWithNewReadyReplicas(sc.ctx, logger, sc.pclq, work.newTemplateHashReadyPods); err != nil {
-		return err
-	}
-
-	return nil
+	return r.markRollingUpdateEnd(sc.ctx, logger, pclq)
 }
 
 func isAnyPodSelectedForUpdate(pclq *grovecorev1alpha1.PodClique) bool {
@@ -248,20 +263,40 @@ func isCurrentPodUpdateComplete(sc *syncContext, work *updateWork) bool {
 	return !ok || len(work.newTemplateHashReadyPods) >= podsSelectedToUpdate
 }
 
-func (r _resource) updatePCLQStatusWithNewReadyReplicas(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique, newReadyPods []*corev1.Pod) error {
+func (r _resource) updatePCLQStatusWithNewNextPodToUpdate(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique, nextPodToUpdate string) error {
 	patch := client.MergeFrom(pclq.DeepCopy())
-	pclq.Status.UpdatedReplicas = int32(len(newReadyPods))
-	objectKeys := lo.Map(newReadyPods, func(pod *corev1.Pod, _ int) client.ObjectKey {
-		return client.ObjectKeyFromObject(pod)
-	})
-	logger.Info("updating pclq status with new ready replicas", "newReadyPodObjectKeys", k8sutils.ToObjectNames(objectKeys))
+
+	if pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate == nil {
+		pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate = &grovecorev1alpha1.PodsSelectedToUpdate{}
+	}
+	pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Previous = append(pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Previous, pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Current)
+	pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Current = nextPodToUpdate
+
 	if err := client.IgnoreNotFound(r.client.Status().Patch(ctx, pclq, patch)); err != nil {
 		return groveerr.WrapError(err,
 			errCodeUpdatePodCliqueStatus,
 			component.OperationSync,
-			fmt.Sprintf("failed to update new ready replicas in status of PodClique: %v", client.ObjectKeyFromObject(pclq)),
+			fmt.Sprintf("failed to update new ready pod selected to update in status of PodClique: %v", client.ObjectKeyFromObject(pclq)),
 		)
 	}
+	logger.Info("updated pclq status with new ready pod selected to update", "nextPodToUpdate", nextPodToUpdate)
+	return nil
+}
+
+func (r _resource) markRollingUpdateEnd(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) error {
+	patch := client.MergeFrom(pclq.DeepCopy())
+
+	pclq.Status.RollingUpdateProgress.UpdateEndedAt = ptr.To(metav1.Now())
+	pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate = nil
+
+	if err := client.IgnoreNotFound(r.client.Status().Patch(ctx, pclq, patch)); err != nil {
+		return groveerr.WrapError(err,
+			errCodeUpdatePodCliqueStatus,
+			component.OperationSync,
+			fmt.Sprintf("failed to mark the end of rolling update in status of PodClique: %v", client.ObjectKeyFromObject(pclq)),
+		)
+	}
+	logger.Info("Marked the end of rolling update of PodClique")
 	return nil
 }
 
@@ -290,14 +325,6 @@ func (w *updateWork) getNextPodToUpdate() *corev1.Pod {
 		return w.newTemplateHashReadyPods[0]
 	}
 	return nil
-}
-
-func (w *updateWork) isUpdateComplete(pclq *grovecorev1alpha1.PodClique) bool {
-	oldPods := len(w.oldTemplateHashPendingPods) + len(w.oldTemplateHashUnhealthyPods) + len(w.oldTemplateHashReadyPods)
-	if len(w.newTemplateHashReadyPods) >= int(*pclq.Spec.MinAvailable) && oldPods == 0 {
-		return true
-	}
-	return false
 }
 
 func (r _resource) deleteOldPendingAndUnhealthyPods(logger logr.Logger, sc *syncContext, work *updateWork) error {

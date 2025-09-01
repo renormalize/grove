@@ -19,12 +19,16 @@ package podclique
 import (
 	"context"
 	"fmt"
+	"strconv"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
+	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,6 +40,7 @@ func (r *Reconciler) reconcileSpec(ctx context.Context, logger logr.Logger, pclq
 	reconcileStepFns := []ctrlcommon.ReconcileStepFn[grovecorev1alpha1.PodClique]{
 		r.ensureFinalizer,
 		r.recordReconcileStart,
+		r.processRollingUpdate,
 		r.syncPCLQResources,
 		r.recordReconcileSuccess,
 		r.updateObservedGeneration,
@@ -68,6 +73,52 @@ func (r *Reconciler) recordReconcileStart(ctx context.Context, logger logr.Logge
 	return ctrlcommon.ContinueReconcile()
 }
 
+func (r *Reconciler) processRollingUpdate(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
+	pclqObjectKey := client.ObjectKeyFromObject(pclq)
+	pgs, err := componentutils.GetPodGangSet(ctx, r.client, pclq.ObjectMeta)
+	if err != nil {
+		return ctrlcommon.ReconcileWithErrors(fmt.Sprintf("could not get owner PodGangSet for PodClique: %v", pclqObjectKey), err)
+	}
+	// updates of PCSG PodCliques are handled by the PCSG controller
+	if !componentutils.IsStandalonePCLQ(pgs, pclq.Name) {
+		return ctrlcommon.ContinueReconcile()
+	}
+	if pgs.Status.RollingUpdateProgress == nil || pgs.Status.RollingUpdateProgress.CurrentlyUpdating == nil {
+		// No update has yet been triggered for the PodGangSet. Nothing to do here.
+		return ctrlcommon.ContinueReconcile()
+	}
+	pgsReplicaInUpdating := pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex
+	pgsReplicaIndexStr, ok := pclq.Labels[apicommon.LabelPodGangSetReplicaIndex]
+	if !ok {
+		logger.Info("PodGangSet is currently under rolling update. Cannot process pending updates for this PodClique as no PodGangSet index label is found")
+		return ctrlcommon.ContinueReconcile()
+	}
+	if pgsReplicaIndexStr != strconv.Itoa(int(pgsReplicaInUpdating)) {
+		logger.Info("PodGangSet is currently under rolling update. Skipping processing pending updates for this PodClique as it does not belong to the PodGangSet Index in update", "currentlyUpdatingPGSIndex", pgsReplicaInUpdating, "pgsIndexForpclq", pgsReplicaIndexStr)
+		return ctrlcommon.ContinueReconcile()
+	}
+
+	if err := r.updateRollingUpdateProgress(ctx, pgs, pclq); err != nil {
+		return ctrlcommon.ReconcileWithErrors("could not update rolling update progress", err)
+	}
+
+	return ctrlcommon.ContinueReconcile()
+}
+
+func (r *Reconciler) updateRollingUpdateProgress(ctx context.Context, pgs *grovecorev1alpha1.PodGangSet, pclq *grovecorev1alpha1.PodClique) error {
+	if pclq.Status.CurrentPodGangSetGenerationHash == nil || pgs.Status.CurrentGenerationHash != nil && *pgs.Status.CurrentGenerationHash != *pclq.Status.CurrentPodGangSetGenerationHash {
+		// reset and start the rolling update
+		patch := client.MergeFrom(pclq.DeepCopy())
+		pclq.Status.RollingUpdateProgress = &grovecorev1alpha1.PodCliqueRollingUpdateProgress{
+			UpdateStartedAt:          metav1.Now(),
+			PodGangSetGenerationHash: *pgs.Status.CurrentGenerationHash,
+		}
+		if err := r.client.Status().Patch(ctx, pclq, patch); err != nil {
+			return fmt.Errorf("failed to update PodClique %s status with rolling update progress", client.ObjectKeyFromObject(pclq))
+		}
+	}
+	return nil
+}
 func (r *Reconciler) syncPCLQResources(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
 	for _, kind := range getOrderedKindsForSync() {
 		operator, err := r.operatorRegistry.GetOperator(kind)
