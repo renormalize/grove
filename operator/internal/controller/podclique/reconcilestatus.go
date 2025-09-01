@@ -19,6 +19,7 @@ package podclique
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"github.com/NVIDIA/grove/operator/api/common/constants"
@@ -38,17 +39,33 @@ import (
 
 func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
 	pgsName := componentutils.GetPodGangSetName(pclq.ObjectMeta)
+	pclqObjectKey := client.ObjectKeyFromObject(pclq)
+	patch := client.MergeFrom(pclq.DeepCopy())
+
+	pgs, err := componentutils.GetPodGangSet(ctx, r.client, pclq.ObjectMeta)
+	if err != nil {
+		logger.Error(err, "failed to get owner PodGangSet")
+		return ctrlcommon.ReconcileWithErrors(fmt.Sprintf("could not get owner PodGangSet for PodClique %v", pclqObjectKey), err)
+	}
 
 	existingPods, err := componentutils.GetPCLQPods(ctx, r.client, pgsName, pclq)
 	if err != nil {
 		logger.Error(err, "failed to list pods for PodClique")
-		return ctrlcommon.ReconcileWithErrors(fmt.Sprintf("failed to list pods for PodClique: %q", client.ObjectKeyFromObject(pclq)), err)
+		return ctrlcommon.ReconcileWithErrors(fmt.Sprintf("failed to list pods for PodClique: %q", pclqObjectKey), err)
 	}
 
 	podCategories := k8sutils.CategorizePodsByConditionType(logger, existingPods)
 
+	pclqTemplateSpec, _, ok := lo.FindIndexOf(pgs.Spec.Template.Cliques, func(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec) bool {
+		return strings.HasSuffix(pclq.Name, pclqTemplateSpec.Name)
+	})
+	if !ok {
+		return ctrlcommon.ReconcileWithErrors("PodClique resource not defined in PodGangSet", fmt.Errorf("PodClique %s not found in PodGangSet template %s", pclqObjectKey, client.ObjectKeyFromObject(pgs)))
+	}
+	expectedPodTemplateHash := componentutils.GetPCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName)
+
 	// mutate PodClique Status Replicas, ReadyReplicas, ScheduleGatedReplicas and UpdatedReplicas.
-	mutateReplicas(pclq, podCategories, len(existingPods))
+	mutateReplicas(pclq, podCategories, len(existingPods), expectedPodTemplateHash)
 
 	// mutate the conditions only if the PodClique has been successfully reconciled at least once.
 	// This prevents prematurely setting incorrect conditions.
@@ -65,28 +82,29 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pc
 		return ctrlcommon.ReconcileWithErrors("failed to set selector for PodClique", err)
 	}
 
-	if err = r.mutateCurrentPodGangSetGenerationHash(ctx, logger, pclq); err != nil {
-		logger.Error(err, "failed to update current pod GangSet generation")
-		return ctrlcommon.ReconcileWithErrors("failed to update current pod GangSet generation", err)
-	}
+	mutateCurrentHashes(logger, pgs, pclq, expectedPodTemplateHash)
 
 	// update the PodClique status.
-	if err := r.client.Status().Update(ctx, pclq); err != nil {
+	if err := r.client.Status().Patch(ctx, pclq, patch); err != nil {
 		logger.Error(err, "failed to update PodClique status")
 		return ctrlcommon.ReconcileWithErrors("failed to update PodClique status", err)
 	}
 	return ctrlcommon.ContinueReconcile()
 }
 
-func mutateReplicas(pclq *grovecorev1alpha1.PodClique, podCategories map[corev1.PodConditionType][]*corev1.Pod, numExistingPods int) {
+func mutateReplicas(pclq *grovecorev1alpha1.PodClique, podCategories map[corev1.PodConditionType][]*corev1.Pod, numExistingPods int, expectedPodTemplateHash string) {
 	// mutate the PCLQ status with current number of schedule gated, ready pods and updated pods.
 	numNonTerminatingPods := int32(numExistingPods - len(podCategories[k8sutils.TerminatingPod]))
 	pclq.Status.Replicas = numNonTerminatingPods
 	pclq.Status.ReadyReplicas = int32(len(podCategories[corev1.PodReady]))
 	pclq.Status.ScheduleGatedReplicas = int32(len(podCategories[k8sutils.ScheduleGatedPod]))
 	pclq.Status.ScheduledReplicas = int32(len(podCategories[corev1.PodScheduled]))
-	// TODO: change this when rolling update is implemented
-	pclq.Status.UpdatedReplicas = numNonTerminatingPods
+	pclq.Status.UpdatedReplicas = 0
+	lo.ForEach(lo.Flatten(lo.Values(podCategories)), func(pod *corev1.Pod, _ int) {
+		if pod.Labels[apicommon.LabelPodTemplateHash] == expectedPodTemplateHash {
+			pclq.Status.UpdatedReplicas++
+		}
+	})
 }
 
 func mutateSelector(pgsName string, pclq *grovecorev1alpha1.PodClique) error {
@@ -107,16 +125,14 @@ func mutateSelector(pgsName string, pclq *grovecorev1alpha1.PodClique) error {
 	return nil
 }
 
-func (r *Reconciler) mutateCurrentPodGangSetGenerationHash(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) error {
-	pgs, err := componentutils.GetPodGangSet(ctx, r.client, pclq.ObjectMeta)
-	if err != nil {
-		logger.Error(err, "failed to get owner PodGangSet")
-		return fmt.Errorf("could not get owner PodGangSet for PodClique %v :%w", client.ObjectKeyFromObject(pclq), err)
+func mutateCurrentHashes(logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pclq *grovecorev1alpha1.PodClique, expectedPodTemplateHash string) {
+	if componentutils.IsPCLQUpdateInProgress(pclq) || pclq.Status.UpdatedReplicas != pclq.Status.Replicas {
+		logger.Info("PodClique is currently updating, cannot set PodGangSet CurrentGenerationHash yet")
+		return
 	}
-	if pclq.Status.RollingUpdateProgress == nil || !componentutils.IsPCLQUpdateInProgress(pclq) {
-		pclq.Status.CurrentPodGangSetGenerationHash = pgs.Status.CurrentGenerationHash
-	}
-	return nil
+
+	pclq.Status.CurrentPodTemplateHash = ptr.To(expectedPodTemplateHash)
+	pclq.Status.CurrentPodGangSetGenerationHash = pgs.Status.CurrentGenerationHash
 }
 
 func mutateMinAvailableBreachedCondition(pclq *grovecorev1alpha1.PodClique, numNotReadyPodsWithContainersInError, numPodsStartedButNotReady int) {

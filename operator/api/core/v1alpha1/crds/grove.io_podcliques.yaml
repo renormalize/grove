@@ -8738,7 +8738,6 @@ spec:
                 format: int32
                 type: integer
             required:
-            - currentPodTemplateHash
             - readyReplicas
             - scheduleGatedReplicas
             - scheduledReplicas

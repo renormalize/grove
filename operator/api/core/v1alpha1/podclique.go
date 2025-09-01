@@ -130,7 +130,7 @@ type PodCliqueStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// CurrentPodGangSetGenerationHash
 	CurrentPodGangSetGenerationHash *string                         `json:"currentPodGangSetGenerationHash,omitempty"`
-	CurrentPodTemplateHash          string                          `json:"currentPodTemplateHash"`
+	CurrentPodTemplateHash          *string                         `json:"currentPodTemplateHash,omitempty"`
 	RollingUpdateProgress           *PodCliqueRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
 }
 

@@ -509,6 +509,11 @@ func (in *PodCliqueStatus) DeepCopyInto(out *PodCliqueStatus) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.CurrentPodTemplateHash != nil {
+		in, out := &in.CurrentPodTemplateHash, &out.CurrentPodTemplateHash
+		*out = new(string)
+		**out = **in
+	}
 	if in.RollingUpdateProgress != nil {
 		in, out := &in.RollingUpdateProgress, &out.RollingUpdateProgress
 		*out = new(PodCliqueRollingUpdateProgress)

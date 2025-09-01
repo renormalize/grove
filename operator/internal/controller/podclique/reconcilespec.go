@@ -106,7 +106,7 @@ func (r *Reconciler) processRollingUpdate(ctx context.Context, logger logr.Logge
 }
 
 func (r *Reconciler) updateRollingUpdateProgress(ctx context.Context, pgs *grovecorev1alpha1.PodGangSet, pclq *grovecorev1alpha1.PodClique) error {
-	if pclq.Status.CurrentPodGangSetGenerationHash == nil || pgs.Status.CurrentGenerationHash != nil && *pgs.Status.CurrentGenerationHash != *pclq.Status.CurrentPodGangSetGenerationHash {
+	if pgs.Status.CurrentGenerationHash != nil && *pgs.Status.CurrentGenerationHash != *pclq.Status.CurrentPodGangSetGenerationHash {
 		// reset and start the rolling update
 		patch := client.MergeFrom(pclq.DeepCopy())
 		pclq.Status.RollingUpdateProgress = &grovecorev1alpha1.PodCliqueRollingUpdateProgress{

@@ -268,8 +268,9 @@ func (r _resource) updatePCLQStatusWithNewNextPodToUpdate(ctx context.Context, l
 
 	if pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate == nil {
 		pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate = &grovecorev1alpha1.PodsSelectedToUpdate{}
+	} else {
+		pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Previous = append(pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Previous, pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Current)
 	}
-	pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Previous = append(pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Previous, pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Current)
 	pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Current = nextPodToUpdate
 
 	if err := client.IgnoreNotFound(r.client.Status().Patch(ctx, pclq, patch)); err != nil {
