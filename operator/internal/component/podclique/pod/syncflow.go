@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"k8s.io/client-go/tools/cache"
 	"slices"
 	"sort"
 
@@ -173,13 +172,17 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) syncFlowResu
 }
 
 func (r _resource) processPendingUpdates(logger logr.Logger, sc *syncContext) error {
-	work := r.computePendingUpdateWork(logger, sc)
+	work := r.computeUpdateWork(logger, sc)
+	if work.isUpdateComplete(sc.pclq) {
+		// update pclq with rolling update complete
+	}
+
 	// always delete pods that have old pod template hash and are either Pending or Unhealthy.
 	if err := r.deleteOldPendingAndUnhealthyPods(logger, sc, work); err != nil {
 		return err
 	}
 
-	if err := r.updatePCLQStatusWithNewReadyReplicas(sc.ctx, logger, sc.pclq, work.newTemplateHashReadyPodObjectKeys); err != nil {
+	if err := r.updatePCLQStatusWithNewReadyReplicas(sc.ctx, logger, sc.pclq, work.newTemplateHashReadyPods); err != nil {
 		return err
 	}
 	if !canPickNextPodForUpdate(sc.pclq) {
@@ -189,10 +192,13 @@ func (r _resource) processPendingUpdates(logger logr.Logger, sc *syncContext) er
 	return nil
 }
 
-func (r _resource) updatePCLQStatusWithNewReadyReplicas(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique, newReadyPodObjectKeys []client.ObjectKey) error {
+func (r _resource) updatePCLQStatusWithNewReadyReplicas(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique, newReadyPods []*corev1.Pod) error {
 	patch := client.MergeFrom(pclq.DeepCopy())
-	pclq.Status.UpdatedReplicas = int32(len(newReadyPodObjectKeys))
-	logger.Info("updating pclq status with new ready replicas", "newReadyPodObjectKeys", k8sutils.ToObjectNames(newReadyPodObjectKeys))
+	pclq.Status.UpdatedReplicas = int32(len(newReadyPods))
+	objectKeys := lo.Map(newReadyPods, func(pod *corev1.Pod, _ int) client.ObjectKey {
+		return client.ObjectKeyFromObject(pod)
+	})
+	logger.Info("updating pclq status with new ready replicas", "newReadyPodObjectKeys", k8sutils.ToObjectNames(objectKeys))
 	if err := client.IgnoreNotFound(r.client.Status().Patch(ctx, pclq, patch)); err != nil {
 		return groveerr.WrapError(err,
 			errCodeUpdatePodCliqueStatus,
@@ -204,22 +210,18 @@ func (r _resource) updatePCLQStatusWithNewReadyReplicas(ctx context.Context, log
 }
 
 type updateWork struct {
-	oldTemplateHashPendingPods        []*corev1.Pod
-	oldTemplateHashUnhealthyPods      []*corev1.Pod
-	oldTemplateHashReadyPods          []*corev1.Pod
-	newTemplateHashReadyPodObjectKeys []client.ObjectKey
+	oldTemplateHashPendingPods   []*corev1.Pod
+	oldTemplateHashUnhealthyPods []*corev1.Pod
+	oldTemplateHashReadyPods     []*corev1.Pod
+	newTemplateHashReadyPods     []*corev1.Pod
 }
 
-func (w *updateWork) getOldPendingPodObjectNames() []string {
-	return lo.Map(w.oldTemplateHashPendingPods, func(pod *corev1.Pod, _ int) string {
-		return cache.NamespacedNameAsObjectName(client.ObjectKeyFromObject(pod)).String()
-	})
-}
-
-func (w *updateWork) getOldUnhealthyPodObjectNames() []string {
-	return lo.Map(w.oldTemplateHashUnhealthyPods, func(pod *corev1.Pod, _ int) string {
-		return cache.NamespacedNameAsObjectName(client.ObjectKeyFromObject(pod)).String()
-	})
+func (w *updateWork) isUpdateComplete(pclq *grovecorev1alpha1.PodClique) bool {
+	oldPods := len(w.oldTemplateHashPendingPods) + len(w.oldTemplateHashUnhealthyPods) + len(w.oldTemplateHashReadyPods)
+	if len(w.newTemplateHashReadyPods) >= int(*pclq.Spec.MinAvailable) && oldPods == 0 {
+		return true
+	}
+	return false
 }
 
 func (r _resource) deleteOldPendingAndUnhealthyPods(logger logr.Logger, sc *syncContext, work *updateWork) error {
@@ -253,7 +255,7 @@ func (r _resource) deleteOldPendingAndUnhealthyPods(logger logr.Logger, sc *sync
 	return nil
 }
 
-func (r _resource) computePendingUpdateWork(logger logr.Logger, sc *syncContext) *updateWork {
+func (r _resource) computeUpdateWork(logger logr.Logger, sc *syncContext) *updateWork {
 	work := &updateWork{}
 	for _, pod := range sc.existingPCLQPods {
 		if pod.Labels[common.LabelPodTemplateHash] != sc.expectedPodTemplateHash {
@@ -271,7 +273,7 @@ func (r _resource) computePendingUpdateWork(logger logr.Logger, sc *syncContext)
 			}
 		} else {
 			if k8sutils.IsPodReady(pod) {
-				work.newTemplateHashReadyPodObjectKeys = append(work.newTemplateHashReadyPodObjectKeys, client.ObjectKeyFromObject(pod))
+				work.newTemplateHashReadyPods = append(work.newTemplateHashReadyPods, pod)
 			}
 		}
 	}
