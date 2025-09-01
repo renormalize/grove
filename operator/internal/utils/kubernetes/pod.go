@@ -71,18 +71,6 @@ func CategorizePodsByConditionType(logger logr.Logger, pods []*corev1.Pod) map[c
 	return podCategories
 }
 
-// IsPodReady checks the PodReady condition. If the condition is not set
-// it returns false else it returns the condition status value.
-func IsPodReady(pod *corev1.Pod) bool {
-	podReadyCond, ok := lo.Find(pod.Status.Conditions, func(cond corev1.PodCondition) bool {
-		return cond.Type == corev1.PodReady
-	})
-	if !ok {
-		return false
-	}
-	return podReadyCond.Status == corev1.ConditionTrue
-}
-
 // IsPodScheduleGated checks if there are scheduling gates added to the Pod.
 func IsPodScheduleGated(pod *corev1.Pod) bool {
 	scheduledCond, ok := lo.Find(pod.Status.Conditions, func(cond corev1.PodCondition) bool {
@@ -175,4 +163,20 @@ func IsPodActive(pod *corev1.Pod) bool {
 	return !IsResourceTerminating(pod.ObjectMeta) &&
 		pod.Status.Phase != corev1.PodSucceeded &&
 		pod.Status.Phase != corev1.PodFailed
+}
+
+// IsPodReady checks if the corev1.PodReady condition is set to true for the Pod.
+// If the condition is set to true, it returns true else if the condition is not present or set to false it will return false.
+func IsPodReady(pod *corev1.Pod) bool {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+// IsPodPending checks if the Pod is pending, which indicates that the pod has not yet been scheduled.
+func IsPodPending(pod *corev1.Pod) bool {
+	return pod.Status.Phase == corev1.PodPending
 }

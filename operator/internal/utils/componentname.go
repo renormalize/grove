@@ -18,6 +18,9 @@ package utils
 
 import (
 	"fmt"
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strconv"
 	"strings"
 )
@@ -31,4 +34,34 @@ func GetPodGangSetReplicaIndexFromPodCliqueFQN(pgsName, pclqFQNName string) (int
 	}
 	replicaEndIndex := replicaStartIndex + hyphenIndex
 	return strconv.Atoi(pclqFQNName[replicaStartIndex:replicaEndIndex])
+}
+
+// GetPodCliqueNameFromPodCliqueFQN get unqualified PodClique name from FQN.
+func GetPodCliqueNameFromPodCliqueFQN(pclqObjectMeta metav1.ObjectMeta) (string, error) {
+	pclqObjectKey := client.ObjectKey{Name: pclqObjectMeta.Name, Namespace: pclqObjectMeta.Namespace}
+
+	// Check if the PodClique is part of a PodCliqueScalingGroup
+	pcsgName, ok := pclqObjectMeta.Labels[apicommon.LabelPodCliqueScalingGroup]
+	if ok {
+		// get the pcsg replica index
+		pcsgReplicaIndex, replicaIndexLabelFound := pclqObjectMeta.Labels[apicommon.LabelPodCliqueScalingGroupReplicaIndex]
+		if !replicaIndexLabelFound {
+			return "", fmt.Errorf("missing label %s on PodClique: %v", apicommon.LabelPodCliqueScalingGroupReplicaIndex, pclqObjectKey)
+		}
+		pclqNamePrefix := fmt.Sprintf("%s-%s-", pcsgName, pcsgReplicaIndex)
+		return pclqObjectMeta.Name[len(pclqNamePrefix):], nil
+	}
+
+	// If it is not part of PCSG then the PCLQ is a standalone PCLQ which is part of PGS
+	pgsName, ok := pclqObjectMeta.Labels[apicommon.LabelPartOfKey]
+	if !ok {
+		return "", fmt.Errorf("missing label %s on PodClique: %v", apicommon.LabelPartOfKey, pclqObjectKey)
+	}
+	// Get the PGS replica index
+	pgsReplicaIndex, ok := pclqObjectMeta.Labels[apicommon.LabelPodGangSetReplicaIndex]
+	if !ok {
+		return "", fmt.Errorf("missing label %s on PodClique: %v", apicommon.LabelPodGangSetReplicaIndex, pclqObjectKey)
+	}
+	pclqNamePrefix := fmt.Sprintf("%s-%s-", pgsName, pgsReplicaIndex)
+	return pclqObjectMeta.Name[len(pclqNamePrefix):], nil
 }

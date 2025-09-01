@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"k8s.io/client-go/tools/cache"
 	"slices"
 	"sort"
 
@@ -45,13 +46,13 @@ import (
 
 // prepareSyncFlow gathers information in preparation for the sync flow to run.
 func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) (*syncContext, error) {
-	sc := &syncContext{
-		ctx:  ctx,
-		pclq: pclq,
-	}
+	var (
+		sc  = &syncContext{ctx: ctx, pclq: pclq}
+		err error
+	)
 
 	// Get associated PodGangSet for this PodClique.
-	associatedPodGangSet, err := componentutils.GetOwnerPodGangSet(ctx, r.client, pclq.ObjectMeta)
+	sc.pgs, err = componentutils.GetOwnerPodGangSet(ctx, r.client, pclq.ObjectMeta)
 	if err != nil {
 		return nil, groveerr.WrapError(err,
 			errCodeGetPodGangSet,
@@ -59,21 +60,23 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 			fmt.Sprintf("failed to get owner PodGangSet of PodClique: %v", client.ObjectKeyFromObject(pclq)),
 		)
 	}
-	sc.pgs = associatedPodGangSet
+
+	sc.expectedPodTemplateHash, err = getExpectedPodTemplateSpecHash(sc.pgs, pclq)
+	if err != nil {
+		return nil, err
+	}
 
 	// get the PCLQ expectations key
-	pclqExpStoreKey, err := getPodCliqueExpectationsStoreKey(logger, component.OperationSync, pclq.ObjectMeta)
+	sc.pclqExpectationsStoreKey, err = getPodCliqueExpectationsStoreKey(logger, component.OperationSync, pclq.ObjectMeta)
 	if err != nil {
 		return nil, err
 	}
-	sc.pclqExpectationsStoreKey = pclqExpStoreKey
 
 	// get the associated PodGang name.
-	associatedPodGangName, err := r.getAssociatedPodGangName(pclq.ObjectMeta)
+	sc.associatedPodGangName, err = r.getAssociatedPodGangName(pclq.ObjectMeta)
 	if err != nil {
 		return nil, err
 	}
-	sc.associatedPodGangName = associatedPodGangName
 
 	// Get the associated PodGang resource.
 	existingPodGang, err := componentutils.GetPodGang(ctx, r.client, sc.associatedPodGangName, pclq.Namespace)
@@ -85,7 +88,7 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 	sc.podNamesUpdatedInPCLQPodGangs = r.getPodNamesUpdatedInAssociatedPodGang(existingPodGang, pclq.Name)
 
 	// Get all existing pods for this PCLQ.
-	existingPCLQPods, err := componentutils.GetPCLQPods(ctx, r.client, sc.pgs.Name, pclq)
+	sc.existingPCLQPods, err = componentutils.GetPCLQPods(ctx, r.client, sc.pgs.Name, pclq)
 	if err != nil {
 		logger.Error(err, "Failed to list pods that belong to PodClique")
 		return nil, groveerr.WrapError(err,
@@ -94,9 +97,20 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 			fmt.Sprintf("failed to list pods that belong to the PodClique %v", client.ObjectKeyFromObject(pclq)),
 		)
 	}
-	sc.existingPCLQPods = existingPCLQPods
 
 	return sc, nil
+}
+
+func getExpectedPodTemplateSpecHash(pgs *grovecorev1alpha1.PodGangSet, pclq *grovecorev1alpha1.PodClique) (string, error) {
+	pclqTemplate, err := componentutils.GetMatchingPodCliqueTemplate(pgs, pclq.ObjectMeta)
+	if err != nil {
+		return "", groveerr.WrapError(err,
+			errCodeGetPodCliqueTemplate,
+			component.OperationSync,
+			fmt.Sprintf("failed to get pod clique template for PodClique: %v in PodGangSet", client.ObjectKeyFromObject(pclq)),
+		)
+	}
+	return componentutils.GetPCLQPodTemplateHash(pclqTemplate, pgs.Spec.Template.PriorityClassName), nil
 }
 
 // getAssociatedPodGangName gets the associated PodGang name from PodClique labels. Returns an error if the label is not found.
@@ -146,12 +160,131 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) syncFlowResu
 		}
 	}
 
+	if err := r.processPendingUpdates(logger, sc); err != nil {
+		result.recordError(err)
+	}
+
 	skippedScheduleGatedPods, err := r.checkAndRemovePodSchedulingGates(sc, logger)
 	if err != nil {
 		result.recordError(err)
 	}
 	result.recordPendingScheduleGatedPods(skippedScheduleGatedPods)
 	return result
+}
+
+func (r _resource) processPendingUpdates(logger logr.Logger, sc *syncContext) error {
+	work := r.computePendingUpdateWork(logger, sc)
+	// always delete pods that have old pod template hash and are either Pending or Unhealthy.
+	if err := r.deleteOldPendingAndUnhealthyPods(logger, sc, work); err != nil {
+		return err
+	}
+
+	if err := r.updatePCLQStatusWithNewReadyReplicas(sc.ctx, logger, sc.pclq, work.newTemplateHashReadyPodObjectKeys); err != nil {
+		return err
+	}
+	if !canPickNextPodForUpdate(sc.pclq) {
+
+	}
+
+	return nil
+}
+
+func (r _resource) updatePCLQStatusWithNewReadyReplicas(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique, newReadyPodObjectKeys []client.ObjectKey) error {
+	patch := client.MergeFrom(pclq.DeepCopy())
+	pclq.Status.UpdatedReplicas = int32(len(newReadyPodObjectKeys))
+	logger.Info("updating pclq status with new ready replicas", "newReadyPodObjectKeys", k8sutils.ToObjectNames(newReadyPodObjectKeys))
+	if err := client.IgnoreNotFound(r.client.Status().Patch(ctx, pclq, patch)); err != nil {
+		return groveerr.WrapError(err,
+			errCodeUpdatePodCliqueStatus,
+			component.OperationSync,
+			fmt.Sprintf("failed to update new ready replicas in status of PodClique: %v", client.ObjectKeyFromObject(pclq)),
+		)
+	}
+	return nil
+}
+
+type updateWork struct {
+	oldTemplateHashPendingPods        []*corev1.Pod
+	oldTemplateHashUnhealthyPods      []*corev1.Pod
+	oldTemplateHashReadyPods          []*corev1.Pod
+	newTemplateHashReadyPodObjectKeys []client.ObjectKey
+}
+
+func (w *updateWork) getOldPendingPodObjectNames() []string {
+	return lo.Map(w.oldTemplateHashPendingPods, func(pod *corev1.Pod, _ int) string {
+		return cache.NamespacedNameAsObjectName(client.ObjectKeyFromObject(pod)).String()
+	})
+}
+
+func (w *updateWork) getOldUnhealthyPodObjectNames() []string {
+	return lo.Map(w.oldTemplateHashUnhealthyPods, func(pod *corev1.Pod, _ int) string {
+		return cache.NamespacedNameAsObjectName(client.ObjectKeyFromObject(pod)).String()
+	})
+}
+
+func (r _resource) deleteOldPendingAndUnhealthyPods(logger logr.Logger, sc *syncContext, work *updateWork) error {
+	var deletionTasks []utils.Task
+	if len(work.oldTemplateHashPendingPods) > 0 {
+		deletionTasks = append(deletionTasks, r.createPodDeletionTasks(logger, sc.pclq, work.oldTemplateHashPendingPods, sc.pclqExpectationsStoreKey)...)
+	}
+	if len(work.oldTemplateHashUnhealthyPods) > 0 {
+		deletionTasks = append(deletionTasks, r.createPodDeletionTasks(logger, sc.pclq, work.oldTemplateHashUnhealthyPods, sc.pclqExpectationsStoreKey)...)
+	}
+
+	if len(deletionTasks) == 0 {
+		logger.Info("no pending or unhealthy pods having old PodTemplateHash found")
+		return nil
+	}
+
+	logger.Info("triggering deletion of pending and unhealthy pods with old pod template hash in order to update",
+		"oldPendingPods", componentutils.PodsToObjectNames(work.oldTemplateHashPendingPods),
+		"oldUnhealthyPods", componentutils.PodsToObjectNames(work.oldTemplateHashUnhealthyPods))
+	if runResult := utils.RunConcurrently(sc.ctx, logger, deletionTasks); runResult.HasErrors() {
+		err := runResult.GetAggregatedError()
+		pclqObjectKey := client.ObjectKeyFromObject(sc.pclq)
+		logger.Error(err, "failed to delete pods for PCLQ", "runSummary", runResult.GetSummary())
+		return groveerr.WrapError(err,
+			errCodeDeletePod,
+			component.OperationSync,
+			fmt.Sprintf("failed to delete Pods for PodClique %v", pclqObjectKey),
+		)
+	}
+	logger.Info("successfully deleted pods having old PodTemplateHash and in either Pending or Unhealthy state")
+	return nil
+}
+
+func (r _resource) computePendingUpdateWork(logger logr.Logger, sc *syncContext) *updateWork {
+	work := &updateWork{}
+	for _, pod := range sc.existingPCLQPods {
+		if pod.Labels[common.LabelPodTemplateHash] != sc.expectedPodTemplateHash {
+			// check if the pod has already been marked for deletion
+			if r.hasPodDeletionBeenTriggered(sc, pod) {
+				logger.Info("skipping old Pod since its deletion has already been triggered", "pod", client.ObjectKeyFromObject(pod))
+				continue
+			}
+			if k8sutils.IsPodPending(pod) {
+				work.oldTemplateHashPendingPods = append(work.oldTemplateHashPendingPods, pod)
+			} else if k8sutils.HasAnyStartedButNotReadyContainer(pod) || k8sutils.HasAnyContainerExitedErroneously(logger, pod) {
+				work.oldTemplateHashUnhealthyPods = append(work.oldTemplateHashUnhealthyPods, pod)
+			} else if k8sutils.IsPodReady(pod) {
+				work.oldTemplateHashReadyPods = append(work.oldTemplateHashReadyPods, pod)
+			}
+		} else {
+			if k8sutils.IsPodReady(pod) {
+				work.newTemplateHashReadyPodObjectKeys = append(work.newTemplateHashReadyPodObjectKeys, client.ObjectKeyFromObject(pod))
+			}
+		}
+	}
+	return work
+}
+
+func (r _resource) hasPodDeletionBeenTriggered(sc *syncContext, pod *corev1.Pod) bool {
+	return k8sutils.IsResourceTerminating(pod.ObjectMeta) || r.expectationsStore.HasDeleteExpectation(sc.pclqExpectationsStoreKey, pod.GetUID())
+}
+
+func canPickNextPodForUpdate(pclq *grovecorev1alpha1.PodClique) bool {
+	return pclq.Status.ReadyReplicas >= *pclq.Spec.MinAvailable ||
+		pclq.Status.UpdatedReplicas >= pclq.Status.RollingUpdateProgress.OldSelectedReadyReplicas
 }
 
 // syncExpectationsAndComputeDifference synchronizes expectations that are captured against the owning PodClique resource.
@@ -198,7 +331,7 @@ func (r _resource) deleteExcessPods(sc *syncContext, logger logr.Logger, diff in
 
 	deleteTasks := make([]utils.Task, 0, len(selectedPodsToDelete))
 	for _, podToDelete := range selectedPodsToDelete {
-		deleteTasks = append(deleteTasks, r.podDeletionTask(logger, sc.pclq, podToDelete, sc.pclqExpectationsStoreKey))
+		deleteTasks = append(deleteTasks, r.createPodDeletionTask(logger, sc.pclq, podToDelete, sc.pclqExpectationsStoreKey))
 	}
 
 	if runResult := utils.RunConcurrentlyWithSlowStart(sc.ctx, logger, 1, deleteTasks); runResult.HasErrors() {
@@ -397,7 +530,7 @@ func (r _resource) createPods(ctx context.Context, logger logr.Logger, sc *syncC
 		// Get the available Pod host name index. This ensures that we fill the holes in the indices if there are any when creating
 		// new pods.
 		podHostNameIndex := availableIndices[i]
-		createTasks = append(createTasks, r.podCreationTask(logger, sc.pgs, sc.pclq, sc.associatedPodGangName, sc.pclqExpectationsStoreKey, i, podHostNameIndex))
+		createTasks = append(createTasks, r.createPodCreationTask(logger, sc.pgs, sc.pclq, sc.associatedPodGangName, sc.pclqExpectationsStoreKey, i, podHostNameIndex))
 	}
 	runResult := utils.RunConcurrentlyWithSlowStart(ctx, logger, 1, createTasks)
 	if runResult.HasErrors() {
@@ -420,6 +553,7 @@ type syncContext struct {
 	existingPCLQPods              []*corev1.Pod
 	podNamesUpdatedInPCLQPodGangs []string
 	pclqExpectationsStoreKey      string
+	expectedPodTemplateHash       string
 }
 
 // syncFlowResult captures the result of a sync flow run.

@@ -8687,6 +8687,10 @@ spec:
                 type: integer
               rollingUpdateProgress:
                 properties:
+                  oldSelectedReadyReplicas:
+                    default: 0
+                    format: int32
+                    type: integer
                   podGangSetGenerationHash:
                     type: string
                   updateEndedAt:
@@ -8696,6 +8700,7 @@ spec:
                     format: date-time
                     type: string
                 required:
+                - oldSelectedReadyReplicas
                 - podGangSetGenerationHash
                 type: object
               scheduleGatedReplicas:

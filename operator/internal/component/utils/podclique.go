@@ -18,6 +18,8 @@ package utils
 
 import (
 	"context"
+	"fmt"
+	"github.com/NVIDIA/grove/operator/internal/utils"
 	"slices"
 	"time"
 
@@ -154,4 +156,19 @@ func GetPCLQPodTemplateHash(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplat
 // IsPCLQUpdateInProgress checks if PodClique is under rolling update.
 func IsPCLQUpdateInProgress(pclq *grovecorev1alpha1.PodClique) bool {
 	return pclq.Status.RollingUpdateProgress != nil && pclq.Status.RollingUpdateProgress.UpdateEndedAt == nil
+}
+
+// GetMatchingPodCliqueTemplate gets the PodCliqueTemplateSpec from the PodGangSet matching the given PCLQ ObjectMeta.
+func GetMatchingPodCliqueTemplate(pgs *grovecorev1alpha1.PodGangSet, pclqObjectMeta metav1.ObjectMeta) (*grovecorev1alpha1.PodCliqueTemplateSpec, error) {
+	cliqueName, err := utils.GetPodCliqueNameFromPodCliqueFQN(pclqObjectMeta)
+	if err != nil {
+		return nil, err
+	}
+	matchingPCLQTemplateSpec, ok := lo.Find(pgs.Spec.Template.Cliques, func(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec) bool {
+		return cliqueName == pclqTemplateSpec.Name
+	})
+	if !ok {
+		return nil, fmt.Errorf("pod clique template not found for cliqueName: %s", cliqueName)
+	}
+	return matchingPCLQTemplateSpec, nil
 }

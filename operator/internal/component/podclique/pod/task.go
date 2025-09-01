@@ -33,8 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// podCreationTask creates a utils.Task which will create a Pod, capture the create-expectation and also emit a success/failed event post creation.
-func (r _resource) podCreationTask(logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pclq *grovecorev1alpha1.PodClique, podGangName, pclqExpectationsKey string, taskIndex, podHostNameIndex int) utils.Task {
+// createPodCreationTask creates a utils.Task which will create a Pod, capture the create-expectation and also emit a success/failed event post creation.
+func (r _resource) createPodCreationTask(logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pclq *grovecorev1alpha1.PodClique, podGangName, pclqExpectationsKey string, taskIndex, podHostNameIndex int) utils.Task {
 	pclqObjKey := client.ObjectKeyFromObject(pclq)
 	return utils.Task{
 		Name: fmt.Sprintf("CreatePod-%s-%d", pclq.Name, taskIndex),
@@ -67,8 +67,8 @@ func (r _resource) podCreationTask(logger logr.Logger, pgs *grovecorev1alpha1.Po
 	}
 }
 
-// podDeletionTask creates a utils.Task which will delete a Pod, capture the delete-expectation and also emit a success/failed event post deletion.
-func (r _resource) podDeletionTask(logger logr.Logger, pclq *grovecorev1alpha1.PodClique, podToDelete *corev1.Pod, pclqExpectationsKey string) utils.Task {
+// createPodDeletionTask creates a utils.Task which will delete a Pod, capture the delete-expectation and also emit a success/failed event post deletion.
+func (r _resource) createPodDeletionTask(logger logr.Logger, pclq *grovecorev1alpha1.PodClique, podToDelete *corev1.Pod, pclqExpectationsKey string) utils.Task {
 	podObjKey := client.ObjectKeyFromObject(podToDelete)
 	pclqObjKey := client.ObjectKeyFromObject(pclq)
 	return utils.Task{
@@ -96,4 +96,12 @@ func (r _resource) podDeletionTask(logger logr.Logger, pclq *grovecorev1alpha1.P
 			return nil
 		},
 	}
+}
+
+func (r _resource) createPodDeletionTasks(logger logr.Logger, pclq *grovecorev1alpha1.PodClique, podsToDelete []*corev1.Pod, pclqExpectationsKey string) []utils.Task {
+	deletionTasks := make([]utils.Task, 0, len(podsToDelete))
+	for _, podToDelete := range podsToDelete {
+		deletionTasks = append(deletionTasks, r.createPodDeletionTask(logger, pclq, podToDelete, pclqExpectationsKey))
+	}
+	return deletionTasks
 }

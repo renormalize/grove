@@ -47,8 +47,7 @@ func NewPodCliqueBuilder(pgsName string, pgsUID types.UID, pclqTemplateName, nam
 }
 
 // NewPCSGPodCliqueBuilder creates a PodClique that belongs to a PodCliqueScalingGroup.
-func NewPCSGPodCliqueBuilder(name, namespace, pgsName, pcsgName string, pgsGenerationHash *string, pgsReplicaIndex, pcsgReplicaIndex int) *PodCliqueBuilder {
-
+func NewPCSGPodCliqueBuilder(name, namespace, pgsName, pcsgName string, pgsReplicaIndex, pcsgReplicaIndex int) *PodCliqueBuilder {
 	pclq := &grovecorev1alpha1.PodClique{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,

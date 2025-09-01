@@ -137,6 +137,8 @@ type PodCliqueRollingUpdateProgress struct {
 	UpdateStartedAt          metav1.Time  `json:"updateStartedAt,omitempty"`
 	UpdateEndedAt            *metav1.Time `json:"updateEndedAt,omitempty"`
 	PodGangSetGenerationHash string       `json:"podGangSetGenerationHash"`
+	// +kubebuilder:default=0
+	OldSelectedReadyReplicas int32 `json:"oldSelectedReadyReplicas"`
 }
 
 // SetLastErrors sets the last errors observed by the controller when reconciling the PodClique.
