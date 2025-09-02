@@ -19,18 +19,18 @@ package podcliquescalinggroup
 import (
 	"context"
 	"fmt"
-	apicommon "github.com/NVIDIA/grove/operator/api/common"
-	"github.com/NVIDIA/grove/operator/internal/component/utils"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"strconv"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
+	"github.com/NVIDIA/grove/operator/internal/component/utils"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )

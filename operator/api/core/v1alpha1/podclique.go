@@ -138,6 +138,7 @@ type PodCliqueRollingUpdateProgress struct {
 	UpdateStartedAt          metav1.Time  `json:"updateStartedAt,omitempty"`
 	UpdateEndedAt            *metav1.Time `json:"updateEndedAt,omitempty"`
 	PodGangSetGenerationHash string       `json:"podGangSetGenerationHash"`
+	PodTemplateHash          string       `json:"podTemplateHash"`
 	// ReadyPodsSelectedToUpdate captures the pod names of ready Pods that are either currently being updated or have been previously updated.
 	ReadyPodsSelectedToUpdate *PodsSelectedToUpdate `json:"readyPodsSelectedToUpdate,omitempty"`
 }

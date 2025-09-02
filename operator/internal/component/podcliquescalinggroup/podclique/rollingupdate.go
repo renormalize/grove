@@ -3,7 +3,6 @@ package podclique
 import (
 	"context"
 	"fmt"
-	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
 	"slices"
 	"strconv"
 
@@ -11,8 +10,10 @@ import (
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
+	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
 	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
+
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,6 +45,15 @@ func (w *pendingUpdateWork) getNextReplicaToUpdate() *int {
 		return &w.pendingUpdateReplicaInfos[0].replicaIndex
 	}
 	return nil
+}
+
+// isScheduled checks if all PodCliques in the PCSG replica are scheduled with at least minAvailable pods.
+// Every PCSG replica is gang scheduled. Gang scheduling can only be done if there are sufficient resources for
+// at least minAvailable pods for every PodClique in the PCSG replica.
+func (pri *pcsgReplicaInfo) isScheduled() bool {
+	return lo.EveryBy(pri.pclqs, func(pclq grovecorev1alpha1.PodClique) bool {
+		return pclq.Status.ScheduledReplicas >= *pclq.Spec.MinAvailable
+	})
 }
 
 func orderPCSGReplicaInfoForPCSG(a, b pcsgReplicaInfo) int {
@@ -94,11 +104,11 @@ func (pri *pcsgReplicaInfo) computeUpdateProgress(pcsg *grovecorev1alpha1.PodCli
 	pri.updateProgress = updateProgress
 }
 
-func (r _resource) processPendingUpdates(ctx context.Context, logger logr.Logger, syncCtx *syncContext, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
-	updateWork := r.computePendingWork(logger, syncCtx, pcsg)
+func (r _resource) processPendingUpdates(logger logr.Logger, sc *syncContext) error {
+	updateWork := r.computePendingWork(logger, sc, sc.pcsg)
 
-	if pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil && updateWork.currentlyUpdatingReplicaInfo != nil {
-		if err := r.updatePCSGWithReplicaUpdateProgress(ctx, logger, syncCtx, pcsg, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
+	if sc.pcsg.Status.RollingUpdateProgress.CurrentlyUpdating != nil && updateWork.currentlyUpdatingReplicaInfo != nil {
+		if err := r.updatePCSGWithReplicaUpdateProgress(sc.ctx, logger, sc, sc.pcsg, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
 			return err
 		}
 		if !updateWork.currentlyUpdatingReplicaInfo.updateProgress.done {
@@ -112,15 +122,15 @@ func (r _resource) processPendingUpdates(ctx context.Context, logger logr.Logger
 
 	// pick the next replica index to update
 	nextReplicaToUpdate := updateWork.getNextReplicaToUpdate()
-	if err := r.updatePCSGRollingUpdateProgress(ctx, logger, pcsg, nextReplicaToUpdate); err != nil {
+	if err := r.updatePCSGRollingUpdateProgress(sc.ctx, logger, sc.pcsg, nextReplicaToUpdate); err != nil {
 		return err
 	}
 
 	if nextReplicaToUpdate != nil {
 		logger.Info("triggering deletion of PodCliqueScalingGroup replica to update", "pcsgIndexToUpdate", *nextReplicaToUpdate)
 		replicaIndexStr := strconv.Itoa(*nextReplicaToUpdate)
-		deletionTasks := r.createDeleteTasks(logger, syncCtx.pgs, pcsg.Name, []string{replicaIndexStr}, "deleting PCSG replica to perform update")
-		if err := r.triggerDeletionOfPodCliques(ctx, logger, client.ObjectKeyFromObject(pcsg), deletionTasks); err != nil {
+		deletionTasks := r.createDeleteTasks(logger, sc.pgs, sc.pcsg.Name, []string{replicaIndexStr}, "deleting PCSG replica to perform update")
+		if err := r.triggerDeletionOfPodCliques(sc.ctx, logger, client.ObjectKeyFromObject(sc.pcsg), deletionTasks); err != nil {
 			return err
 		}
 		return groveerr.New(

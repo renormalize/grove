@@ -28,9 +28,9 @@ import (
 	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -159,7 +159,6 @@ func (r *Reconciler) initOrResetRollingUpdate(ctx context.Context, pgs *grovecor
 		PodGangSetGenerationHash: *pgs.Status.CurrentGenerationHash,
 		PodTemplateHash:          podTemplateHash,
 	}
-	fmt.Printf("DEBUG: Initialized PCLQ %v for rolling udpate: %+v\n", client.ObjectKeyFromObject(pclq), pclq.Status.RollingUpdateProgress)
 	pclq.Status.CurrentPodGangSetGenerationHash = pgs.Status.CurrentGenerationHash
 	pclq.Status.CurrentPodTemplateHash = &podTemplateHash
 	// reset the updated replicas count to 0 so that the rolling update can start afresh.

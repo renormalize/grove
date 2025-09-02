@@ -18,11 +18,13 @@ package utils
 
 import (
 	"fmt"
-	apicommon "github.com/NVIDIA/grove/operator/api/common"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strconv"
 	"strings"
+
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // GetPodGangSetReplicaIndexFromPodCliqueFQN extracts the PodGangSet replica index from a Pod Clique FQN name.

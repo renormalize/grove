@@ -19,6 +19,7 @@ package podclique
 import (
 	"context"
 	"fmt"
+
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -122,9 +123,9 @@ func mutateUpdatedReplica(pclq *grovecorev1alpha1.PodClique, existingPods []*cor
 	if componentutils.IsPCLQUpdateInProgress(pclq) {
 		expectedPodTemplateHash = pclq.Status.RollingUpdateProgress.PodTemplateHash
 	} else if pclq.Status.CurrentPodTemplateHash != nil {
+		// CurrentPodTemplateHash will be set if RollingUpdateProgress is nil or if the last update has completed.
 		expectedPodTemplateHash = *pclq.Status.CurrentPodTemplateHash
 	}
-	fmt.Printf("DEBUG: expectedPodTemplateHash=%q\n", expectedPodTemplateHash)
 	// If expectedPodTemplateHash is empty, it means that the PCLQ has never been successfully reconciled and therefore no pods should be considered as updated.
 	// This prevents incorrectly marking all existing pods as updated when the PCLQ is first created.
 	// Once the PCLQ is successfully reconciled, the expectedPodTemplateHash will be set and the updated replicas can be calculated correctly.
