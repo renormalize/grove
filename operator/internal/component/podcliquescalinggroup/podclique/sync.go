@@ -95,7 +95,7 @@ func getExpectedPCLQPodTemplateHashMap(pgs *grovecorev1alpha1.PodGangSet, pcsg *
 		if !ok {
 			continue
 		}
-		podTemplateHash := componentutils.GetPCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName)
+		podTemplateHash := componentutils.ComputePCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName)
 		for pcsgReplicaIndex := range int(pcsg.Spec.Replicas) {
 			cliqueFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{
 				Name:    pcsg.Name,

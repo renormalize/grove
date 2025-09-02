@@ -72,12 +72,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if !controllerutil.ContainsFinalizer(pclq, constants.FinalizerPodClique) {
 			return ctrlcommon.DoNotRequeue().Result()
 		}
-		dLog := logger.WithValues("operation", "delete")
-		return r.triggerDeletionFlow(ctx, dLog, pclq).Result()
+		return r.triggerDeletionFlow(ctx, logger, pclq).Result()
 	}
-	specLog := logger.WithValues("operation", "specReconcile")
 
-	reconcileSpecFlowResult := r.reconcileSpec(ctx, specLog, pclq)
+	reconcileSpecFlowResult := r.reconcileSpec(ctx, logger, pclq)
 	if statusReconcileResult := r.reconcileStatus(ctx, logger, pclq); ctrlcommon.ShortCircuitReconcileFlow(statusReconcileResult) {
 		return statusReconcileResult.Result()
 	}

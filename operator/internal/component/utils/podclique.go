@@ -140,8 +140,8 @@ func groupPCLQsByLabel(pclqs []grovecorev1alpha1.PodClique, labelKey string) map
 	return grouped
 }
 
-// GetPCLQPodTemplateHash computes the pod template hash for the PCLQ pod spec.
-func GetPCLQPodTemplateHash(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, priorityClassName string) string {
+// ComputePCLQPodTemplateHash computes the pod template hash for the PCLQ pod spec.
+func ComputePCLQPodTemplateHash(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, priorityClassName string) string {
 	podTemplateSpec := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:      pclqTemplateSpec.Labels,
@@ -158,6 +158,11 @@ func IsPCLQUpdateInProgress(pclq *grovecorev1alpha1.PodClique) bool {
 	return pclq.Status.RollingUpdateProgress != nil && pclq.Status.RollingUpdateProgress.UpdateEndedAt == nil
 }
 
+// IsLastPCLQUpdateCompleted checks if the last rolling update of PodClique is completed.
+func IsLastPCLQUpdateCompleted(pclq *grovecorev1alpha1.PodClique) bool {
+	return pclq.Status.RollingUpdateProgress != nil && pclq.Status.RollingUpdateProgress.UpdateEndedAt != nil
+}
+
 // GetMatchingPodCliqueTemplate gets the PodCliqueTemplateSpec from the PodGangSet matching the given PCLQ ObjectMeta.
 func GetMatchingPodCliqueTemplate(pgs *grovecorev1alpha1.PodGangSet, pclqObjectMeta metav1.ObjectMeta) (*grovecorev1alpha1.PodCliqueTemplateSpec, error) {
 	cliqueName, err := utils.GetPodCliqueNameFromPodCliqueFQN(pclqObjectMeta)
@@ -171,4 +176,19 @@ func GetMatchingPodCliqueTemplate(pgs *grovecorev1alpha1.PodGangSet, pclqObjectM
 		return nil, fmt.Errorf("pod clique template not found for cliqueName: %s", cliqueName)
 	}
 	return matchingPCLQTemplateSpec, nil
+}
+
+// GetPCLQPodTemplateHash finds the matching PodCliqueTemplateSpec from the PodGangSet and computes the pod template hash for the PCLQ pod spec.
+func GetPCLQPodTemplateHash(pgs *grovecorev1alpha1.PodGangSet, pclqObjectMeta metav1.ObjectMeta) (string, error) {
+	cliqueName, err := utils.GetPodCliqueNameFromPodCliqueFQN(pclqObjectMeta)
+	if err != nil {
+		return "", err
+	}
+	matchingPCLQTemplateSpec, ok := lo.Find(pgs.Spec.Template.Cliques, func(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec) bool {
+		return cliqueName == pclqTemplateSpec.Name
+	})
+	if !ok {
+		return "", fmt.Errorf("pod clique template not found for cliqueName: %s", cliqueName)
+	}
+	return ComputePCLQPodTemplateHash(matchingPCLQTemplateSpec, pgs.Spec.Template.PriorityClassName), nil
 }

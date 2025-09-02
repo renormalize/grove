@@ -104,11 +104,6 @@ func GetMinAvailableBreachedPCSGInfo(pcsgs []grovecorev1alpha1.PodCliqueScalingG
 	return pcsgCandidateNames, waitForDurations[0]
 }
 
-// IsPCSGUpdateInProgress checks if PCSG is under rolling update.
-func IsPCSGUpdateInProgress(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) bool {
-	return pcsg.Status.RollingUpdateProgress != nil && pcsg.Status.RollingUpdateProgress.UpdateEndedAt == nil
-}
-
 // GenerateDependencyNamesForBasePodGang generates the FQNs of all PodCliques that would qualify as a dependency.
 func GenerateDependencyNamesForBasePodGang(pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int, parentCliqueName string) []string {
 	parentPCLQNames := make([]string, 0)
@@ -180,7 +175,7 @@ func GetPCLQTemplateHashes(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1a
 	for pcsgReplicaIndex := range int(pcsg.Spec.Replicas) {
 		for _, pclqTemplateSpec := range pclqTemplateSpecs {
 			pclqFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcsg.Name, Replica: pcsgReplicaIndex}, pclqTemplateSpec.Name)
-			cliqueTemplateSpecHashes[pclqFQN] = GetPCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName)
+			cliqueTemplateSpecHashes[pclqFQN] = ComputePCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName)
 		}
 	}
 	return cliqueTemplateSpecHashes
@@ -200,6 +195,11 @@ func GetPCLQsInPCSGPendingUpdate(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovec
 		}
 	}
 	return pclqFQNsPendingUpdate
+}
+
+// IsPCSGUpdateInProgress checks if PCSG is under rolling update.
+func IsPCSGUpdateInProgress(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) bool {
+	return pcsg.Status.RollingUpdateProgress != nil && pcsg.Status.RollingUpdateProgress.UpdateEndedAt == nil
 }
 
 // IsPCSGUpdateComplete returns whether the rolling update of the PodCliqueScalingGroup is complete.

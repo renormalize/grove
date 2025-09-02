@@ -8691,6 +8691,8 @@ spec:
                 properties:
                   podGangSetGenerationHash:
                     type: string
+                  podTemplateHash:
+                    type: string
                   readyPodsSelectedToUpdate:
                     description: ReadyPodsSelectedToUpdate captures the pod names
                       of ready Pods that are either currently being updated or have
@@ -8717,6 +8719,7 @@ spec:
                     type: string
                 required:
                 - podGangSetGenerationHash
+                - podTemplateHash
                 type: object
               scheduleGatedReplicas:
                 default: 0

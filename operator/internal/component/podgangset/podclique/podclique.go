@@ -362,7 +362,7 @@ func getLabels(pgs *grovecorev1alpha1.PodGangSet, pgsReplica int, pclqObjectKey 
 		apicommon.LabelComponentKey:           apicommon.LabelComponentNamePodGangSetPodClique,
 		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplica),
 		apicommon.LabelPodGang:                podGangName,
-		apicommon.LabelPodTemplateHash:        componentutils.GetPCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName),
+		apicommon.LabelPodTemplateHash:        componentutils.ComputePCLQPodTemplateHash(pclqTemplateSpec, pgs.Spec.Template.PriorityClassName),
 	}
 	return lo.Assign(
 		pclqTemplateSpec.Labels,

@@ -32,17 +32,18 @@ import (
 )
 
 func (r *Reconciler) triggerDeletionFlow(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
+	dLog := logger.WithValues("operation", "delete")
 	deleteStepFns := []ctrlcommon.ReconcileStepFn[grovecorev1alpha1.PodClique]{
 		r.deletePodCliqueResources,
 		r.verifyNoResourcesAwaitsCleanup,
 		r.removeFinalizer,
 	}
 	for _, fn := range deleteStepFns {
-		if stepResult := fn(ctx, logger, pclq); ctrlcommon.ShortCircuitReconcileFlow(stepResult) {
+		if stepResult := fn(ctx, dLog, pclq); ctrlcommon.ShortCircuitReconcileFlow(stepResult) {
 			return stepResult
 		}
 	}
-	logger.Info("PodClique deleted successfully")
+	dLog.Info("PodClique deleted successfully")
 	return ctrlcommon.DoNotRequeue()
 }
 
