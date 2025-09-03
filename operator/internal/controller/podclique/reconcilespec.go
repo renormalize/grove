@@ -159,8 +159,6 @@ func (r *Reconciler) initOrResetRollingUpdate(ctx context.Context, pgs *grovecor
 		PodGangSetGenerationHash: *pgs.Status.CurrentGenerationHash,
 		PodTemplateHash:          podTemplateHash,
 	}
-	pclq.Status.CurrentPodGangSetGenerationHash = pgs.Status.CurrentGenerationHash
-	pclq.Status.CurrentPodTemplateHash = &podTemplateHash
 	// reset the updated replicas count to 0 so that the rolling update can start afresh.
 	pclq.Status.UpdatedReplicas = 0
 	if err = r.client.Status().Patch(ctx, pclq, patch); err != nil {
