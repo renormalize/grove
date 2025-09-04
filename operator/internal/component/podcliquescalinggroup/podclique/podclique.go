@@ -150,6 +150,9 @@ func (r _resource) Delete(ctx context.Context, logger logr.Logger, pcsgObjectMet
 }
 
 func (r _resource) triggerDeletionOfPodCliques(ctx context.Context, logger logr.Logger, pcsgObjectKey client.ObjectKey, deletionTasks []utils.Task) error {
+	if len(deletionTasks) == 0 {
+		return nil
+	}
 	if runResult := utils.RunConcurrently(ctx, logger, deletionTasks); runResult.HasErrors() {
 		return groveerr.WrapError(runResult.GetAggregatedError(),
 			errCodeDeletePodClique,
