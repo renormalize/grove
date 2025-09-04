@@ -262,14 +262,13 @@ func (pri *pgsReplicaInfo) getNumScheduledPods(pgs *grovecorev1alpha1.PodGangSet
 }
 
 func isPCLQUpdateComplete(pclq *grovecorev1alpha1.PodClique, currentPGSGenerationHash string) bool {
-	//if pclq.Status.ReadyReplicas >= *pclq.Spec.MinAvailable &&
-	//	pclq.Status.CurrentPodGangSetGenerationHash != nil &&
-	//	*pclq.Status.CurrentPodGangSetGenerationHash == currentPGSGenerationHash &&
-	//	pclq.Status.UpdatedReplicas == pclq.Spec.Replicas {
-	//	// TODO: pclq.status.availableReplicas < pclq.spec.minAvailable should also be included in this check
-	return true
-	//}
-	//return false
+	if pclq.Status.CurrentPodGangSetGenerationHash != nil &&
+		*pclq.Status.CurrentPodGangSetGenerationHash == currentPGSGenerationHash &&
+		pclq.Status.UpdatedReplicas >= *pclq.Spec.MinAvailable &&
+		pclq.Status.ReadyReplicas >= *pclq.Spec.MinAvailable {
+		return true
+	}
+	return false
 }
 
 func isRollingUpdateInProgress(pgs *grovecorev1alpha1.PodGangSet) bool {
