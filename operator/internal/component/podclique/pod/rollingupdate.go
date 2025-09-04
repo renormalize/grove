@@ -22,22 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-/*
-	compute update work
-	check if there is any current pod selected for update and is the update of the pod complete.
-	if no {
-		requeue
-	}
-	pickNext pod to update
-	if there is next pod to update {
-		update the status
-		trigger deletion of pod
-		requeue
-	} else {
-		update status to end rolling update.
-	}
-*/
-
+// updateWork encapsulates the information needed to perform a rolling update of pods in a PodClique.
 type updateWork struct {
 	oldTemplateHashPendingPods   []*corev1.Pod
 	oldTemplateHashUnhealthyPods []*corev1.Pod
@@ -207,7 +192,7 @@ func isCurrentPodUpdateComplete(sc *syncContext, work *updateWork) bool {
 	if ok && !k8sutils.IsResourceTerminating(pod.ObjectMeta) {
 		return false
 	}
-	podsSelectedToUpdate := len(sc.pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Previous) + 1
+	podsSelectedToUpdate := len(sc.pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Completed) + 1
 	return len(work.newTemplateHashReadyPods) >= podsSelectedToUpdate
 }
 
@@ -217,7 +202,7 @@ func (r _resource) updatePCLQStatusWithNextPodToUpdate(ctx context.Context, logg
 	if pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate == nil {
 		pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate = &grovecorev1alpha1.PodsSelectedToUpdate{}
 	} else {
-		pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Previous = append(pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Previous, pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Current)
+		pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Completed = append(pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Completed, pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Current)
 	}
 	pclq.Status.RollingUpdateProgress.ReadyPodsSelectedToUpdate.Current = nextPodToUpdate
 

@@ -207,22 +207,21 @@ spec:
                 type: integer
               rollingUpdateProgress:
                 properties:
-                  currentlyUpdating:
-                    properties:
-                      replicaIndex:
-                        format: int32
-                        type: integer
-                      scheduled:
-                        type: boolean
-                      updateStartedAt:
-                        format: date-time
-                        type: string
-                    required:
-                    - replicaIndex
-                    - scheduled
-                    type: object
                   podGangSetGenerationHash:
                     type: string
+                  readyReplicaIndicesSelectedToUpdate:
+                    properties:
+                      completed:
+                        items:
+                          format: int32
+                          type: integer
+                        type: array
+                      current:
+                        format: int32
+                        type: integer
+                    required:
+                    - current
+                    type: object
                   updateEndedAt:
                     format: date-time
                     type: string

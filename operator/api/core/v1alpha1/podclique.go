@@ -147,8 +147,8 @@ type PodCliqueRollingUpdateProgress struct {
 type PodsSelectedToUpdate struct {
 	// Current captures the current pod name that is a target for update.
 	Current string `json:"current"`
-	// Previous captures the previous pod names that have now been updated.
-	Previous []string `json:"previous,omitempty"`
+	// Completed captures the pod names that have already been updated.
+	Completed []string `json:"completed,omitempty"`
 }
 
 // SetLastErrors sets the last errors observed by the controller when reconciling the PodClique.

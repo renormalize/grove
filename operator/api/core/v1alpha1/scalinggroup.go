@@ -102,17 +102,16 @@ type PodCliqueScalingGroupStatus struct {
 }
 
 type PodCliqueScalingGroupRollingUpdateProgress struct {
-	UpdateStartedAt          metav1.Time                                        `json:"updateStartedAt"`
-	UpdateEndedAt            *metav1.Time                                       `json:"updateEndedAt,omitempty"`
-	PodGangSetGenerationHash string                                             `json:"podGangSetGenerationHash"`
-	UpdatedPodCliques        []string                                           `json:"updatedPodCliques,omitempty"`
-	CurrentlyUpdating        *PodCliqueScalingGroupReplicaRollingUpdateProgress `json:"currentlyUpdating,omitempty"`
+	UpdateStartedAt                     metav1.Time                                        `json:"updateStartedAt"`
+	UpdateEndedAt                       *metav1.Time                                       `json:"updateEndedAt,omitempty"`
+	PodGangSetGenerationHash            string                                             `json:"podGangSetGenerationHash"`
+	UpdatedPodCliques                   []string                                           `json:"updatedPodCliques,omitempty"`
+	ReadyReplicaIndicesSelectedToUpdate *PodCliqueScalingGroupReplicaRollingUpdateProgress `json:"readyReplicaIndicesSelectedToUpdate,omitempty"`
 }
 
 type PodCliqueScalingGroupReplicaRollingUpdateProgress struct {
-	ReplicaIndex    int32       `json:"replicaIndex"`
-	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
-	Scheduled       bool        `json:"scheduled"`
+	Current   int32   `json:"current"`
+	Completed []int32 `json:"completed,omitempty"`
 }
 
 // SetLastErrors sets the last errors observed by the controller when reconciling the PodCliqueScalingGroup.

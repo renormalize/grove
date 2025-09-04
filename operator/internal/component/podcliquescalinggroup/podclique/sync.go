@@ -32,6 +32,43 @@ type syncContext struct {
 	expectedPCLQPodTemplateHashMap map[string]string
 }
 
+func (r _resource) prepareSyncContext(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) (*syncContext, error) {
+	var (
+		syncCtx = &syncContext{
+			ctx:  ctx,
+			pcsg: pcsg,
+		}
+		err error
+	)
+
+	// get the PodGangSet
+	syncCtx.pgs, err = componentutils.GetPodGangSet(ctx, r.client, pcsg.ObjectMeta)
+	if err != nil {
+		return nil, groveerr.WrapError(err,
+			errCodeGetPodGangSet,
+			component.OperationSync,
+			fmt.Sprintf("failed to get owner PodGangSet for PodCliqueScalingGroup %s", client.ObjectKeyFromObject(pcsg)),
+		)
+	}
+
+	// compute the expected state and get existing state.
+	syncCtx.expectedPCLQFQNsPerPCSGReplica = getExpectedPodCliqueFQNsByPCSGReplica(pcsg)
+	syncCtx.existingPCLQs, err = r.getExistingPCLQs(ctx, pcsg)
+	if err != nil {
+		return nil, err
+	}
+
+	// compute the PCSG indices that have their MinAvailableBreached condition set to true. Segregated these into two
+	// pcsgIndicesToTerminate will have the indices for which the TerminationDelay has expired.
+	// pcsgIndicesToRequeue will have the indices for which the TerminationDelay has not yet expired.
+	syncCtx.pcsgIndicesToTerminate, syncCtx.pcsgIndicesToRequeue = getMinAvailableBreachedPCSGIndices(logger, syncCtx.existingPCLQs, syncCtx.pgs.Spec.Template.TerminationDelay.Duration)
+
+	// pre-compute expected PodTemplateHash for each PCLQ
+	syncCtx.expectedPCLQPodTemplateHashMap = getExpectedPCLQPodTemplateHashMap(syncCtx.pgs, pcsg)
+
+	return syncCtx, nil
+}
+
 func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) error {
 	// If there are excess PodCliques than expected, delete the ones that are no longer expected but existing.
 	// This can happen when PCSG replicas have been scaled-in.
@@ -166,46 +203,9 @@ func (r _resource) processMinAvailableBreachedPCSGReplicas(logger logr.Logger, s
 	return nil
 }
 
-func (r _resource) prepareSyncContext(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) (*syncContext, error) {
-	var (
-		syncCtx = &syncContext{
-			ctx:  ctx,
-			pcsg: pcsg,
-		}
-		err error
-	)
-
-	// get the PodGangSet
-	syncCtx.pgs, err = componentutils.GetPodGangSet(ctx, r.client, pcsg.ObjectMeta)
-	if err != nil {
-		return nil, groveerr.WrapError(err,
-			errCodeGetPodGangSet,
-			component.OperationSync,
-			fmt.Sprintf("failed to get owner PodGangSet for PodCliqueScalingGroup %s", client.ObjectKeyFromObject(pcsg)),
-		)
-	}
-
-	// compute the expected state and get existing state.
-	syncCtx.expectedPCLQFQNsPerPCSGReplica = getExpectedPodCliqueFQNsByPCSGReplica(pcsg)
-	syncCtx.existingPCLQs, err = r.getExistingPCLQs(ctx, pcsg)
-	if err != nil {
-		return nil, err
-	}
-
-	// compute the PCSG indices that have their MinAvailableBreached condition set to true. Segregated these into two
-	// pcsgIndicesToTerminate will have the indices for which the TerminationDelay has expired.
-	// pcsgIndicesToRequeue will have the indices for which the TerminationDelay has not yet expired.
-	syncCtx.pcsgIndicesToTerminate, syncCtx.pcsgIndicesToRequeue = getMinAvailableBreachedPCSGIndices(logger, syncCtx.existingPCLQs, syncCtx.pgs.Spec.Template.TerminationDelay.Duration)
-
-	// pre-compute expected PodTemplateHash for each PCLQ
-	syncCtx.expectedPCLQPodTemplateHashMap = getExpectedPCLQPodTemplateHashMap(syncCtx.pgs, pcsg)
-
-	return syncCtx, nil
-}
-
 func getMinAvailableBreachedPCSGIndices(logger logr.Logger, existingPCLQs []grovecorev1alpha1.PodClique, terminationDelay time.Duration) (pcsgIndicesToTerminate []string, pcsgIndicesToRequeue []string) {
 	now := time.Now()
-	// group existing PCLQs by PCSG replica index. These are PCLQs that belong to once replica of PCSG.
+	// group existing PCLQs by PCSG replica index. These are PCLQs that belong to one replica of PCSG.
 	pcsgReplicaIndexPCLQs := componentutils.GroupPCLQsByPCSGReplicaIndex(existingPCLQs)
 	// For each PCSG replica check if minAvailable for any constituent PCLQ has been violated. Those PCSG replicas should be marked for termination.
 	for pcsgReplicaIndex, pclqs := range pcsgReplicaIndexPCLQs {

@@ -45,20 +45,20 @@ import (
 )
 
 const (
-	errCodeListPodClique                          grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUE"
-	errCodeMissingStartupType                     grovecorev1alpha1.ErrorCode = "ERR_UNDEFINED_STARTUP_TYPE"
-	errCodeSetPodCliqueOwnerReference             grovecorev1alpha1.ErrorCode = "ERR_SET_PODCLIQUE_OWNER_REFERENCE"
-	errCodeBuildPodClique                         grovecorev1alpha1.ErrorCode = "ERR_BUILD_PODCLIQUE"
-	errCodeCreatePodCliques                       grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODCLIQUES"
-	errCodeDeletePodClique                        grovecorev1alpha1.ErrorCode = "ERR_DELETE_PODCLIQUE"
-	errCodeGetPodGangSet                          grovecorev1alpha1.ErrorCode = "ERR_GET_PODGANGSET"
-	errCodeMissingPGSReplicaIndex                 grovecorev1alpha1.ErrorCode = "ERR_MISSING_PODGANGSET_REPLICA_INDEX"
-	errCodeReplicaIndexIntConversion              grovecorev1alpha1.ErrorCode = "ERR_PODGANGSET_REPLICA_INDEX_CONVERSION"
-	errCodeListPodCliquesForPCSG                  grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUE_FOR_PCSG"
-	errCodeCreatePodClique                        grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODCLIQUE"
-	errCodeParsePodCliqueScalingGroupReplicaIndex grovecorev1alpha1.ErrorCode = "ERR_PARSE_PODCLIQUESCALINGGROUP_REPLICA_INDEX"
-	errCodeUpdateStatus                           grovecorev1alpha1.ErrorCode = "ERR_UPDATE_STATUS"
-	errCodeUpdateLastIndexSelectedForUpdate       grovecorev1alpha1.ErrorCode = "ERR_UPDATE_STATUS_LAST_INDEX_SELECTED_FOR_UPDATE"
+	errCodeListPodClique                                 grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUE"
+	errCodeMissingStartupType                            grovecorev1alpha1.ErrorCode = "ERR_UNDEFINED_STARTUP_TYPE"
+	errCodeSetPodCliqueOwnerReference                    grovecorev1alpha1.ErrorCode = "ERR_SET_PODCLIQUE_OWNER_REFERENCE"
+	errCodeBuildPodClique                                grovecorev1alpha1.ErrorCode = "ERR_BUILD_PODCLIQUE"
+	errCodeCreatePodCliques                              grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODCLIQUES"
+	errCodeDeletePodClique                               grovecorev1alpha1.ErrorCode = "ERR_DELETE_PODCLIQUE"
+	errCodeGetPodGangSet                                 grovecorev1alpha1.ErrorCode = "ERR_GET_PODGANGSET"
+	errCodeMissingPGSReplicaIndex                        grovecorev1alpha1.ErrorCode = "ERR_MISSING_PODGANGSET_REPLICA_INDEX"
+	errCodeReplicaIndexIntConversion                     grovecorev1alpha1.ErrorCode = "ERR_PODGANGSET_REPLICA_INDEX_CONVERSION"
+	errCodeListPodCliquesForPCSG                         grovecorev1alpha1.ErrorCode = "ERR_LIST_PODCLIQUE_FOR_PCSG"
+	errCodeCreatePodClique                               grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODCLIQUE"
+	errCodeParsePodCliqueScalingGroupReplicaIndex        grovecorev1alpha1.ErrorCode = "ERR_PARSE_PODCLIQUESCALINGGROUP_REPLICA_INDEX"
+	errCodeUpdateStatus                                  grovecorev1alpha1.ErrorCode = "ERR_UPDATE_STATUS"
+	errCodeComputePendingPodCliqueScalingGroupUpdateWork grovecorev1alpha1.ErrorCode = "ERR_COMPUTE_PENDINGUPDATE_WORK"
 )
 
 var (
