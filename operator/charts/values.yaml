@@ -11,8 +11,7 @@ image:
 
 resources:
   limits:
-    cpu: 300m
-    memory: 512Mi
+    memory: 1Gi
   requests:
     cpu: 50m
     memory: 128Mi
@@ -132,3 +131,4 @@ priorityClass:
   enabled: false
   name: grove-operator-priority-critical
   value: 999999550
+
