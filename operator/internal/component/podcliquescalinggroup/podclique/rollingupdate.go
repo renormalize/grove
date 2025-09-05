@@ -3,7 +3,6 @@ package podclique
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strconv"
 
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
@@ -24,7 +23,6 @@ type updateWork struct {
 	oldPendingReplicaIndices     []int
 	oldUnavailableReplicaIndices []int
 	oldReadyReplicaIndices       []int
-	newReadyReplicaIndices       []int
 }
 
 type replicaState int
@@ -146,17 +144,19 @@ func computePendingUpdateWork(sc *syncContext) (*updateWork, error) {
 		if isReplicaDeletedOrMarkedForDeletion(sc.pcsg, existingPCSGReplicaPCLQs, pcsgReplicaIndex) {
 			continue
 		}
-		state := getReplicaState(existingPCSGReplicaPCLQs, len(sc.expectedPCLQFQNsPerPCSGReplica[pcsgReplicaIndex]))
+		// pcsgReplicaIndex is the currently updating replica
+		if sc.pcsg.Status.RollingUpdateProgress.ReadyReplicaIndicesSelectedToUpdate != nil &&
+			sc.pcsg.Status.RollingUpdateProgress.ReadyReplicaIndicesSelectedToUpdate.Current == int32(pcsgReplicaIndex) {
+			continue
+		}
 		isUpdated, err := isReplicaUpdated(sc.expectedPCLQPodTemplateHashMap, existingPCSGReplicaPCLQs)
 		if err != nil {
 			return nil, err
 		}
 		if isUpdated {
-			if state == replicaStateReady {
-				work.newReadyReplicaIndices = append(work.newReadyReplicaIndices, pcsgReplicaIndex)
-			}
 			continue
 		}
+		state := getReplicaState(existingPCSGReplicaPCLQs)
 		switch state {
 		case replicaStatePending:
 			work.oldPendingReplicaIndices = append(work.oldPendingReplicaIndices, pcsgReplicaIndex)
@@ -166,8 +166,6 @@ func computePendingUpdateWork(sc *syncContext) (*updateWork, error) {
 			work.oldReadyReplicaIndices = append(work.oldReadyReplicaIndices, pcsgReplicaIndex)
 		}
 	}
-	// highest index is picked first for update
-	slices.Reverse(work.oldReadyReplicaIndices)
 	return work, nil
 }
 
@@ -223,11 +221,11 @@ func isReplicaDeletedOrMarkedForDeletion(pcsg *grovecorev1alpha1.PodCliqueScalin
 	})
 }
 
-func getReplicaState(pcsgReplicaPCLQs []grovecorev1alpha1.PodClique, numExpectedPCLQs int) replicaState {
-	if len(pcsgReplicaPCLQs) < numExpectedPCLQs {
-		return replicaStatePending
-	}
+func getReplicaState(pcsgReplicaPCLQs []grovecorev1alpha1.PodClique) replicaState {
 	for _, pclq := range pcsgReplicaPCLQs {
+		if pclq.Status.ScheduledReplicas < *pclq.Spec.MinAvailable {
+			return replicaStatePending
+		}
 		if pclq.Status.ReadyReplicas < *pclq.Spec.MinAvailable {
 			return replicaStateUnAvailable
 		}

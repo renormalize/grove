@@ -19,6 +19,7 @@ package podclique
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
@@ -109,7 +110,7 @@ func shouldCheckPendingUpdatesForPCLQ(logger logr.Logger, pgs *grovecorev1alpha1
 	// Only if PCLQ does not belong to any PCSG should an update be triggered for the PCLQ. For PCLQs that belong to
 	// a PCSG, the PCSG controller will handle the updates by deleting the PCLQ resources instead of updating PCLQ pods
 	// individually.
-	if !componentutils.IsStandalonePCLQ(pgs, pclq.Name) {
+	if !slices.Contains(componentutils.GetPodCliqueFQNsForPGSNotInPCSG(pgs), pclq.Name) {
 		return false, nil
 	}
 

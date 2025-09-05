@@ -53,15 +53,15 @@ func GetPodCliqueFQNsForPGSNotInPCSG(pgs *grovecorev1alpha1.PodGangSet) []string
 func GetPodCliqueFQNsForPGSReplicaNotInPCSG(pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int) []string {
 	pclqNames := make([]string, 0, len(pgs.Spec.Template.Cliques))
 	for _, pclqTemplateSpec := range pgs.Spec.Template.Cliques {
-		if IsStandalonePCLQ(pgs, pclqTemplateSpec.Name) {
+		if isStandalonePCLQ(pgs, pclqTemplateSpec.Name) {
 			pclqNames = append(pclqNames, common.GeneratePodCliqueName(common.ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex}, pclqTemplateSpec.Name))
 		}
 	}
 	return pclqNames
 }
 
-// IsStandalonePCLQ checks if the PodClique is managed by PodGangSet or not
-func IsStandalonePCLQ(pgs *grovecorev1alpha1.PodGangSet, pclqName string) bool {
+// isStandalonePCLQ checks if the PodClique is managed by PodGangSet or not
+func isStandalonePCLQ(pgs *grovecorev1alpha1.PodGangSet, pclqName string) bool {
 	return !lo.Reduce(pgs.Spec.Template.PodCliqueScalingGroupConfigs, func(agg bool, pcsgConfig grovecorev1alpha1.PodCliqueScalingGroupConfig, _ int) bool {
 		return agg || slices.Contains(pcsgConfig.CliqueNames, pclqName)
 	}, false)
