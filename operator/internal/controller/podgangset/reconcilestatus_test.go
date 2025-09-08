@@ -18,14 +18,14 @@ package podgangset
 
 import (
 	"context"
-	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/util/uuid"
 	"testing"
 
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	testutils "github.com/NVIDIA/grove/operator/test/utils"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -270,13 +270,4 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 			assert.Equal(t, tt.expectedAvailable, available, "Available replicas mismatch")
 		})
 	}
-}
-
-// Helper functions for testing
-
-// setupTestReconciler creates a reconciler with fake client containing the provided objects
-func setupTestReconciler(pgs *grovecorev1alpha1.PodGangSet, childObjects []client.Object) *Reconciler {
-	allObjects := append([]client.Object{pgs}, childObjects...)
-	fakeClient := testutils.SetupFakeClient(allObjects...)
-	return &Reconciler{client: fakeClient}
 }

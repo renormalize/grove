@@ -17,7 +17,6 @@
 package hpa
 
 import (
-	"k8s.io/apimachinery/pkg/util/uuid"
 	"testing"
 
 	"github.com/NVIDIA/grove/operator/api/common/constants"
@@ -26,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/utils/ptr"
 )
 
