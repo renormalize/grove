@@ -93,7 +93,8 @@ func (r _resource) getPGSReplicaDeletionWork(ctx context.Context, logger logr.Lo
 			deletionTasks = append(deletionTasks, pclqGangTerminationTask)
 			work.pgsIndicesToTerminate = append(work.pgsIndicesToTerminate, pgsReplicaIndex)
 		} else if len(breachedPCSGNames) > 0 || len(breachedPCLQNames) > 0 {
-			work.minAvailableBreachedConstituents[pgsReplicaIndex] = append(breachedPCLQNames, breachedPCLQNames...)
+			work.minAvailableBreachedConstituents[pgsReplicaIndex] = append(work.minAvailableBreachedConstituents[pgsReplicaIndex], breachedPCLQNames...)
+			work.minAvailableBreachedConstituents[pgsReplicaIndex] = append(work.minAvailableBreachedConstituents[pgsReplicaIndex], breachedPCSGNames...)
 		}
 	}
 	work.deletionTasks = deletionTasks
