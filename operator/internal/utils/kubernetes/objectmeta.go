@@ -19,7 +19,6 @@ package kubernetes
 import (
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -52,11 +51,4 @@ func GetObjectKeyFromObjectMeta(objMeta metav1.ObjectMeta) client.ObjectKey {
 // IsResourceTerminating checks if a deletion timestamp is set. If it is set it returns true else false.
 func IsResourceTerminating(objMeta metav1.ObjectMeta) bool {
 	return objMeta.GetDeletionTimestamp() != nil
-}
-
-// ToObjectNames converts a slice of client.ObjectKey to a slice of string representations in "namespace/name" format.
-func ToObjectNames(objectKeys []client.ObjectKey) []string {
-	return lo.Map(objectKeys, func(objectKey client.ObjectKey, _ int) string {
-		return cache.NamespacedNameAsObjectName(objectKey).String()
-	})
 }

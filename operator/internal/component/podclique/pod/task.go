@@ -50,7 +50,7 @@ func (r _resource) createPodCreationTask(logger logr.Logger, pgs *grovecorev1alp
 			}
 			// create the Pod
 			if err := r.client.Create(ctx, pod); err != nil {
-				r.eventRecorder.Eventf(pclq, corev1.EventTypeWarning, groveevents.ReasonPodCreationFailed, "Error creating pod %v: %v", pod.Name, err)
+				r.eventRecorder.Eventf(pclq, corev1.EventTypeWarning, groveevents.ReasonPodCreateFailed, "Error creating pod %v: %v", pod.Name, err)
 				return groveerr.WrapError(err,
 					errCodeCreatePod,
 					component.OperationSync,
@@ -61,7 +61,7 @@ func (r _resource) createPodCreationTask(logger logr.Logger, pgs *grovecorev1alp
 			if err := r.expectationsStore.ExpectCreations(logger, pclqExpectationsKey, pod.GetUID()); err != nil {
 				utilruntime.HandleErrorWithLogger(logger, err, "could not record create expectations for Pod", "pclqObjKey", pclqObjKey, "pod", pod.Name)
 			}
-			r.eventRecorder.Eventf(pclq, corev1.EventTypeNormal, groveevents.ReasonPodCreationSuccessful, "Created Pod: %s", pod.Name)
+			r.eventRecorder.Eventf(pclq, corev1.EventTypeNormal, groveevents.ReasonPodCreateSuccessful, "Created Pod: %s", pod.Name)
 			return nil
 		},
 	}
@@ -80,7 +80,7 @@ func (r _resource) createPodDeletionTask(logger logr.Logger, pclq *grovecorev1al
 					r.expectationsStore.ObserveDeletions(logger, pclqExpectationsKey, podToDelete.GetUID())
 					return nil
 				}
-				r.eventRecorder.Eventf(pclq, corev1.EventTypeWarning, groveevents.ReasonPodDeletionFailed, "Error deleting pod: %v", err)
+				r.eventRecorder.Eventf(pclq, corev1.EventTypeWarning, groveevents.ReasonPodDeleteFailed, "Error deleting pod: %v", err)
 				return groveerr.WrapError(err,
 					errCodeDeletePod,
 					component.OperationSync,
@@ -92,7 +92,7 @@ func (r _resource) createPodDeletionTask(logger logr.Logger, pclq *grovecorev1al
 			if err := r.expectationsStore.ExpectDeletions(logger, pclqExpectationsKey, podToDelete.GetUID()); err != nil {
 				utilruntime.HandleErrorWithLogger(logger, err, "could not record delete expectation", "pclq", pclqObjKey, "pod", podObjKey)
 			}
-			r.eventRecorder.Eventf(pclq, corev1.EventTypeNormal, groveevents.ReasonPodDeletionSuccessful, "Deleted Pod: %s", podToDelete.Name)
+			r.eventRecorder.Eventf(pclq, corev1.EventTypeNormal, groveevents.ReasonPodDeleteSuccessful, "Deleted Pod: %s", podToDelete.Name)
 			return nil
 		},
 	}

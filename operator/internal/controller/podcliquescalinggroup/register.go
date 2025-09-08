@@ -136,7 +136,6 @@ func shouldEnqueueOnPGSUpdate(event event.UpdateEvent) bool {
 		}
 	}
 	return false
-
 }
 
 func mapPCLQToPCSG() handler.MapFunc {

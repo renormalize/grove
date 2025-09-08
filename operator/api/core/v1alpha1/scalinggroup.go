@@ -96,21 +96,36 @@ type PodCliqueScalingGroupStatus struct {
 	LastErrors []LastError `json:"lastErrors,omitempty"`
 	// Conditions represents the latest available observations of the PodCliqueScalingGroup by its controller.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// CurrentPodGangSetGenerationHash
-	CurrentPodGangSetGenerationHash *string                                     `json:"currentPodGangSetGenerationHash,omitempty"`
-	RollingUpdateProgress           *PodCliqueScalingGroupRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
+	// CurrentPodGangSetGenerationHash establishes a correlation to PodGangSet generation hash indicating
+	// that the spec of the PodGangSet at this generation is fully realized in the PodCliqueScalingGroup.
+	CurrentPodGangSetGenerationHash *string `json:"currentPodGangSetGenerationHash,omitempty"`
+	// RollingUpdateProgress provides details about the ongoing rolling update of the PodCliqueScalingGroup.
+	RollingUpdateProgress *PodCliqueScalingGroupRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
 }
 
+// PodCliqueScalingGroupRollingUpdateProgress provides details about the ongoing rolling update of the PodCliqueScalingGroup.
 type PodCliqueScalingGroupRollingUpdateProgress struct {
-	UpdateStartedAt                     metav1.Time                                        `json:"updateStartedAt"`
-	UpdateEndedAt                       *metav1.Time                                       `json:"updateEndedAt,omitempty"`
-	PodGangSetGenerationHash            string                                             `json:"podGangSetGenerationHash"`
-	UpdatedPodCliques                   []string                                           `json:"updatedPodCliques,omitempty"`
+	//UpdateStartedAt is the time at which the rolling update started.
+	UpdateStartedAt metav1.Time `json:"updateStartedAt"`
+	// UpdateEndedAt is the time at which the rolling update ended.
+	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
+	// PodGangSetGenerationHash is the PodGangSet generation hash corresponding to the PodGangSet spec that is being rolled out.
+	// While the update is in progress PodCliqueScalingGroupStatus.CurrentPodGangSetGenerationHash will not match this hash. Once the update is complete the
+	// value of this field will be copied to PodCliqueScalingGroupStatus.CurrentPodGangSetGenerationHash.
+	PodGangSetGenerationHash string `json:"podGangSetGenerationHash"`
+	// UpdatedPodCliques is the list of PodClique names that have been updated to the latest PodGangSet spec.
+	UpdatedPodCliques []string `json:"updatedPodCliques,omitempty"`
+	// ReadyReplicaIndicesSelectedToUpdate provides the rolling update progress of ready replicas of PodCliqueScalingGroup that have been selected for update.
+	// PodCliqueScalingGroup replicas that are either pending or unhealthy will be force updated and the update will not wait for these replicas to become ready.
+	// For all ready replicas, one replica is chosen at a time to update, once it is updated and becomes ready, the next ready replica is chosen for update.
 	ReadyReplicaIndicesSelectedToUpdate *PodCliqueScalingGroupReplicaRollingUpdateProgress `json:"readyReplicaIndicesSelectedToUpdate,omitempty"`
 }
 
+// PodCliqueScalingGroupReplicaRollingUpdateProgress provides details about the rolling update progress of ready replicas of PodCliqueScalingGroup that have been selected for update.
 type PodCliqueScalingGroupReplicaRollingUpdateProgress struct {
-	Current   int32   `json:"current"`
+	// Current is the index of the PodCliqueScalingGroup replica that is currently being updated.
+	Current int32 `json:"current"`
+	// Completed is the list of indices of PodCliqueScalingGroup replicas that have been updated to the latest PodGangSet spec.
 	Completed []int32 `json:"completed,omitempty"`
 }
 

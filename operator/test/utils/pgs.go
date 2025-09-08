@@ -18,8 +18,6 @@ package utils
 
 import (
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
-
-	"github.com/google/uuid"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -30,9 +28,9 @@ type PodGangSetBuilder struct {
 }
 
 // NewPodGangSetBuilder creates a new PodGangSetBuilder.
-func NewPodGangSetBuilder(name, namespace string) *PodGangSetBuilder {
+func NewPodGangSetBuilder(name, namespace string, uid types.UID) *PodGangSetBuilder {
 	return &PodGangSetBuilder{
-		pgs: createEmptyPodGangSet(name, namespace),
+		pgs: createEmptyPodGangSet(name, namespace, uid),
 	}
 }
 
@@ -123,7 +121,8 @@ func (b *PodGangSetBuilder) WithScalingGroupConfig(name string, cliqueNames []st
 	return b
 }
 
-func (b *PodGangSetBuilder) WithStatus(pgsGenerationHash *string) *PodGangSetBuilder {
+// WithPodGangSetGenerationHash sets the CurrentGenerationHash in the PodGangSet status.
+func (b *PodGangSetBuilder) WithPodGangSetGenerationHash(pgsGenerationHash *string) *PodGangSetBuilder {
 	b.pgs.Status.CurrentGenerationHash = pgsGenerationHash
 	return b
 }
@@ -133,12 +132,12 @@ func (b *PodGangSetBuilder) Build() *grovecorev1alpha1.PodGangSet {
 	return b.pgs
 }
 
-func createEmptyPodGangSet(name, namespace string) *grovecorev1alpha1.PodGangSet {
+func createEmptyPodGangSet(name, namespace string, uid types.UID) *grovecorev1alpha1.PodGangSet {
 	return &grovecorev1alpha1.PodGangSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			UID:       types.UID(uuid.NewString()),
+			UID:       uid,
 		},
 		Spec: grovecorev1alpha1.PodGangSetSpec{
 			Replicas: 1,

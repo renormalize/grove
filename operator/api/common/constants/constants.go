@@ -72,8 +72,6 @@ const (
 	// ConditionTypePodCliqueScheduled indicates that the PodClique has been successfully scheduled.
 	// This condition is set to true when number of scheduled pods in the PodClique is greater than or equal to PodCliqueSpec.MinAvailable.
 	ConditionTypePodCliqueScheduled = "PodCliqueScheduled"
-	// // ConditionTypeUpdateInProgress indicates that update is in progress for the PodClique or PodCliqueScalingGroup.
-	// ConditionTypeUpdateInProgress = "UpdateInProgress"
 )
 
 // Constants for Condition Reasons.
@@ -82,10 +80,6 @@ const (
 	ConditionReasonInsufficientReadyPods = "InsufficientReadyPods"
 	// ConditionReasonSufficientReadyPods indicates that the number of ready pods in the PodClique is above the threshold defined in the PodCliqueSpec.MinAvailable threshold.
 	ConditionReasonSufficientReadyPods = "SufficientReadyPods"
-	// ConditionReasonInsufficientReadyPCSGReplicas indicates that the number of ready replicas in the PodCliqueScalingGroup is below the PodCliqueScalingGroupSpec.MinAvailable.
-	ConditionReasonInsufficientReadyPCSGReplicas = "InsufficientReadyPodCliqueScalingGroupReplicas"
-	// ConditionReasonSufficientReadyPCSGReplicas indicates that the number of ready replicas in the PodCliqueScalingGroup is greater than or equal to the PodCliqueScalingGroupSpec.MinAvailable.
-	ConditionReasonSufficientReadyPCSGReplicas = "SufficientReadyPodCliqueScalingGroupReplicas"
 	// ConditionReasonInsufficientScheduledPods indicates that the number of scheduled pods in the PodClique is below the threshold defined in the PodCliqueSpec.MinAvailable threshold.
 	ConditionReasonInsufficientScheduledPods = "InsufficientScheduledPods"
 	// ConditionReasonSufficientScheduledPods indicates that the number of scheduled pods in the PodClique greater or equal to PodCliqueSpec.MinAvailable.

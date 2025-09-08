@@ -44,7 +44,6 @@ const (
 	errListPodCliqueScalingGroup       grovecorev1alpha1.ErrorCode = "ERR_GET_POD_CLIQUE_SCALING_GROUPS"
 	errSyncPodCliqueScalingGroup       grovecorev1alpha1.ErrorCode = "ERR_SYNC_POD_CLIQUE_SCALING_GROUP"
 	errDeletePodCliqueScalingGroup     grovecorev1alpha1.ErrorCode = "ERR_DELETE_POD_CLIQUE_SCALING_GROUP"
-	errCodeBuildPodCliqueScalingGroup  grovecorev1alpha1.ErrorCode = "ERR_BUILD_PODCLIQUESCALINGGROUP"
 	errCodeCreatePodCliqueScalingGroup grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODCLIQUESCALINGGROUP"
 )
 
@@ -172,10 +171,11 @@ func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs
 		}
 		return nil
 	}); err != nil {
+		r.eventRecorder.Eventf(pgs, corev1.EventTypeWarning, groveevents.ReasonPodCliqueScalingGroupCreateOrUpdateFailed, "Error creating or updating PodCliqueScalingGroup %v: %v", pcsgObjectKey, err)
 		return err
 	}
 
-	r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodCliqueScalingGroupCreationSuccessful, "Created PodCliqueScalingGroup %v", pcsgObjectKey)
+	r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodCliqueScalingGroupCreateSuccessful, "Created PodCliqueScalingGroup %v", pcsgObjectKey)
 	logger.Info("Created or updated PodCliqueScalingGroup", "objectKey", pcsgObjectKey)
 	return nil
 }
@@ -184,14 +184,14 @@ func (r _resource) doDelete(ctx context.Context, logger logr.Logger, pgs *grovec
 	logger.Info("Delete PodCliqueScalingGroup", "objectKey", pcsgObjectKey)
 	pcsg := emptyPodCliqueScalingGroup(pcsgObjectKey)
 	if err := r.client.Delete(ctx, pcsg); err != nil {
-		r.eventRecorder.Eventf(pgs, corev1.EventTypeWarning, groveevents.ReasonPodCliqueScalingGroupDeletionFailed, "Error deleting PodCliqueScalingGroup %v: %v", pcsgObjectKey, err)
+		r.eventRecorder.Eventf(pgs, corev1.EventTypeWarning, groveevents.ReasonPodCliqueScalingGroupDeleteFailed, "Error deleting PodCliqueScalingGroup %v: %v", pcsgObjectKey, err)
 		return groveerr.WrapError(err,
 			errDeletePodCliqueScalingGroup,
 			component.OperationSync,
 			fmt.Sprintf("Error in delete of PodCliqueScalingGroup: %v", pcsg),
 		)
 	}
-	r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodCliqueScalingGroupDeletionSuccessful, "Deleted PodCliqueScalingGroup %v", pcsgObjectKey)
+	r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodCliqueScalingGroupDeleteSuccessful, "Deleted PodCliqueScalingGroup %v", pcsgObjectKey)
 	logger.Info("Triggered delete of PodCliqueScalingGroup", "objectKey", pcsgObjectKey)
 	return nil
 }

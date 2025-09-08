@@ -71,8 +71,12 @@ type errorRecord struct {
 }
 
 // CreateDefaultFakeClient creates a default client.Client without any configured reactions to errors.
-func CreateDefaultFakeClient() client.Client {
-	return fake.NewClientBuilder().Build()
+func CreateDefaultFakeClient(existingObjects []client.Object) client.Client {
+	clientBuilder := NewTestClientBuilder()
+	if len(existingObjects) > 0 {
+		clientBuilder.WithObjects(existingObjects...)
+	}
+	return clientBuilder.Build()
 }
 
 // CreateFakeClientForObjects creates a fake client.Client with initial set of existing objects

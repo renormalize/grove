@@ -17,6 +17,7 @@
 package hpa
 
 import (
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"testing"
 
 	"github.com/NVIDIA/grove/operator/api/common/constants"
@@ -28,6 +29,10 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+var (
+	pgsUID = uuid.NewUUID()
+)
+
 func TestComputeExpectedHPAs(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -36,7 +41,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 	}{
 		{
 			name: "PodClique HPA",
-			pgs: testutils.NewPodGangSetBuilder("test-pgs", "default").
+			pgs: testutils.NewPodGangSetBuilder("test-pgs", "default", pgsUID).
 				WithReplicas(1).
 				WithPodCliqueTemplateSpec(
 					testutils.NewPodCliqueTemplateSpecBuilder("test-clique").
@@ -59,7 +64,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 		},
 		{
 			name: "PodCliqueScalingGroup HPA",
-			pgs: testutils.NewPodGangSetBuilder("test-pgs", "default").
+			pgs: testutils.NewPodGangSetBuilder("test-pgs", "default", pgsUID).
 				WithReplicas(1).
 				WithPodCliqueScalingGroupConfig(grovecorev1alpha1.PodCliqueScalingGroupConfig{
 					Name:         "test-sg",
@@ -85,7 +90,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 		},
 		{
 			name: "Both PodClique and PodCliqueScalingGroup HPAs",
-			pgs: testutils.NewPodGangSetBuilder("test-pgs", "default").
+			pgs: testutils.NewPodGangSetBuilder("test-pgs", "default", pgsUID).
 				WithReplicas(1).
 				WithPodCliqueTemplateSpec(
 					testutils.NewPodCliqueTemplateSpecBuilder("individual-clique").
@@ -168,7 +173,7 @@ func TestBuildResource(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &_resource{}
-			pgs := testutils.NewPodGangSetBuilder("test-pgs", "default").Build()
+			pgs := testutils.NewPodGangSetBuilder("test-pgs", "default", pgsUID).Build()
 			hpa := &autoscalingv2.HorizontalPodAutoscaler{}
 
 			// This would normally be set by the scheme, but for testing we can skip it

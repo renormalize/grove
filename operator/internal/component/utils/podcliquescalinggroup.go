@@ -19,16 +19,11 @@ package utils
 import (
 	"context"
 	"slices"
-	"strconv"
-	"time"
 
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
-	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	"github.com/samber/lo"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -44,17 +39,6 @@ func FindScalingGroupConfigForClique(scalingGroupConfigs []grovecorev1alpha1.Pod
 		return nil
 	}
 	return &pcsgConfig
-}
-
-// GetPCSGsForPGSReplicaIndex fetches all PodCliqueScalingGroups for a PodGangSet replica index.
-func GetPCSGsForPGSReplicaIndex(ctx context.Context, cl client.Client, pgsObjKey client.ObjectKey, pgsReplicaIndex int) ([]grovecorev1alpha1.PodCliqueScalingGroup, error) {
-	pcsgList, err := doGetPCSGsForPGS(ctx, cl, pgsObjKey, map[string]string{
-		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return pcsgList.Items, nil
 }
 
 // GetPCSGsForPGS fetches all PodCliqueScalingGroups for a PodGangSet.
@@ -79,29 +63,6 @@ func doGetPCSGsForPGS(ctx context.Context, cl client.Client, pgsObjKey client.Ob
 		return nil, err
 	}
 	return pcsgList, nil
-}
-
-// GetMinAvailableBreachedPCSGInfo filters PodCliqueScalingGroups that have grovecorev1alpha1.ConditionTypeMinAvailableBreached set to true.
-// It returns the names of all such PodCliqueScalingGroups and minimum of all the waitDurations.
-func GetMinAvailableBreachedPCSGInfo(pcsgs []grovecorev1alpha1.PodCliqueScalingGroup, terminationDelay time.Duration, since time.Time) ([]string, time.Duration) {
-	pcsgCandidateNames := make([]string, 0, len(pcsgs))
-	waitForDurations := make([]time.Duration, 0, len(pcsgs))
-	for _, pcsg := range pcsgs {
-		cond := meta.FindStatusCondition(pcsg.Status.Conditions, constants.ConditionTypeMinAvailableBreached)
-		if cond == nil {
-			continue
-		}
-		if cond.Status == metav1.ConditionTrue {
-			pcsgCandidateNames = append(pcsgCandidateNames, pcsg.Name)
-			waitFor := terminationDelay - since.Sub(cond.LastTransitionTime.Time)
-			waitForDurations = append(waitForDurations, waitFor)
-		}
-	}
-	if len(waitForDurations) == 0 {
-		return pcsgCandidateNames, 0
-	}
-	slices.Sort(waitForDurations)
-	return pcsgCandidateNames, waitForDurations[0]
 }
 
 // GenerateDependencyNamesForBasePodGang generates the FQNs of all PodCliques that would qualify as a dependency.

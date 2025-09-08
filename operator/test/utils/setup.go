@@ -17,11 +17,8 @@
 package utils
 
 import (
-	"context"
-
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
-	"github.com/go-logr/logr"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -47,14 +44,4 @@ func SetupFakeClient(objects ...client.Object) client.WithWatch {
 		WithStatusSubresource(&v1.Pod{}).
 		WithObjects(objects...).
 		Build()
-}
-
-// SetupTestLogger returns a discarded logger for tests to avoid log noise.
-func SetupTestLogger() logr.Logger {
-	return logr.Discard()
-}
-
-// SetupTestContext returns a background context for tests.
-func SetupTestContext() context.Context {
-	return context.Background()
 }

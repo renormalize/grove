@@ -96,18 +96,27 @@ type PodGangSetStatus struct {
 	RollingUpdateProgress *PodGangSetRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
 }
 
+// PodGangSetRollingUpdateProgress captures the progress of a rolling update of the PodGangSet.
 type PodGangSetRollingUpdateProgress struct {
+	// UpdateStartedAt is the time at which the rolling update started for the PodGangSet.
 	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
+	// UpdateEndedAt is the time at which the rolling update ended for the PodGangSet.
 	// +optional
-	UpdateEndedAt                 *metav1.Time `json:"updateEndedAt,omitempty"`
-	UpdatedPodCliqueScalingGroups []string     `json:"updatedPodCliqueScalingGroups,omitempty"`
-	UpdatedPodCliques             []string     `json:"updatedPodCliques,omitempty"`
+	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
+	// UpdatedPodCliqueScalingGroups is a list of PodCliqueScalingGroup names that have been updated to the desired PodGangSet generation hash.
+	UpdatedPodCliqueScalingGroups []string `json:"updatedPodCliqueScalingGroups,omitempty"`
+	// UpdatedPodCliques is a list of PodClique names that have been updated to the desired PodGangSet generation hash.
+	UpdatedPodCliques []string `json:"updatedPodCliques,omitempty"`
+	// CurrentlyUpdating captures the progress of the PodGangSet replica that is currently being updated.
 	// +optional
 	CurrentlyUpdating *PodGangSetReplicaRollingUpdateProgress `json:"currentlyUpdating,omitempty"`
 }
 
+// PodGangSetReplicaRollingUpdateProgress captures the progress of a rolling update for a specific PodGangSet replica.
 type PodGangSetReplicaRollingUpdateProgress struct {
-	ReplicaIndex    int32       `json:"replicaIndex"`
+	// ReplicaIndex is the replica index of the PodGangSet that is being updated.
+	ReplicaIndex int32 `json:"replicaIndex"`
+	// UpdateStartedAt is the time at which the rolling update started for this PodGangSet replica index.
 	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
 }
 

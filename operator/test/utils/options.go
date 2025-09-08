@@ -174,6 +174,20 @@ func WithPCLQReplicaReadyStatus(ready int32) PCLQOption {
 	}
 }
 
+// WithPCLQCurrentPGSGenerationHash sets the CurrentPodGangSetGenerationHash in the PodClique status.
+func WithPCLQCurrentPGSGenerationHash(pgsGenerationHash string) PCLQOption {
+	return func(pclq *grovecorev1alpha1.PodClique) {
+		pclq.Status.CurrentPodGangSetGenerationHash = &pgsGenerationHash
+	}
+}
+
+// WithPCSGCurrentPGSGenerationHash sets the CurrentPodGangSetGenerationHash in the PCSG status.
+func WithPCSGCurrentPGSGenerationHash(pgsGenerationHash string) PCSGOption {
+	return func(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) {
+		pcsg.Status.CurrentPodGangSetGenerationHash = &pgsGenerationHash
+	}
+}
+
 // ============================================================================
 // PodGangSet Option Functions
 // ============================================================================

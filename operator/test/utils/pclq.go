@@ -107,14 +107,14 @@ func (b *PodCliqueBuilder) WithAutoScaleMaxReplicas(maximum int32) *PodCliqueBui
 }
 
 // WithOwnerReference sets the owner reference for the PodClique from individual values.
-func (b *PodCliqueBuilder) WithOwnerReference(kind, name, uid string) *PodCliqueBuilder {
+func (b *PodCliqueBuilder) WithOwnerReference(kind, name string, uid types.UID) *PodCliqueBuilder {
 	ownerRef := metav1.OwnerReference{
 		Kind: kind,
 		Name: name,
 		UID:  types.UID("test-uid"),
 	}
 	if uid != "" {
-		ownerRef.UID = types.UID(uid)
+		ownerRef.UID = uid
 	}
 	b.pclq.OwnerReferences = append(b.pclq.OwnerReferences, ownerRef)
 	return b
@@ -167,7 +167,7 @@ func createDefaultPodCliqueWithoutPodSpec(pgsName string, pgsUID types.UID, pclq
 func getDefaultLabels(pgsName, pclqName string, pgsReplicaIndex int32) map[string]string {
 	pclqComponentLabels := map[string]string{
 		apicommon.LabelAppNameKey:             pclqName,
-		apicommon.LabelComponentKey:           apicommon.LabelComponentNamePodCliqueScalingGroupPodClique,
+		apicommon.LabelComponentKey:           apicommon.LabelComponentNamePodGangSetPodClique,
 		apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(int(pgsReplicaIndex)),
 	}
 	return lo.Assign(

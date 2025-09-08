@@ -9825,27 +9825,42 @@ spec:
                   update.
                 properties:
                   currentlyUpdating:
+                    description: CurrentlyUpdating captures the progress of the PodGangSet
+                      replica that is currently being updated.
                     properties:
                       replicaIndex:
+                        description: ReplicaIndex is the replica index of the PodGangSet
+                          that is being updated.
                         format: int32
                         type: integer
                       updateStartedAt:
+                        description: UpdateStartedAt is the time at which the rolling
+                          update started for this PodGangSet replica index.
                         format: date-time
                         type: string
                     required:
                     - replicaIndex
                     type: object
                   updateEndedAt:
+                    description: UpdateEndedAt is the time at which the rolling update
+                      ended for the PodGangSet.
                     format: date-time
                     type: string
                   updateStartedAt:
+                    description: UpdateStartedAt is the time at which the rolling
+                      update started for the PodGangSet.
                     format: date-time
                     type: string
                   updatedPodCliqueScalingGroups:
+                    description: UpdatedPodCliqueScalingGroups is a list of PodCliqueScalingGroup
+                      names that have been updated to the desired PodGangSet generation
+                      hash.
                     items:
                       type: string
                     type: array
                   updatedPodCliques:
+                    description: UpdatedPodCliques is a list of PodClique names that
+                      have been updated to the desired PodGangSet generation hash.
                     items:
                       type: string
                     type: array

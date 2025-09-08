@@ -8612,9 +8612,14 @@ spec:
                   type: object
                 type: array
               currentPodGangSetGenerationHash:
-                description: CurrentPodGangSetGenerationHash
+                description: |-
+                  CurrentPodGangSetGenerationHash establishes a correlation to PodGangSet generation hash indicating
+                  that the spec of the PodGangSet at this generation is fully realized in the PodClique.
                 type: string
               currentPodTemplateHash:
+                description: |-
+                  CurrentPodTemplateHash establishes a correlation to PodClique template hash indicating
+                  that the spec of the PodClique at this template hash is fully realized in the PodClique.
                 type: string
               hpaPodSelector:
                 description: |-
@@ -8688,10 +8693,20 @@ spec:
                 format: int32
                 type: integer
               rollingUpdateProgress:
+                description: RollingUpdateProgress provides details about the ongoing
+                  rolling update of the PodClique.
                 properties:
                   podGangSetGenerationHash:
+                    description: |-
+                      PodGangSetGenerationHash is the PodGangSet generation hash corresponding to the PodGangSet spec that is being rolled out.
+                      While the update is in progress PodCliqueStatus.CurrentPodGangSetGenerationHash will not match this hash. Once the update is complete the
+                      value of this field will be copied to PodCliqueStatus.CurrentPodGangSetGenerationHash.
                     type: string
                   podTemplateHash:
+                    description: |-
+                      PodTemplateHash is the PodClique template hash corresponding to the PodClique spec that is being rolled out.
+                      While the update is in progress PodCliqueStatus.CurrentPodTemplateHash will not match this hash. Once the update is complete the
+                      value of this field will be copied to PodCliqueStatus.CurrentPodTemplateHash.
                     type: string
                   readyPodsSelectedToUpdate:
                     description: ReadyPodsSelectedToUpdate captures the pod names
@@ -8712,9 +8727,14 @@ spec:
                     - current
                     type: object
                   updateEndedAt:
+                    description: |-
+                      UpdateEndedAt is the time at which the rolling update ended.
+                      It will be set to nil if the rolling update is still in progress.
                     format: date-time
                     type: string
                   updateStartedAt:
+                    description: UpdateStartedAt is the time at which the rolling
+                      update started.
                     format: date-time
                     type: string
                 required:

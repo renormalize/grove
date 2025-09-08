@@ -46,7 +46,6 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pg
 }
 
 func (r *Reconciler) mutateReplicas(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) error {
-
 	// Set basic replica count
 	pgs.Status.Replicas = pgs.Spec.Replicas
 	availableReplicas, updatedReplicas, err := r.computeAvailableAndUpdatedReplicas(ctx, logger, pgs)
@@ -62,22 +61,36 @@ func (r *Reconciler) mutateReplicas(ctx context.Context, logger logr.Logger, pgs
 // It checks both standalone PodCliques and PodCliqueScalingGroups to determine availability.
 // A replica is considered available if it has all its required components (PCSGs and standalone PCLQs) available.
 func (r *Reconciler) computeAvailableAndUpdatedReplicas(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) (int32, int32, error) {
-	var availableReplicas, updatedReplicas int32
-	// Calculate expected resource counts per replica (same for all replicas)
-	expectedStandalonePCLQs, expectedPCSGs := r.computeExpectedResourceCounts(pgs)
-	pgsObjectKey := client.ObjectKeyFromObject(pgs)
+	var (
+		availableReplicas int32
+		updatedReplicas   int32
+		pgsObjectKey      = client.ObjectKeyFromObject(pgs)
+	)
+
+	expectedPCSGFQNsPerPGSReplica := componentutils.GetExpectedPCSGFQNsPerPGSReplica(pgs)
+	expectedStandAlonePCLQFQNsPerPGSReplica := componentutils.GetExpectedStandAlonePCLQFQNsPerPGSReplica(pgs)
 
 	// Fetch all PCSGs for this PGS
 	pcsgs, err := componentutils.GetPCSGsForPGS(ctx, r.client, pgsObjectKey)
 	if err != nil {
 		return availableReplicas, updatedReplicas, err
 	}
+	// Filter the PCSGs that belong to the expected set of PCSGs for PGS, this ensures that we do not
+	// consider any stray PCSGs that might have been created externally.
+	pcsgs = lo.Filter(pcsgs, func(pcsg grovecorev1alpha1.PodCliqueScalingGroup, _ int) bool {
+		return lo.Contains(lo.Flatten(lo.Values(expectedPCSGFQNsPerPGSReplica)), pcsg.Name)
+	})
 
 	// Fetch all standalone PodCliques for this PGS
 	standalonePCLQs, err := componentutils.GetPodCliquesWithParentPGS(ctx, r.client, pgsObjectKey)
 	if err != nil {
 		return availableReplicas, updatedReplicas, err
 	}
+	// Filter the PCLQs that belong to the expected set of standalone PCLQs for PGS, this ensures that we do not
+	// consider any stray PCLQs that might have been created externally.
+	standalonePCLQs = lo.Filter(standalonePCLQs, func(pclq grovecorev1alpha1.PodClique, _ int) bool {
+		return lo.Contains(lo.Flatten(lo.Values(expectedStandAlonePCLQFQNsPerPGSReplica)), pclq.Name)
+	})
 
 	// Group both resources by PGS replica index
 	standalonePCLQsByReplica := componentutils.GroupPCLQsByPGSReplicaIndex(standalonePCLQs)
@@ -89,7 +102,7 @@ func (r *Reconciler) computeAvailableAndUpdatedReplicas(ctx context.Context, log
 		replicaPCSGs := pcsgsByReplica[replicaIndexStr]
 		// Check if this PGS replica is available based on all its components
 		isReplicaAvailable, isReplicaUpdated := r.computeReplicaStatus(pgs.Status.CurrentGenerationHash, replicaPCSGs,
-			replicaStandalonePCLQs, expectedPCSGs, expectedStandalonePCLQs)
+			replicaStandalonePCLQs, len(expectedPCSGFQNsPerPGSReplica[replicaIndex]), len(expectedStandAlonePCLQFQNsPerPGSReplica[replicaIndex]))
 		if isReplicaAvailable {
 			availableReplicas++
 		}
@@ -102,28 +115,9 @@ func (r *Reconciler) computeAvailableAndUpdatedReplicas(ctx context.Context, log
 	return availableReplicas, updatedReplicas, nil
 }
 
-func (r *Reconciler) computeExpectedResourceCounts(pgs *grovecorev1alpha1.PodGangSet) (expectedStandalonePCLQs, expectedPCSGs int) {
-	// Count expected PCSGs - this is the number of unique scaling group configs
-	expectedPCSGs = len(pgs.Spec.Template.PodCliqueScalingGroupConfigs)
-
-	// Count expected standalone PodCliques - cliques that are NOT part of any scaling group
-	expectedStandalonePCLQs = 0
-	for _, cliqueSpec := range pgs.Spec.Template.Cliques {
-		pcsgConfig := componentutils.FindScalingGroupConfigForClique(pgs.Spec.Template.PodCliqueScalingGroupConfigs, cliqueSpec.Name)
-		if pcsgConfig == nil {
-			// This clique is not part of any scaling group, so it's standalone
-			expectedStandalonePCLQs++
-		}
-	}
-
-	return expectedStandalonePCLQs, expectedPCSGs
-}
-
 func (r *Reconciler) computeReplicaStatus(pgsGenerationHash *string, replicaPCSGs []grovecorev1alpha1.PodCliqueScalingGroup, standalonePCLQs []grovecorev1alpha1.PodClique, expectedPCSGs int, expectedStandalonePCLQs int) (bool, bool) {
 	pclqsAvailable, pclqsUpdated := r.computePCLQsStatus(expectedStandalonePCLQs, standalonePCLQs)
-
 	pcsgsAvailable, pcsgsUpdated := r.computePCSGsStatus(pgsGenerationHash, expectedPCSGs, replicaPCSGs)
-
 	return pclqsAvailable && pcsgsAvailable, pclqsUpdated && pcsgsUpdated
 }
 

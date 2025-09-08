@@ -179,11 +179,11 @@ func (r _resource) createDeleteTasks(logger logr.Logger, pgs *grovecorev1alpha1.
 			Fn: func(ctx context.Context) error {
 				if err := client.IgnoreNotFound(r.client.Delete(ctx, pclq)); err != nil {
 					logger.Error(err, "failed to delete excess PodClique", "objectKey", pclqObjectKey)
-					r.eventRecorder.Eventf(pgs, corev1.EventTypeWarning, groveevents.ReasonPodCliqueDeletionFailed, "Error deleting PodClique %v: %v", pclqObjectKey, err)
+					r.eventRecorder.Eventf(pgs, corev1.EventTypeWarning, groveevents.ReasonPodCliqueDeleteFailed, "Error deleting PodClique %v: %v", pclqObjectKey, err)
 					return err
 				}
 				logger.Info("Deleted PodClique", "pclqObjectKey", pclqObjectKey)
-				r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodCliqueDeletionSuccessful, "Deleted PodClique: %s", pclqName)
+				r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodCliqueDeleteSuccessful, "Deleted PodClique: %s", pclqName)
 				return nil
 			},
 		}
@@ -259,7 +259,7 @@ func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs
 		return r.buildResource(logger, pclq, pgs, int(pgsReplica), pclqExists)
 	})
 	if err != nil {
-		r.eventRecorder.Eventf(pgs, corev1.EventTypeWarning, groveevents.ReasonPodCliqueCreationOrUpdationFailed, "PodClique %v creation or updation failed: %v", pclqObjectKey, err)
+		r.eventRecorder.Eventf(pgs, corev1.EventTypeWarning, groveevents.ReasonPodCliqueCreateOrUpdateFailed, "PodClique %v creation or updation failed: %v", pclqObjectKey, err)
 		return groveerr.WrapError(err,
 			errCodeCreateOrUpdatePodClique,
 			component.OperationSync,
@@ -267,7 +267,7 @@ func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs
 		)
 	}
 
-	r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodCliqueCreationOrUpdationSuccessful, "PodClique %v created or updated successfully", pclqObjectKey)
+	r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodCliqueCreateOrUpdateSuccessful, "PodClique %v created or updated successfully", pclqObjectKey)
 	logger.Info("triggered create or update of PodClique for PodGangSet", "pgs", pgsObjKey, "pclqObjectKey", pclqObjectKey, "result", opResult)
 	return nil
 }

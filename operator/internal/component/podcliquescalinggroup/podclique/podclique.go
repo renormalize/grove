@@ -20,6 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+
 	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
@@ -29,9 +33,6 @@ import (
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
 	"github.com/NVIDIA/grove/operator/internal/utils"
 	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
-	"slices"
-	"strconv"
-	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
@@ -101,6 +102,11 @@ func (r _resource) GetExistingResourceNames(ctx context.Context, logger logr.Log
 // Sync synchronizes all resources that the PodClique Operator manages.
 func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) error {
 	syncCtx, err := r.prepareSyncContext(ctx, logger, pcsg)
+	if err != nil {
+		return err
+	}
+	logger.Info("Starting PodCliqueScalingGroup Sync", "pcsgObjectKey", client.ObjectKeyFromObject(syncCtx.pcsg))
+	// Run the sync flow
 	if err = r.runSyncFlow(logger, syncCtx); err != nil {
 		return err
 	}
@@ -174,12 +180,12 @@ func (r _resource) createDeleteTasks(logger logr.Logger, pgs *grovecorev1alpha1.
 					&grovecorev1alpha1.PodClique{},
 					client.InNamespace(pgs.Namespace),
 					client.MatchingLabels(getLabelsToDeletePCSGReplicaIndexPCLQs(pgs.Name, pcsgName, pcsgReplicaIndex))); err != nil {
-					r.eventRecorder.Eventf(pgs, corev1.EventTypeWarning, groveevents.ReasonPodCliqueScalingGroupReplicaDeletionFailed, "Error deleting PodCliqueScalingGroup %s ReplicaIndex %s : %v", pcsgName, pcsgReplicaIndex, err)
+					r.eventRecorder.Eventf(pgs, corev1.EventTypeWarning, groveevents.ReasonPodCliqueScalingGroupReplicaDeleteFailed, "Error deleting PodCliqueScalingGroup %s ReplicaIndex %s : %v", pcsgName, pcsgReplicaIndex, err)
 					logger.Error(err, "failed to delete PodCliques for PCSG replica index", "pcsgReplicaIndex", pcsgReplicaIndex, "reason", reason)
 					return err
 				}
 				logger.Info("Deleting PodCliqueScalingGroup replica", "pcsgName", pcsgName, "pcsgReplicaIndex", pcsgReplicaIndex)
-				r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodCliqueScalingGroupReplicaDeletionSuccessful, "Deleted PodCliqueScalingGroup %s replicaIndex: %s", pcsgName, pcsgReplicaIndex)
+				r.eventRecorder.Eventf(pgs, corev1.EventTypeNormal, groveevents.ReasonPodCliqueScalingGroupReplicaDeleteSuccessful, "Deleted PodCliqueScalingGroup %s replicaIndex: %s", pcsgName, pcsgReplicaIndex)
 				return nil
 			},
 		}
@@ -227,14 +233,14 @@ func (r _resource) doCreate(ctx context.Context, logger logr.Logger, pgs *grovec
 			logger.Info("PodClique creation failed as it already exists", "pclq", pclqObjectKey)
 			return nil
 		}
-		r.eventRecorder.Eventf(pcsg, corev1.EventTypeWarning, groveevents.ReasonPodCliqueCreationFailed, "PodClique %v creation failed: %v", pclqObjectKey, err)
+		r.eventRecorder.Eventf(pcsg, corev1.EventTypeWarning, groveevents.ReasonPodCliqueCreateFailed, "PodClique %v creation failed: %v", pclqObjectKey, err)
 		return groveerr.WrapError(err,
 			errCodeCreatePodClique,
 			component.OperationSync,
 			fmt.Sprintf("Error creating PodClique: %v for PodCliqueScalingGroup: %v", pclqObjectKey, pcsgObjKey),
 		)
 	}
-	r.eventRecorder.Eventf(pcsg, corev1.EventTypeNormal, groveevents.ReasonPodCliqueCreationSuccessful, "PodClique %v created successfully", pclqObjectKey)
+	r.eventRecorder.Eventf(pcsg, corev1.EventTypeNormal, groveevents.ReasonPodCliqueCreateSuccessful, "PodClique %v created successfully", pclqObjectKey)
 	logger.Info("Successfully created PodClique", "pclqObjectKey", pclqObjectKey)
 	return nil
 }

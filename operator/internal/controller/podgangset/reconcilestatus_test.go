@@ -17,14 +17,15 @@
 package podgangset
 
 import (
+	"context"
+	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"testing"
 
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	testutils "github.com/NVIDIA/grove/operator/test/utils"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -34,58 +35,23 @@ const (
 	testPGSName   = "test-pgs"
 )
 
-// Helper functions for testing
-
-// setupTestReconciler creates a reconciler with fake client containing the provided objects
-func setupTestReconciler(pgs *grovecorev1alpha1.PodGangSet, childObjects []client.Object) *Reconciler {
-	allObjects := append([]client.Object{pgs}, childObjects...)
-	fakeClient := testutils.SetupFakeClient(allObjects...)
-	return &Reconciler{client: fakeClient}
-}
-
-// assertAvailableReplicas runs the computeAvailableReplicas test and validates the result
-func assertAvailableReplicas(t *testing.T, reconciler *Reconciler, pgs *grovecorev1alpha1.PodGangSet, expected int32) {
-	available, _, err := reconciler.computeAvailableReplicas(
-		testutils.SetupTestContext(),
-		testutils.SetupTestLogger(),
-		pgs,
-	)
-	assert.NoError(t, err)
-	assert.Equal(t, expected, available, "Available replicas mismatch")
-}
-
-// pgsAvailableReplicasTestCase represents a test case for PGS available replicas testing
-type pgsAvailableReplicasTestCase struct {
-	name              string
-	setupPGS          func() *grovecorev1alpha1.PodGangSet
-	childResources    func() []client.Object
-	expectedAvailable int32
-}
-
-// runPGSAvailableReplicasTests executes a set of PGS available replicas test cases
-func runPGSAvailableReplicasTests(t *testing.T, testCases []pgsAvailableReplicasTestCase) {
-	for _, tt := range testCases {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			pgs := tt.setupPGS()
-			children := tt.childResources()
-			reconciler := setupTestReconciler(pgs, children)
-
-			assertAvailableReplicas(t, reconciler, pgs, tt.expectedAvailable)
-		})
-	}
-}
-
 func TestComputePGSAvailableReplicas(t *testing.T) {
-	tests := []pgsAvailableReplicasTestCase{
+	pgsGenerationHash := string(uuid.NewUUID())
+	pgsUID := uuid.NewUUID()
+	testCases := []struct {
+		name              string
+		setupPGS          func() *grovecorev1alpha1.PodGangSet
+		childResources    func() []client.Object
+		expectedAvailable int32
+	}{
 		{
 			name: "all healthy - 2 replicas with standalone and scaling groups",
 			setupPGS: func() *grovecorev1alpha1.PodGangSet {
-				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
+				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace, pgsUID).
 					WithReplicas(2).
 					WithStandaloneClique("worker").
 					WithScalingGroup("compute", []string{"frontend", "backend"}).
+					WithPodGangSetGenerationHash(&pgsGenerationHash).
 					Build()
 			},
 			childResources: func() []client.Object {
@@ -96,10 +62,10 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 					testutils.NewPodCliqueScalingGroupBuilder("test-pgs-1-compute", testNamespace, testPGSName, 1).
 						WithOptions(testutils.WithPCSGAvailableReplicas(1)).Build(),
 					// Healthy standalone PodCliques
-					testutils.NewPodCliqueBuilder(testPGSName, types.UID(uuid.NewString()), "test-pgs-0-worker", testNamespace, 0).
-						WithOptions(testutils.WithPCLQReplicaReadyStatus(1)).Build(),
-					testutils.NewPodCliqueBuilder(testPGSName, types.UID(uuid.NewString()), "test-pgs-1-worker", testNamespace, 1).
-						WithOptions(testutils.WithPCLQReplicaReadyStatus(1)).Build(),
+					testutils.NewPodCliqueBuilder(testPGSName, uuid.NewUUID(), "worker", testNamespace, 0).
+						WithOptions(testutils.WithPCLQReplicaReadyStatus(1), testutils.WithPCLQCurrentPGSGenerationHash(pgsGenerationHash)).Build(),
+					testutils.NewPodCliqueBuilder(testPGSName, uuid.NewUUID(), "worker", testNamespace, 1).
+						WithOptions(testutils.WithPCLQReplicaReadyStatus(1), testutils.WithPCLQCurrentPGSGenerationHash(pgsGenerationHash)).Build(),
 				}
 			},
 			expectedAvailable: 2,
@@ -107,7 +73,7 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 		{
 			name: "mixed health - 1 healthy, 1 unhealthy",
 			setupPGS: func() *grovecorev1alpha1.PodGangSet {
-				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
+				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace, pgsUID).
 					WithReplicas(2).
 					WithStandaloneClique("worker").
 					WithScalingGroup("compute", []string{"frontend"}).
@@ -119,10 +85,10 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 						WithOptions(testutils.WithPCSGAvailableReplicas(1)).Build(),
 					testutils.NewPodCliqueScalingGroupBuilder("test-pgs-1-compute", testNamespace, testPGSName, 1).
 						WithOptions(testutils.WithPCSGMinAvailableBreached()).Build(),
-					testutils.NewPodCliqueBuilder(testPGSName, types.UID(uuid.NewString()), "test-pgs-0-worker", testNamespace, 0).
-						WithOptions(testutils.WithPCLQReplicaReadyStatus(1)).Build(),
-					testutils.NewPodCliqueBuilder(testPGSName, types.UID(uuid.NewString()), "test-pgs-1-worker", testNamespace, 1).
-						WithOptions(testutils.WithPCLQTerminating()).Build(),
+					testutils.NewPodCliqueBuilder(testPGSName, uuid.NewUUID(), "worker", testNamespace, 0).
+						WithOptions(testutils.WithPCLQReplicaReadyStatus(1), testutils.WithPCLQCurrentPGSGenerationHash(pgsGenerationHash)).Build(),
+					testutils.NewPodCliqueBuilder(testPGSName, uuid.NewUUID(), "worker", testNamespace, 1).
+						WithOptions(testutils.WithPCLQTerminating(), testutils.WithPCLQCurrentPGSGenerationHash(pgsGenerationHash)).Build(),
 				}
 			},
 			expectedAvailable: 1,
@@ -130,7 +96,7 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 		{
 			name: "count mismatch - missing resources",
 			setupPGS: func() *grovecorev1alpha1.PodGangSet {
-				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
+				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace, pgsUID).
 					WithReplicas(1).
 					WithStandaloneClique("worker").
 					WithScalingGroup("compute", []string{"frontend"}).
@@ -139,10 +105,10 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 			childResources: func() []client.Object {
 				// Missing PCSG, extra standalone PodClique
 				return []client.Object{
-					testutils.NewPodCliqueBuilder(testPGSName, types.UID(uuid.NewString()), "test-pgs-0-worker", testNamespace, 0).
-						WithOptions(testutils.WithPCLQAvailable()).Build(),
-					testutils.NewPodCliqueBuilder(testPGSName, types.UID(uuid.NewString()), "test-pgs-0-extra", testNamespace, 0).
-						WithOptions(testutils.WithPCLQAvailable()).Build(),
+					testutils.NewPodCliqueBuilder(testPGSName, uuid.NewUUID(), "test-pgs-0-worker", testNamespace, 0).
+						WithOptions(testutils.WithPCLQAvailable(), testutils.WithPCLQCurrentPGSGenerationHash(pgsGenerationHash)).Build(),
+					testutils.NewPodCliqueBuilder(testPGSName, uuid.NewUUID(), "test-pgs-0-extra", testNamespace, 0).
+						WithOptions(testutils.WithPCLQAvailable(), testutils.WithPCLQCurrentPGSGenerationHash(pgsGenerationHash)).Build(),
 				}
 			},
 			expectedAvailable: 0,
@@ -150,7 +116,7 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 		{
 			name: "empty configuration",
 			setupPGS: func() *grovecorev1alpha1.PodGangSet {
-				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
+				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace, pgsUID).
 					WithReplicas(1).
 					Build()
 			},
@@ -160,22 +126,23 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 		{
 			name: "only standalone cliques - all healthy",
 			setupPGS: func() *grovecorev1alpha1.PodGangSet {
-				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
+				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace, pgsUID).
 					WithReplicas(2).
 					WithStandaloneClique("worker").
 					WithStandaloneClique("monitor").
+					WithPodGangSetGenerationHash(&pgsGenerationHash).
 					Build()
 			},
 			childResources: func() []client.Object {
 				return []client.Object{
-					testutils.NewPodCliqueBuilder(testPGSName, types.UID(uuid.NewString()), "test-pgs-0-worker", testNamespace, 0).
-						WithOptions(testutils.WithPCLQReplicaReadyStatus(1)).Build(),
-					testutils.NewPodCliqueBuilder(testPGSName, types.UID(uuid.NewString()), "test-pgs-0-monitor", testNamespace, 0).
-						WithOptions(testutils.WithPCLQReplicaReadyStatus(1)).Build(),
-					testutils.NewPodCliqueBuilder(testPGSName, types.UID(uuid.NewString()), "test-pgs-1-worker", testNamespace, 1).
-						WithOptions(testutils.WithPCLQReplicaReadyStatus(1)).Build(),
-					testutils.NewPodCliqueBuilder(testPGSName, types.UID(uuid.NewString()), "test-pgs-1-monitor", testNamespace, 1).
-						WithOptions(testutils.WithPCLQReplicaReadyStatus(1)).Build(),
+					testutils.NewPodCliqueBuilder(testPGSName, uuid.NewUUID(), "worker", testNamespace, 0).
+						WithOptions(testutils.WithPCLQReplicaReadyStatus(1), testutils.WithPCLQCurrentPGSGenerationHash(pgsGenerationHash)).Build(),
+					testutils.NewPodCliqueBuilder(testPGSName, uuid.NewUUID(), "monitor", testNamespace, 0).
+						WithOptions(testutils.WithPCLQReplicaReadyStatus(1), testutils.WithPCLQCurrentPGSGenerationHash(pgsGenerationHash)).Build(),
+					testutils.NewPodCliqueBuilder(testPGSName, uuid.NewUUID(), "worker", testNamespace, 1).
+						WithOptions(testutils.WithPCLQReplicaReadyStatus(1), testutils.WithPCLQCurrentPGSGenerationHash(pgsGenerationHash)).Build(),
+					testutils.NewPodCliqueBuilder(testPGSName, uuid.NewUUID(), "monitor", testNamespace, 1).
+						WithOptions(testutils.WithPCLQReplicaReadyStatus(1), testutils.WithPCLQCurrentPGSGenerationHash(pgsGenerationHash)).Build(),
 				}
 			},
 			expectedAvailable: 2,
@@ -183,10 +150,11 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 		{
 			name: "only scaling groups - all healthy",
 			setupPGS: func() *grovecorev1alpha1.PodGangSet {
-				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
+				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace, pgsUID).
 					WithReplicas(2).
 					WithScalingGroup("compute", []string{"frontend", "backend"}).
 					WithScalingGroup("storage", []string{"database"}).
+					WithPodGangSetGenerationHash(&pgsGenerationHash).
 					Build()
 			},
 			childResources: func() []client.Object {
@@ -206,15 +174,16 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 		{
 			name: "terminating resources",
 			setupPGS: func() *grovecorev1alpha1.PodGangSet {
-				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
+				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace, pgsUID).
 					WithReplicas(1).
 					WithStandaloneClique("worker").
+					WithPodGangSetGenerationHash(&pgsGenerationHash).
 					Build()
 			},
 			childResources: func() []client.Object {
 				return []client.Object{
-					testutils.NewPodCliqueBuilder(testPGSName, types.UID(uuid.NewString()), "test-pgs-0-worker", testNamespace, 0).
-						WithOptions(testutils.WithPCLQTerminating()).Build(),
+					testutils.NewPodCliqueBuilder(testPGSName, uuid.NewUUID(), "test-pgs-0-worker", testNamespace, 0).
+						WithOptions(testutils.WithPCLQTerminating(), testutils.WithPCLQCurrentPGSGenerationHash(pgsGenerationHash)).Build(),
 				}
 			},
 			expectedAvailable: 0,
@@ -222,9 +191,10 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 		{
 			name: "unknown condition status",
 			setupPGS: func() *grovecorev1alpha1.PodGangSet {
-				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
+				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace, pgsUID).
 					WithReplicas(1).
 					WithScalingGroup("compute", []string{"frontend"}).
+					WithPodGangSetGenerationHash(&pgsGenerationHash).
 					Build()
 			},
 			childResources: func() []client.Object {
@@ -238,14 +208,15 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 		{
 			name: "no conditions set",
 			setupPGS: func() *grovecorev1alpha1.PodGangSet {
-				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
+				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace, pgsUID).
 					WithReplicas(1).
 					WithStandaloneClique("worker").
+					WithPodGangSetGenerationHash(&pgsGenerationHash).
 					Build()
 			},
 			childResources: func() []client.Object {
 				return []client.Object{
-					testutils.NewPodCliqueBuilder(testPGSName, types.UID(uuid.NewString()), "test-pgs-0-worker", testNamespace, 0).
+					testutils.NewPodCliqueBuilder(testPGSName, uuid.NewUUID(), "test-pgs-0-worker", testNamespace, 0).
 						WithOptions(testutils.WithPCLQNoConditions()).Build(),
 				}
 			},
@@ -255,9 +226,10 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 		{
 			name: "no child resources when expected",
 			setupPGS: func() *grovecorev1alpha1.PodGangSet {
-				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
+				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace, pgsUID).
 					WithReplicas(1).
 					WithScalingGroup("compute", []string{"frontend"}).
+					WithPodGangSetGenerationHash(&pgsGenerationHash).
 					Build()
 			},
 			childResources:    func() []client.Object { return []client.Object{} },
@@ -266,15 +238,16 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 		{
 			name: "extra unexpected resources",
 			setupPGS: func() *grovecorev1alpha1.PodGangSet {
-				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
+				return testutils.NewPodGangSetBuilder(testPGSName, testNamespace, pgsUID).
 					WithReplicas(1).
 					WithStandaloneClique("worker").
+					WithPodGangSetGenerationHash(&pgsGenerationHash).
 					Build()
 			},
 			childResources: func() []client.Object {
 				return []client.Object{
-					testutils.NewPodCliqueBuilder(testPGSName, types.UID(uuid.NewString()), "test-pgs-0-worker", testNamespace, 0).
-						WithOptions(testutils.WithPCLQReplicaReadyStatus(1)).Build(),
+					testutils.NewPodCliqueBuilder(testPGSName, uuid.NewUUID(), "worker", testNamespace, 0).
+						WithOptions(testutils.WithPCLQReplicaReadyStatus(1), testutils.WithPCLQCurrentPGSGenerationHash(pgsGenerationHash)).Build(),
 					testutils.NewPodCliqueScalingGroupBuilder("test-pgs-0-unexpected", testNamespace, testPGSName, 0).
 						WithOptions(testutils.WithPCSGAvailableReplicas(1)).Build(),
 				}
@@ -283,72 +256,27 @@ func TestComputePGSAvailableReplicas(t *testing.T) {
 		},
 	}
 
-	runPGSAvailableReplicasTests(t, tests)
-}
-
-func TestComputeExpectedResourceCounts(t *testing.T) {
-	tests := []struct {
-		name                    string
-		pgs                     *grovecorev1alpha1.PodGangSet
-		expectedStandalonePCLQs int
-		expectedPCSGs           int
-	}{
-		{
-			name: "only standalone cliques",
-			pgs: testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
-				WithStandaloneClique("worker").
-				WithStandaloneClique("monitor").
-				Build(),
-			expectedStandalonePCLQs: 2,
-			expectedPCSGs:           0,
-		},
-		{
-			name: "only scaling groups",
-			pgs: testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
-				WithScalingGroup("compute", []string{"frontend", "backend"}).
-				WithScalingGroup("storage", []string{"database"}).
-				Build(),
-			expectedStandalonePCLQs: 0,
-			expectedPCSGs:           2,
-		},
-		{
-			name: "mixed configuration",
-			pgs: testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
-				WithStandaloneClique("worker").
-				WithScalingGroup("compute", []string{"frontend"}).
-				Build(),
-			expectedStandalonePCLQs: 1,
-			expectedPCSGs:           1,
-		},
-		{
-			name:                    "empty configuration",
-			pgs:                     testutils.NewPodGangSetBuilder(testPGSName, testNamespace).Build(),
-			expectedStandalonePCLQs: 0,
-			expectedPCSGs:           0,
-		},
-		{
-			name: "complex configuration",
-			pgs: testutils.NewPodGangSetBuilder(testPGSName, testNamespace).
-				WithStandaloneClique("coordinator").
-				WithScalingGroup("web", []string{"frontend", "backend"}).
-				WithStandaloneClique("monitor").
-				WithScalingGroup("data", []string{"database", "cache"}).
-				WithStandaloneClique("logger").
-				Build(),
-			expectedStandalonePCLQs: 3,
-			expectedPCSGs:           2,
-		},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			reconciler := &Reconciler{}
-			actualStandalone, actualPCSGs := reconciler.computeExpectedResourceCounts(tt.pgs)
-
-			assert.Equal(t, tt.expectedStandalonePCLQs, actualStandalone, "Standalone PodCliques count")
-			assert.Equal(t, tt.expectedPCSGs, actualPCSGs, "PCSGs count")
+			//t.Parallel()
+			pgs := tt.setupPGS()
+			existingObjects := []client.Object{pgs}
+			existingObjects = append(existingObjects, tt.childResources()...)
+			cl := testutils.CreateDefaultFakeClient(existingObjects)
+			reconciler := &Reconciler{client: cl}
+			// Compute available replicas
+			available, _, err := reconciler.computeAvailableAndUpdatedReplicas(context.Background(), logr.Discard(), pgs)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedAvailable, available, "Available replicas mismatch")
 		})
 	}
+}
+
+// Helper functions for testing
+
+// setupTestReconciler creates a reconciler with fake client containing the provided objects
+func setupTestReconciler(pgs *grovecorev1alpha1.PodGangSet, childObjects []client.Object) *Reconciler {
+	allObjects := append([]client.Object{pgs}, childObjects...)
+	fakeClient := testutils.SetupFakeClient(allObjects...)
+	return &Reconciler{client: fakeClient}
 }
