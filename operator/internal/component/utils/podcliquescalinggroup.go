@@ -167,3 +167,17 @@ func IsPCSGUpdateInProgress(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) bool 
 func IsPCSGUpdateComplete(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pgsGenerationHash string) bool {
 	return pcsg.Status.CurrentPodGangSetGenerationHash != nil && *pcsg.Status.CurrentPodGangSetGenerationHash == pgsGenerationHash
 }
+
+// GetPodCliqueFQNsForPCSG generates the PodClique FQNs for all PodCliques that are owned by a PodCliqueScalingGroup.
+func GetPodCliqueFQNsForPCSG(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) []string {
+	pclqFQNsInPCSG := make([]string, 0, len(pcsg.Spec.CliqueNames)*int(pcsg.Spec.Replicas))
+	for replicaIndex := range int(pcsg.Spec.Replicas) {
+		for _, cliqueName := range pcsg.Spec.CliqueNames {
+			pclqFQNsInPCSG = append(pclqFQNsInPCSG, apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{
+				Name:    pcsg.Name,
+				Replica: replicaIndex,
+			}, cliqueName))
+		}
+	}
+	return pclqFQNsInPCSG
+}

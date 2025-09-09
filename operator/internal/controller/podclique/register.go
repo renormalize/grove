@@ -67,6 +67,11 @@ func (r *Reconciler) RegisterWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(podGangSetPredicate()),
 		).
 		Watches(
+			&grovecorev1alpha1.PodCliqueScalingGroup{},
+			handler.EnqueueRequestsFromMapFunc(mapPodCliqueScalingGroupToPCLQs()),
+			builder.WithPredicates(podCliqueScalingGroupPredicate()),
+		).
+		Watches(
 			&groveschedulerv1alpha1.PodGang{},
 			handler.EnqueueRequestsFromMapFunc(mapPodGangToPCLQs()),
 			builder.WithPredicates(podGangPredicate()),
@@ -187,6 +192,40 @@ func podGangSetPredicate() predicate.Predicate {
 				return false
 			}
 			return oldPGS.Status.CurrentGenerationHash != newPGS.Status.CurrentGenerationHash
+		},
+		GenericFunc: func(_ event.GenericEvent) bool { return false },
+	}
+}
+
+// mapPodCliqueScalingGroupToPCLQs maps a PodCliqueScalingGroup to one or more reconcile.Request(s) to its constituent PodCliques.
+// These events are needed to keep the PodClique.Status.CurrentPodGangSetGenerationHash in sync with the PodGangSet.
+func mapPodCliqueScalingGroupToPCLQs() handler.MapFunc {
+	return func(_ context.Context, obj client.Object) []reconcile.Request {
+		pcsg, ok := obj.(*grovecorev1alpha1.PodCliqueScalingGroup)
+		if !ok {
+			return nil
+		}
+		return lo.Map(componentutils.GetPodCliqueFQNsForPCSG(pcsg), func(pclqFQN string, _ int) reconcile.Request {
+			return reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: pcsg.Namespace,
+				Name:      pclqFQN,
+			}}
+		})
+	}
+}
+
+func podCliqueScalingGroupPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(_ event.CreateEvent) bool { return false },
+		DeleteFunc: func(_ event.DeleteEvent) bool { return false },
+		UpdateFunc: func(event event.UpdateEvent) bool {
+			oldPCSG, okOld := event.ObjectOld.(*grovecorev1alpha1.PodCliqueScalingGroup)
+			newPCSG, okNew := event.ObjectNew.(*grovecorev1alpha1.PodCliqueScalingGroup)
+			if !okOld || !okNew {
+				return false
+			}
+			return oldPCSG.Status.CurrentPodGangSetGenerationHash != nil && newPCSG.Status.RollingUpdateProgress != nil &&
+				*oldPCSG.Status.CurrentPodGangSetGenerationHash != newPCSG.Status.RollingUpdateProgress.PodGangSetGenerationHash
 		},
 		GenericFunc: func(_ event.GenericEvent) bool { return false },
 	}

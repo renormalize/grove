@@ -149,7 +149,7 @@ func shouldResetOrTriggerRollingUpdate(pgs *grovecorev1alpha1.PodGangSet, pclq *
 }
 
 func (r *Reconciler) initOrResetRollingUpdate(ctx context.Context, pgs *grovecorev1alpha1.PodGangSet, pclq *grovecorev1alpha1.PodClique) error {
-	podTemplateHash, err := componentutils.GetPCLQPodTemplateHash(pgs, pclq.ObjectMeta)
+	podTemplateHash, err := componentutils.GetExpectedPCLQPodTemplateHash(pgs, pclq.ObjectMeta)
 	if err != nil {
 		return fmt.Errorf("could not update PodClique %s status with rolling update progress: %w", client.ObjectKeyFromObject(pclq), err)
 	}
