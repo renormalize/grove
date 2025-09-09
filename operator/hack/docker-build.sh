@@ -25,6 +25,7 @@ REPO_ROOT="$(dirname "$MODULE_ROOT")"
 GOARCH=${GOARCH:-$(go env GOARCH)}
 PLATFORM=${PLATFORM:-linux/${GOARCH}}
 VERSION=${VERSION:-$(cat "${MODULE_ROOT}/VERSION")}
+MODULE_VERSION=$(cat "${MODULE_ROOT}/VERSION")
 DOCKER_BUILD_ADDITIONAL_ARGS=${DOCKER_BUILD_ADDITIONAL_ARGS:-""}
 
 if [[ -n "${REGISTRY:-}" ]]; then
@@ -43,6 +44,8 @@ function build_docker_images() {
     --platform ${PLATFORM} \
     --build-arg VERSION=${VERSION} \
     --tag ${INITC_IMAGE}:${VERSION} \
+    --tag ${INITC_IMAGE}:${MODULE_VERSION} \
+    --tag ${INITC_IMAGE}:latest \
     --target grove-initc \
     --file ${MODULE_ROOT}/Dockerfile \
     $REPO_ROOT # docker context is as the repository root to access `.git/`
@@ -54,6 +57,8 @@ function build_docker_images() {
     --platform ${PLATFORM} \
     --build-arg VERSION=${VERSION} \
     --tag ${OPERATOR_IMAGE}:${VERSION} \
+    --tag ${OPERATOR_IMAGE}:${MODULE_VERSION} \
+    --tag ${OPERATOR_IMAGE}:latest \
     --target grove-operator \
     --file ${MODULE_ROOT}/Dockerfile \
     $REPO_ROOT # docker context is as the repository root to access `.git/`

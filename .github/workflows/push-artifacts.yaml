@@ -44,6 +44,9 @@ jobs:
           PACKAGE_VERSION=${GITHUB_REF_NAME}
           echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
           echo $PACKAGE_VERSION
+          MODULE_VERSION=$(cat "operator/VERSION")
+          echo "MODULE_VERSION=$MODULE_VERSION" >> $GITHUB_ENV
+          echo $MODULE_VERSION
 
       - name: Extract package version from branch commit
         if: startsWith(github.ref, 'refs/heads/')
@@ -51,6 +54,9 @@ jobs:
           PACKAGE_VERSION=v0.0.0-$(git rev-parse --short HEAD)
           echo "PACKAGE_VERSION=$PACKAGE_VERSION" >> $GITHUB_ENV
           echo $PACKAGE_VERSION
+          MODULE_VERSION=$(cat "operator/VERSION")
+          echo "MODULE_VERSION=$MODULE_VERSION" >> $GITHUB_ENV
+          echo $MODULE_VERSION
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -81,7 +87,9 @@ jobs:
           sed -i "s#tag: #tag: $PACKAGE_VERSION#" operator/charts/values.yaml
           sed -i "s#value: grove-initc#value: ghcr.io/nvidia/grove/grove-initc#" operator/charts/values.yaml
           helm package ./operator/charts --app-version $PACKAGE_VERSION --version $PACKAGE_VERSION
+          helm package ./operator/charts --app-version $MODULE_VERSION --version $MODULE_VERSION
 
       - name: Push Helm Chart
         run: |
           helm push ./grove-charts-$PACKAGE_VERSION.tgz oci://${{ env.DOCKER_REGISTRY }}
+          helm push ./grove-charts-$MODULE_VERSION.tgz oci://${{ env.DOCKER_REGISTRY }}
