@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/common"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
@@ -255,6 +256,6 @@ func (c *ParentPodCliqueDependencies) checkAllParentsReady() bool {
 
 func getLabelSelectorForPods(podGangName string) map[string]string {
 	return map[string]string{
-		grovecorev1alpha1.LabelPodGang: podGangName,
+		apicommon.LabelPodGang: podGangName,
 	}
 }

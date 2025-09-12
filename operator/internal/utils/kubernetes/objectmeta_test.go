@@ -19,7 +19,8 @@ package kubernetes
 import (
 	"testing"
 
-	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,7 +49,7 @@ func newTestObjectMetaWithOwnerRefs(name, namespace string, ownerRefs ...metav1.
 func newTestOwnerReference(name string, uid types.UID, isController bool) metav1.OwnerReference {
 	return metav1.OwnerReference{
 		APIVersion: version,
-		Kind:       grovecorev1alpha1.PodGangSetKind,
+		Kind:       constants.KindPodGangSet,
 		Name:       name,
 		UID:        uid,
 		Controller: ptr.To(isController),
@@ -60,7 +61,7 @@ func newTestOwnerReferenceSimple(name string, isController bool) metav1.OwnerRef
 }
 
 func TestGetDefaultLabelsForPodGangSetManagedResources(t *testing.T) {
-	labels := GetDefaultLabelsForPodGangSetManagedResources(testPgsName)
+	labels := apicommon.GetDefaultLabelsForPodGangSetManagedResources(testPgsName)
 	assert.Equal(t, labels, map[string]string{
 		"app.kubernetes.io/managed-by": "grove-operator",
 		"app.kubernetes.io/part-of":    testPgsName,

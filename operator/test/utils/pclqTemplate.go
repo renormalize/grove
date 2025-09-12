@@ -90,7 +90,7 @@ func (b *PodCliqueTemplateSpecBuilder) Build() *grovecorev1alpha1.PodCliqueTempl
 }
 
 func (b *PodCliqueTemplateSpecBuilder) withDefaultPodSpec() *PodCliqueTemplateSpecBuilder {
-	b.pclqTemplateSpec.Spec.PodSpec = *NewPodBuilder().Build()
+	b.pclqTemplateSpec.Spec.PodSpec = NewPodWithBuilderWithDefaultSpec("test-name", "test-ns").Build().Spec
 	return b
 }
 

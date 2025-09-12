@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
@@ -132,9 +133,9 @@ func (r _resource) buildResource(pgs *grovecorev1alpha1.PodGangSet, pgInfo podGa
 
 func getPodGangSelectorLabels(pgsObjMeta metav1.ObjectMeta) map[string]string {
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
 		map[string]string{
-			grovecorev1alpha1.LabelComponentKey: component.NamePodGang,
+			apicommon.LabelComponentKey: apicommon.LabelComponentNamePodGang,
 		})
 }
 
@@ -149,8 +150,8 @@ func emptyPodGang(objKey client.ObjectKey) *groveschedulerv1alpha1.PodGang {
 
 func getLabels(pgsName string) map[string]string {
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		map[string]string{
-			grovecorev1alpha1.LabelComponentKey: component.NamePodGang,
+			apicommon.LabelComponentKey: apicommon.LabelComponentNamePodGang,
 		})
 }

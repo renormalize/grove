@@ -19,6 +19,7 @@ package utils
 import (
 	"time"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,9 +37,9 @@ func WithPCSGMinAvailableBreached() PCSGOption {
 	return func(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) {
 		pcsg.Status.Conditions = []metav1.Condition{
 			{
-				Type:   grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+				Type:   constants.ConditionTypeMinAvailableBreached,
 				Status: metav1.ConditionTrue,
-				Reason: grovecorev1alpha1.ConditionReasonInsufficientAvailablePCSGReplicas,
+				Reason: constants.ConditionReasonInsufficientAvailablePCSGReplicas,
 			},
 		}
 		// Set AvailableReplicas to be less than MinAvailable to simulate breach
@@ -59,7 +60,7 @@ func WithPCSGUnknownCondition() PCSGOption {
 	return func(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) {
 		pcsg.Status.Conditions = []metav1.Condition{
 			{
-				Type:   grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+				Type:   constants.ConditionTypeMinAvailableBreached,
 				Status: metav1.ConditionUnknown,
 				Reason: "UnknownState",
 			},
@@ -88,12 +89,12 @@ func WithPCLQAvailable() PCLQOption {
 	return func(pclq *grovecorev1alpha1.PodClique) {
 		pclq.Status.Conditions = []metav1.Condition{
 			{
-				Type:   grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+				Type:   constants.ConditionTypeMinAvailableBreached,
 				Status: metav1.ConditionFalse,
 				Reason: "SufficientReadyReplicas",
 			},
 			{
-				Type:   grovecorev1alpha1.ConditionTypePodCliqueScheduled,
+				Type:   constants.ConditionTypePodCliqueScheduled,
 				Status: metav1.ConditionTrue,
 				Reason: "ScheduledSuccessfully",
 			},
@@ -116,12 +117,12 @@ func WithPCLQMinAvailableBreached() PCLQOption {
 	return func(pclq *grovecorev1alpha1.PodClique) {
 		pclq.Status.Conditions = []metav1.Condition{
 			{
-				Type:   grovecorev1alpha1.ConditionTypeMinAvailableBreached,
+				Type:   constants.ConditionTypeMinAvailableBreached,
 				Status: metav1.ConditionTrue,
 				Reason: "InsufficientReadyReplicas",
 			},
 			{
-				Type:   grovecorev1alpha1.ConditionTypePodCliqueScheduled,
+				Type:   constants.ConditionTypePodCliqueScheduled,
 				Status: metav1.ConditionTrue,
 				Reason: "ScheduledSuccessfully",
 			},
@@ -134,7 +135,7 @@ func WithPCLQNotScheduled() PCLQOption {
 	return func(pclq *grovecorev1alpha1.PodClique) {
 		pclq.Status.Conditions = []metav1.Condition{
 			{
-				Type:   grovecorev1alpha1.ConditionTypePodCliqueScheduled,
+				Type:   constants.ConditionTypePodCliqueScheduled,
 				Status: metav1.ConditionFalse,
 				Reason: "SchedulingFailed",
 			},
@@ -170,6 +171,20 @@ func WithPCSGAvailableReplicas(available int32) PCSGOption {
 func WithPCLQReplicaReadyStatus(ready int32) PCLQOption {
 	return func(pclq *grovecorev1alpha1.PodClique) {
 		pclq.Status.ReadyReplicas = ready
+	}
+}
+
+// WithPCLQCurrentPGSGenerationHash sets the CurrentPodGangSetGenerationHash in the PodClique status.
+func WithPCLQCurrentPGSGenerationHash(pgsGenerationHash string) PCLQOption {
+	return func(pclq *grovecorev1alpha1.PodClique) {
+		pclq.Status.CurrentPodGangSetGenerationHash = &pgsGenerationHash
+	}
+}
+
+// WithPCSGCurrentPGSGenerationHash sets the CurrentPodGangSetGenerationHash in the PCSG status.
+func WithPCSGCurrentPGSGenerationHash(pgsGenerationHash string) PCSGOption {
+	return func(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) {
+		pcsg.Status.CurrentPodGangSetGenerationHash = &pgsGenerationHash
 	}
 }
 

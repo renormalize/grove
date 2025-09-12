@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	"github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
@@ -80,13 +81,13 @@ func (r *Reconciler) verifyNoResourcesAwaitsCleanup(ctx context.Context, logger 
 }
 
 func (r *Reconciler) removeFinalizer(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodGangSet) ctrlcommon.ReconcileStepResult {
-	if !controllerutil.ContainsFinalizer(pgs, v1alpha1.FinalizerPodGangSet) {
+	if !controllerutil.ContainsFinalizer(pgs, constants.FinalizerPodGangSet) {
 		logger.Info("Finalizer not found", "PodGangSet", pgs)
 		return ctrlcommon.ContinueReconcile()
 	}
-	logger.Info("Removing finalizer", "PodGangSet", pgs, "finalizerName", v1alpha1.FinalizerPodGangSet)
-	if err := ctrlutils.RemoveAndPatchFinalizer(ctx, r.client, pgs, v1alpha1.FinalizerPodGangSet); err != nil {
-		return ctrlcommon.ReconcileWithErrors("error removing finalizer", fmt.Errorf("failed to remove finalizer: %s from PodGangSet: %v: %w", v1alpha1.FinalizerPodGangSet, client.ObjectKeyFromObject(pgs), err))
+	logger.Info("Removing finalizer", "PodGangSet", pgs, "finalizerName", constants.FinalizerPodGangSet)
+	if err := ctrlutils.RemoveAndPatchFinalizer(ctx, r.client, pgs, constants.FinalizerPodGangSet); err != nil {
+		return ctrlcommon.ReconcileWithErrors("error removing finalizer", fmt.Errorf("failed to remove finalizer: %s from PodGangSet: %v: %w", constants.FinalizerPodGangSet, client.ObjectKeyFromObject(pgs), err))
 	}
 	return ctrlcommon.ContinueReconcile()
 }

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	ctrlcommon "github.com/NVIDIA/grove/operator/internal/controller/common"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
@@ -31,17 +32,18 @@ import (
 )
 
 func (r *Reconciler) triggerDeletionFlow(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
+	dLog := logger.WithValues("operation", "delete")
 	deleteStepFns := []ctrlcommon.ReconcileStepFn[grovecorev1alpha1.PodClique]{
 		r.deletePodCliqueResources,
 		r.verifyNoResourcesAwaitsCleanup,
 		r.removeFinalizer,
 	}
 	for _, fn := range deleteStepFns {
-		if stepResult := fn(ctx, logger, pclq); ctrlcommon.ShortCircuitReconcileFlow(stepResult) {
+		if stepResult := fn(ctx, dLog, pclq); ctrlcommon.ShortCircuitReconcileFlow(stepResult) {
 			return stepResult
 		}
 	}
-	logger.Info("PodClique deleted successfully")
+	dLog.Info("PodClique deleted successfully")
 	return ctrlcommon.DoNotRequeue()
 }
 
@@ -70,13 +72,13 @@ func (r *Reconciler) verifyNoResourcesAwaitsCleanup(ctx context.Context, logger 
 }
 
 func (r *Reconciler) removeFinalizer(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) ctrlcommon.ReconcileStepResult {
-	if !controllerutil.ContainsFinalizer(pclq, grovecorev1alpha1.FinalizerPodClique) {
+	if !controllerutil.ContainsFinalizer(pclq, constants.FinalizerPodClique) {
 		logger.Info("Finalizer not found", "PodClique", pclq)
 		return ctrlcommon.DoNotRequeue()
 	}
-	logger.Info("Removing finalizer", "PodClique", pclq, "finalizerName", grovecorev1alpha1.FinalizerPodClique)
-	if err := ctrlutils.RemoveAndPatchFinalizer(ctx, r.client, pclq, grovecorev1alpha1.FinalizerPodClique); err != nil {
-		return ctrlcommon.ReconcileWithErrors("error removing finalizer", fmt.Errorf("failed to remove finalizer: %s from PodClique: %v: %w", grovecorev1alpha1.FinalizerPodClique, client.ObjectKeyFromObject(pclq), err))
+	logger.Info("Removing finalizer", "PodClique", pclq, "finalizerName", constants.FinalizerPodClique)
+	if err := ctrlutils.RemoveAndPatchFinalizer(ctx, r.client, pclq, constants.FinalizerPodClique); err != nil {
+		return ctrlcommon.ReconcileWithErrors("error removing finalizer", fmt.Errorf("failed to remove finalizer: %s from PodClique: %v: %w", constants.FinalizerPodClique, client.ObjectKeyFromObject(pclq), err))
 	}
 	return ctrlcommon.ContinueReconcile()
 }

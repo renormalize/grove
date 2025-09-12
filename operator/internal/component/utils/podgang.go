@@ -19,9 +19,7 @@ package utils
 import (
 	"context"
 
-	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
-	"github.com/NVIDIA/grove/operator/internal/component"
-	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 
 	groveschedulerv1alpha1 "github.com/NVIDIA/grove/scheduler/api/core/v1alpha1"
 	"github.com/samber/lo"
@@ -32,9 +30,9 @@ import (
 // GetPodGangSelectorLabels creates the label selector to list all the PodGangs for a PodGangSet.
 func GetPodGangSelectorLabels(pgsObjMeta metav1.ObjectMeta) map[string]string {
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjMeta.Name),
 		map[string]string{
-			grovecorev1alpha1.LabelComponentKey: component.NamePodGang,
+			apicommon.LabelComponentKey: apicommon.LabelComponentNamePodGang,
 		})
 }
 

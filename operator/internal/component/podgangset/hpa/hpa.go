@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"slices"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
@@ -132,14 +134,14 @@ func (r _resource) computeExpectedHPAs(pgs *grovecorev1alpha1.PodGangSet) []hpaI
 			if pclqTemplateSpec.Spec.ScaleConfig == nil {
 				continue
 			}
-			pclqFQN := grovecorev1alpha1.GeneratePodCliqueName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: int(replicaIndex)}, pclqTemplateSpec.Name)
+			pclqFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: int(replicaIndex)}, pclqTemplateSpec.Name)
 			hpaObjectKey := client.ObjectKey{
 				Namespace: pgs.Namespace,
 				Name:      pclqFQN,
 			}
 			expectedHPAInfos = append(expectedHPAInfos, hpaInfo{
 				objectKey:               hpaObjectKey,
-				targetScaleResourceKind: grovecorev1alpha1.PodCliqueKind,
+				targetScaleResourceKind: constants.KindPodClique,
 				targetScaleResourceName: pclqFQN,
 				scaleConfig:             *pclqTemplateSpec.Spec.ScaleConfig,
 			})
@@ -148,14 +150,14 @@ func (r _resource) computeExpectedHPAs(pgs *grovecorev1alpha1.PodGangSet) []hpaI
 			if pcsgConfig.ScaleConfig == nil {
 				continue
 			}
-			pcsgFQN := grovecorev1alpha1.GeneratePodCliqueScalingGroupName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: int(replicaIndex)}, pcsgConfig.Name)
+			pcsgFQN := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: int(replicaIndex)}, pcsgConfig.Name)
 			hpaObjectKey := client.ObjectKey{
 				Namespace: pgs.Namespace,
 				Name:      pcsgFQN,
 			}
 			expectedHPAInfos = append(expectedHPAInfos, hpaInfo{
 				objectKey:               hpaObjectKey,
-				targetScaleResourceKind: grovecorev1alpha1.PodCliqueScalingGroupKind,
+				targetScaleResourceKind: constants.KindPodCliqueScalingGroup,
 				targetScaleResourceName: pcsgFQN,
 				scaleConfig:             *pcsgConfig.ScaleConfig,
 			})
@@ -261,20 +263,20 @@ func (r _resource) buildResource(pgs *grovecorev1alpha1.PodGangSet, hpa *autosca
 
 func getLabels(pgsName, hpaName string) map[string]string {
 	hpaComponentLabels := map[string]string{
-		grovecorev1alpha1.LabelAppNameKey:   hpaName,
-		grovecorev1alpha1.LabelComponentKey: component.NameHorizontalPodAutoscaler,
+		apicommon.LabelAppNameKey:   hpaName,
+		apicommon.LabelComponentKey: apicommon.LabelComponentNameHorizontalPodAutoscaler,
 	}
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 		hpaComponentLabels,
 	)
 }
 
 func getPodCliqueHPASelectorLabels(pgsObjectMeta metav1.ObjectMeta) map[string]string {
 	return lo.Assign(
-		k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsObjectMeta.Name),
+		apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsObjectMeta.Name),
 		map[string]string{
-			grovecorev1alpha1.LabelComponentKey: component.NameHorizontalPodAutoscaler,
+			apicommon.LabelComponentKey: apicommon.LabelComponentNameHorizontalPodAutoscaler,
 		},
 	)
 }

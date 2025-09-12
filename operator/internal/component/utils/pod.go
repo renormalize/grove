@@ -19,12 +19,13 @@ package utils
 import (
 	"context"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
-	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
 
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -36,9 +37,9 @@ func GetPCLQPods(ctx context.Context, cl client.Client, pgsName string, pclq *gr
 		client.InNamespace(pclq.Namespace),
 		client.MatchingLabels(
 			lo.Assign(
-				k8sutils.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
+				apicommon.GetDefaultLabelsForPodGangSetManagedResources(pgsName),
 				map[string]string{
-					grovecorev1alpha1.LabelPodClique: pclq.Name,
+					apicommon.LabelPodClique: pclq.Name,
 				},
 			),
 		)); err != nil {
@@ -58,4 +59,11 @@ func AddEnvVarsToContainers(containers []corev1.Container, envVars []corev1.EnvV
 	for i := range containers {
 		containers[i].Env = append(containers[i].Env, envVars...)
 	}
+}
+
+// PodsToObjectNames converts a slice of Pods to a slice of string representations in "namespace/name" format.
+func PodsToObjectNames(pods []*corev1.Pod) []string {
+	return lo.Map(pods, func(pod *corev1.Pod, _ int) string {
+		return cache.NamespacedNameAsObjectName(client.ObjectKeyFromObject(pod)).String()
+	})
 }

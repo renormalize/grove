@@ -18,7 +18,9 @@ package podgangset
 
 import (
 	"context"
+	"sync"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	configv1alpha1 "github.com/NVIDIA/grove/operator/api/config/v1alpha1"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	"github.com/NVIDIA/grove/operator/internal/component"
@@ -35,20 +37,22 @@ import (
 
 // Reconciler reconciles PodGangSet resources.
 type Reconciler struct {
-	config                  configv1alpha1.PodGangSetControllerConfiguration
-	client                  ctrlclient.Client
-	reconcileStatusRecorder ctrlcommon.ReconcileStatusRecorder
-	operatorRegistry        component.OperatorRegistry[grovecorev1alpha1.PodGangSet]
+	config                        configv1alpha1.PodGangSetControllerConfiguration
+	client                        ctrlclient.Client
+	reconcileStatusRecorder       ctrlcommon.ReconcileStatusRecorder
+	operatorRegistry              component.OperatorRegistry[grovecorev1alpha1.PodGangSet]
+	pgsGenerationHashExpectations sync.Map
 }
 
 // NewReconciler creates a new reconciler for PodGangSet.
 func NewReconciler(mgr ctrl.Manager, controllerCfg configv1alpha1.PodGangSetControllerConfiguration) *Reconciler {
 	eventRecorder := mgr.GetEventRecorderFor(controllerName)
 	return &Reconciler{
-		config:                  controllerCfg,
-		client:                  mgr.GetClient(),
-		reconcileStatusRecorder: ctrlcommon.NewReconcileStatusRecorder(mgr.GetClient(), eventRecorder),
-		operatorRegistry:        pgscomponent.CreateOperatorRegistry(mgr, eventRecorder),
+		config:                        controllerCfg,
+		client:                        mgr.GetClient(),
+		reconcileStatusRecorder:       ctrlcommon.NewReconcileStatusRecorder(mgr.GetClient(), eventRecorder),
+		operatorRegistry:              pgscomponent.CreateOperatorRegistry(mgr, eventRecorder),
+		pgsGenerationHashExpectations: sync.Map{},
 	}
 }
 
@@ -65,17 +69,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return result.Result()
 	}
 
-	if result := r.reconcileSpec(ctx, logger, pgs); result.HasErrors() {
-		logger.Info("Reconciliation spec step failed",
-			"PodGangSet", ctrlclient.ObjectKeyFromObject(pgs), "errors", result.GetErrors(), "description", result.GetDescription())
+	reconcileSpecFlowResult := r.reconcileSpec(ctx, logger, pgs)
+	if statusReconcileResult := r.reconcileStatus(ctx, logger, pgs); ctrlcommon.ShortCircuitReconcileFlow(statusReconcileResult) {
+		return statusReconcileResult.Result()
 	}
 
-	return r.reconcileStatus(ctx, logger, pgs).Result()
+	return reconcileSpecFlowResult.Result()
 }
 
 func (r *Reconciler) reconcileDelete(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) ctrlcommon.ReconcileStepResult {
 	if !pgs.DeletionTimestamp.IsZero() {
-		if !controllerutil.ContainsFinalizer(pgs, grovecorev1alpha1.FinalizerPodGangSet) {
+		if !controllerutil.ContainsFinalizer(pgs, constants.FinalizerPodGangSet) {
 			return ctrlcommon.DoNotRequeue()
 		}
 		dLog := logger.WithValues("operation", "delete")

@@ -72,17 +72,52 @@ type PodGangSetStatus struct {
 	// Replicas is the total number of PodGangSet replicas created.
 	Replicas int32 `json:"replicas,omitempty"`
 	// UpdatedReplicas is the number of replicas that have been updated to the desired revision of the PodGangSet.
-	UpdatedReplicas int32 `json:"updatedReplicas,omitempty"`
+	// +kubebuilder:default=0
+	UpdatedReplicas int32 `json:"updatedReplicas"`
 	// AvailableReplicas is the number of PodGangSet replicas that are available.
 	// A PodGangSet replica is considered available when all standalone PodCliques within that replica
 	// have MinAvailableBreached condition = False AND all PodCliqueScalingGroups (PCSG) within that replica
 	// have MinAvailableBreached condition = False.
-	AvailableReplicas int32 `json:"availableReplicas,omitempty"`
+	// +kubebuilder:default=0
+	AvailableReplicas int32 `json:"availableReplicas"`
 	// Selector is the label selector that determines which pods are part of the PodGang.
 	// PodGang is a unit of scale and this selector is used by HPA to scale the PodGang based on metrics captured for the pods that match this selector.
 	Selector *string `json:"hpaPodSelector,omitempty"`
 	// PodGangStatuses captures the status for all the PodGang's that are part of the PodGangSet.
 	PodGangStatutes []PodGangStatus `json:"podGangStatuses,omitempty"`
+	// CurrentGenerationHash is a hash value generated out of a collection of fields in a PodGangSet.
+	// Since only a subset of fields is taken into account when generating the hash, not every change in the PodGangSetSpec will
+	// be accounted for when generating this hash value. A field in PodGangSetSpec is included if a change to it triggers
+	// a rolling update of PodCliques and/or PodCliqueScalingGroups.
+	// Only if this value is not nil and the newly computed hash value is different from the persisted CurrentGenerationHash value
+	// then a rolling update needs to be triggerred.
+	CurrentGenerationHash *string `json:"currentGenerationHash,omitempty"`
+	// RollingUpdateProgress represents the progress of a rolling update.
+	RollingUpdateProgress *PodGangSetRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
+}
+
+// PodGangSetRollingUpdateProgress captures the progress of a rolling update of the PodGangSet.
+type PodGangSetRollingUpdateProgress struct {
+	// UpdateStartedAt is the time at which the rolling update started for the PodGangSet.
+	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
+	// UpdateEndedAt is the time at which the rolling update ended for the PodGangSet.
+	// +optional
+	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
+	// UpdatedPodCliqueScalingGroups is a list of PodCliqueScalingGroup names that have been updated to the desired PodGangSet generation hash.
+	UpdatedPodCliqueScalingGroups []string `json:"updatedPodCliqueScalingGroups,omitempty"`
+	// UpdatedPodCliques is a list of PodClique names that have been updated to the desired PodGangSet generation hash.
+	UpdatedPodCliques []string `json:"updatedPodCliques,omitempty"`
+	// CurrentlyUpdating captures the progress of the PodGangSet replica that is currently being updated.
+	// +optional
+	CurrentlyUpdating *PodGangSetReplicaRollingUpdateProgress `json:"currentlyUpdating,omitempty"`
+}
+
+// PodGangSetReplicaRollingUpdateProgress captures the progress of a rolling update for a specific PodGangSet replica.
+type PodGangSetReplicaRollingUpdateProgress struct {
+	// ReplicaIndex is the replica index of the PodGangSet that is being updated.
+	ReplicaIndex int32 `json:"replicaIndex"`
+	// UpdateStartedAt is the time at which the rolling update started for this PodGangSet replica index.
+	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
 }
 
 // PodGangSetTemplateSpec defines a template spec for a PodGang.

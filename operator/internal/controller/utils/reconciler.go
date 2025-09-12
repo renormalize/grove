@@ -61,9 +61,10 @@ func GetPodClique(ctx context.Context, cl client.Client, logger logr.Logger, obj
 func GetPodCliqueScalingGroup(ctx context.Context, cl client.Client, logger logr.Logger, objectKey client.ObjectKey, pcsg *v1alpha1.PodCliqueScalingGroup) grovectrl.ReconcileStepResult {
 	if err := cl.Get(ctx, objectKey, pcsg); err != nil {
 		if apierrors.IsNotFound(err) {
-			logger.Info("PodCliqueScalingGroup not found", "objectKey", objectKey)
+			logger.Info("PodCliqueScalingGroup not found")
 			return grovectrl.DoNotRequeue()
 		}
+		logger.Error(err, "error getting PodCliqueScalingGroup")
 		return grovectrl.ReconcileWithErrors("error getting PodCliqueScalingGroup", err)
 	}
 	return grovectrl.ContinueReconcile()
@@ -78,7 +79,7 @@ func VerifyNoResourceAwaitsCleanup[T component.GroveCustomResourceType](ctx cont
 		if err != nil {
 			return grovectrl.ReconcileWithErrors("error getting existing resource names", err)
 		}
-		if len(existingResourceNames) >= 0 {
+		if len(existingResourceNames) > 0 {
 			resourceNamesAwaitingCleanup = append(resourceNamesAwaitingCleanup, existingResourceNames...)
 		}
 	}
@@ -91,7 +92,7 @@ func VerifyNoResourceAwaitsCleanup[T component.GroveCustomResourceType](ctx cont
 }
 
 // ShouldRequeueAfter checks if an error is a GroveError and if yes then returns true
-// when the error code is groveerr.ErrCodeRequeueAfter, else it returns false.
+// when the error code is groveerr.ErrCodeRequeueAfter along with the GroveError.Message, else it returns false and an empty message.
 func ShouldRequeueAfter(err error) bool {
 	groveErr := &groveerr.GroveError{}
 	if errors.As(err, &groveErr) {

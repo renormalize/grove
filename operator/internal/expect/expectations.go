@@ -153,6 +153,14 @@ func (s *ExpectationsStore) GetDeleteExpectations(controlleeKey string) []types.
 	return nil
 }
 
+// HasDeleteExpectation returns true if a delete expectation has been recorded for the controlleeKey and the target resource UID.
+func (s *ExpectationsStore) HasDeleteExpectation(controlleeKey string, uid types.UID) bool {
+	if exp, exists, _ := s.GetExpectations(controlleeKey); exists {
+		return exp.uidsToDelete.Has(uid)
+	}
+	return false
+}
+
 // createOrRaiseExpectations creates or raises create/delete expectations for the given controlleeKey.
 func (s *ExpectationsStore) createOrRaiseExpectations(logger logr.Logger, controlleeKey string, uidsToAdd, uidsToDelete []types.UID) error {
 	s.mu.Lock()

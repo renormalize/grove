@@ -48,33 +48,49 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pg
 func (r *Reconciler) mutateReplicas(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) error {
 	// Set basic replica count
 	pgs.Status.Replicas = pgs.Spec.Replicas
-	availableReplicas, err := r.computeAvailableReplicas(ctx, logger, pgs)
+	availableReplicas, updatedReplicas, err := r.computeAvailableAndUpdatedReplicas(ctx, logger, pgs)
 	if err != nil {
 		return fmt.Errorf("could not compute available replicas: %w", err)
 	}
 	pgs.Status.AvailableReplicas = availableReplicas
+	pgs.Status.UpdatedReplicas = updatedReplicas
 	return nil
 }
 
-// computeAvailableReplicas calculates the number of available replicas for a PodGangSet.
+// computeAvailableAndUpdatedReplicas calculates the number of available replicas for a PodGangSet.
 // It checks both standalone PodCliques and PodCliqueScalingGroups to determine availability.
 // A replica is considered available if it has all its required components (PCSGs and standalone PCLQs) available.
-func (r *Reconciler) computeAvailableReplicas(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) (int32, error) {
-	var availableReplicas int32
-	// Calculate expected resource counts per replica (same for all replicas)
-	expectedStandalonePCLQs, expectedPCSGs := r.computeExpectedResourceCounts(pgs)
+func (r *Reconciler) computeAvailableAndUpdatedReplicas(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) (int32, int32, error) {
+	var (
+		availableReplicas int32
+		updatedReplicas   int32
+		pgsObjectKey      = client.ObjectKeyFromObject(pgs)
+	)
+
+	expectedPCSGFQNsPerPGSReplica := componentutils.GetExpectedPCSGFQNsPerPGSReplica(pgs)
+	expectedStandAlonePCLQFQNsPerPGSReplica := componentutils.GetExpectedStandAlonePCLQFQNsPerPGSReplica(pgs)
 
 	// Fetch all PCSGs for this PGS
-	pcsgs, err := componentutils.GetPCSGsForPGS(ctx, r.client, client.ObjectKeyFromObject(pgs))
+	pcsgs, err := componentutils.GetPCSGsForPGS(ctx, r.client, pgsObjectKey)
 	if err != nil {
-		return -1, err
+		return availableReplicas, updatedReplicas, err
 	}
+	// Filter the PCSGs that belong to the expected set of PCSGs for PGS, this ensures that we do not
+	// consider any stray PCSGs that might have been created externally.
+	pcsgs = lo.Filter(pcsgs, func(pcsg grovecorev1alpha1.PodCliqueScalingGroup, _ int) bool {
+		return lo.Contains(lo.Flatten(lo.Values(expectedPCSGFQNsPerPGSReplica)), pcsg.Name)
+	})
 
 	// Fetch all standalone PodCliques for this PGS
-	standalonePCLQs, err := componentutils.GetPodCliquesWithParentPGS(ctx, r.client, client.ObjectKeyFromObject(pgs))
+	standalonePCLQs, err := componentutils.GetPodCliquesWithParentPGS(ctx, r.client, pgsObjectKey)
 	if err != nil {
-		return -1, err
+		return availableReplicas, updatedReplicas, err
 	}
+	// Filter the PCLQs that belong to the expected set of standalone PCLQs for PGS, this ensures that we do not
+	// consider any stray PCLQs that might have been created externally.
+	standalonePCLQs = lo.Filter(standalonePCLQs, func(pclq grovecorev1alpha1.PodClique, _ int) bool {
+		return lo.Contains(lo.Flatten(lo.Values(expectedStandAlonePCLQFQNsPerPGSReplica)), pclq.Name)
+	})
 
 	// Group both resources by PGS replica index
 	standalonePCLQsByReplica := componentutils.GroupPCLQsByPGSReplicaIndex(standalonePCLQs)
@@ -85,89 +101,56 @@ func (r *Reconciler) computeAvailableReplicas(ctx context.Context, logger logr.L
 		replicaStandalonePCLQs := standalonePCLQsByReplica[replicaIndexStr]
 		replicaPCSGs := pcsgsByReplica[replicaIndexStr]
 		// Check if this PGS replica is available based on all its components
-		isReplicaAvailable := r.isPGSReplicaAvailable(logger, pgs, replicaIndex, replicaPCSGs,
-			replicaStandalonePCLQs, expectedPCSGs, expectedStandalonePCLQs)
-
+		isReplicaAvailable, isReplicaUpdated := r.computeReplicaStatus(pgs.Status.CurrentGenerationHash, replicaPCSGs,
+			replicaStandalonePCLQs, len(expectedPCSGFQNsPerPGSReplica[replicaIndex]), len(expectedStandAlonePCLQFQNsPerPGSReplica[replicaIndex]))
 		if isReplicaAvailable {
 			availableReplicas++
 		}
-	}
-
-	logger.Info("Calculated available replicas for PGS", "pgs", client.ObjectKeyFromObject(pgs), "availableReplicas", availableReplicas, "totalReplicas", pgs.Spec.Replicas)
-	return availableReplicas, nil
-}
-
-func (r *Reconciler) computeExpectedResourceCounts(pgs *grovecorev1alpha1.PodGangSet) (expectedStandalonePCLQs, expectedPCSGs int) {
-	// Count expected PCSGs - this is the number of unique scaling group configs
-	expectedPCSGs = len(pgs.Spec.Template.PodCliqueScalingGroupConfigs)
-
-	// Count expected standalone PodCliques - cliques that are NOT part of any scaling group
-	expectedStandalonePCLQs = 0
-	for _, cliqueSpec := range pgs.Spec.Template.Cliques {
-		pcsgConfig := componentutils.FindScalingGroupConfigForClique(pgs.Spec.Template.PodCliqueScalingGroupConfigs, cliqueSpec.Name)
-		if pcsgConfig == nil {
-			// This clique is not part of any scaling group, so it's standalone
-			expectedStandalonePCLQs++
+		if isReplicaUpdated {
+			updatedReplicas++
 		}
 	}
 
-	return expectedStandalonePCLQs, expectedPCSGs
+	logger.Info("Calculated available and updated replicas for PGS", "pgs", pgsObjectKey, "availableReplicas", availableReplicas, "updatedReplicas", updatedReplicas, "totalReplicas", pgs.Spec.Replicas)
+	return availableReplicas, updatedReplicas, nil
 }
 
-func (r *Reconciler) isPGSReplicaAvailable(logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, replicaIndex int, replicaPCSGs []grovecorev1alpha1.PodCliqueScalingGroup, standalonePCLQs []grovecorev1alpha1.PodClique, expectedPCSGs int, expectedStandalonePCLQs int) bool {
-	if !r.checkPGSReplicaStandalonePCLQsAvailability(logger, pgs, expectedStandalonePCLQs, replicaIndex, standalonePCLQs) {
-		logger.Info("PGS replica is not available due to insufficient standalone PodCliques",
-			"pgs", client.ObjectKeyFromObject(pgs), "replicaIndex", replicaIndex,
-			"expectedStandalonePCLQs", expectedStandalonePCLQs, "actualPCLQsCount", len(standalonePCLQs))
-		return false
-	}
-
-	if !r.checkPGSCReplicaPCSGsAvailability(logger, pgs, expectedPCSGs, replicaIndex, replicaPCSGs) {
-		logger.Info("PGS replica is not available due to insufficient PodCliqueScalingGroups",
-			"pgs", client.ObjectKeyFromObject(pgs), "replicaIndex", replicaIndex,
-			"expectedPCSGs", expectedPCSGs, "actualPCSGsCount", len(replicaPCSGs))
-		return false
-	}
-
-	logger.Info("PGS replica is available", "pgs", client.ObjectKeyFromObject(pgs), "replicaIndex", replicaIndex)
-	return true
+func (r *Reconciler) computeReplicaStatus(pgsGenerationHash *string, replicaPCSGs []grovecorev1alpha1.PodCliqueScalingGroup, standalonePCLQs []grovecorev1alpha1.PodClique, expectedPCSGs int, expectedStandalonePCLQs int) (bool, bool) {
+	pclqsAvailable, pclqsUpdated := r.computePCLQsStatus(expectedStandalonePCLQs, standalonePCLQs)
+	pcsgsAvailable, pcsgsUpdated := r.computePCSGsStatus(pgsGenerationHash, expectedPCSGs, replicaPCSGs)
+	return pclqsAvailable && pcsgsAvailable, pclqsUpdated && pcsgsUpdated
 }
 
-func (r *Reconciler) checkPGSReplicaStandalonePCLQsAvailability(logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, expectedStandalonePCLQs, replicaIndex int, pclqs []grovecorev1alpha1.PodClique) bool {
-	nonTerminatedPCLQs := lo.Filter(pclqs, func(pclq grovecorev1alpha1.PodClique, _ int) bool {
+func (r *Reconciler) computePCLQsStatus(expectedStandalonePCLQs int, existingPCLQs []grovecorev1alpha1.PodClique) (isAvailable, isUpdated bool) {
+	nonTerminatedPCLQs := lo.Filter(existingPCLQs, func(pclq grovecorev1alpha1.PodClique, _ int) bool {
 		return !k8sutils.IsResourceTerminating(pclq.ObjectMeta)
 	})
-	if len(nonTerminatedPCLQs) < expectedStandalonePCLQs {
-		logger.Info("PGS replica does not have all expected PodCliques",
-			"pgs", client.ObjectKeyFromObject(pgs), "replicaIndex", replicaIndex,
-			"expectedStandalonePCLQs", expectedStandalonePCLQs, "actualPCLQsCount", len(pclqs))
-		return false
-	}
 
-	isAvailable := lo.EveryBy(nonTerminatedPCLQs, func(pclq grovecorev1alpha1.PodClique) bool {
-		return pclq.Status.ReadyReplicas >= *pclq.Spec.MinAvailable
+	isAvailable = len(nonTerminatedPCLQs) == expectedStandalonePCLQs &&
+		lo.EveryBy(nonTerminatedPCLQs, func(pclq grovecorev1alpha1.PodClique) bool {
+			return pclq.Status.ReadyReplicas >= *pclq.Spec.MinAvailable
+		})
+
+	isUpdated = isAvailable && lo.EveryBy(nonTerminatedPCLQs, func(pclq grovecorev1alpha1.PodClique) bool {
+		return pclq.Status.UpdatedReplicas >= *pclq.Spec.MinAvailable
 	})
 
-	logger.Info("PGS replica availability status", "pgs",
-		client.ObjectKeyFromObject(pgs), "replicaIndex", replicaIndex, "isAvailable", isAvailable)
-	return isAvailable
+	return
 }
 
-func (r *Reconciler) checkPGSCReplicaPCSGsAvailability(logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, expectedPCSGs, replicaIndex int, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup) bool {
+func (r *Reconciler) computePCSGsStatus(pgsGenerationHash *string, expectedPCSGs int, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup) (isAvailable, isUpdated bool) {
 	nonTerminatedPCSGs := lo.Filter(pcsgs, func(pcsg grovecorev1alpha1.PodCliqueScalingGroup, _ int) bool {
 		return !k8sutils.IsResourceTerminating(pcsg.ObjectMeta)
 	})
-	if len(nonTerminatedPCSGs) < expectedPCSGs {
-		logger.Info("PGS replica does not have all expected PodCliqueScalingGroups",
-			"pgs", client.ObjectKeyFromObject(pgs), "replicaIndex", replicaIndex,
-			"expectedPCSGs", expectedPCSGs, "actualPCSGsCount", len(pcsgs))
-		return false
-	}
-	isAvailable := lo.EveryBy(nonTerminatedPCSGs, func(pcsg grovecorev1alpha1.PodCliqueScalingGroup) bool {
-		return pcsg.Status.AvailableReplicas >= *pcsg.Spec.MinAvailable
+
+	isAvailable = expectedPCSGs == len(nonTerminatedPCSGs) &&
+		lo.EveryBy(nonTerminatedPCSGs, func(pcsg grovecorev1alpha1.PodCliqueScalingGroup) bool {
+			return pcsg.Status.AvailableReplicas >= *pcsg.Spec.MinAvailable
+		})
+
+	isUpdated = isAvailable && lo.EveryBy(nonTerminatedPCSGs, func(pcsg grovecorev1alpha1.PodCliqueScalingGroup) bool {
+		return pgsGenerationHash != nil && componentutils.IsPCSGUpdateComplete(&pcsg, *pgsGenerationHash)
 	})
 
-	logger.Info("PGS replica PCSG availability status", "pgs",
-		client.ObjectKeyFromObject(pgs), "replicaIndex", replicaIndex, "isAvailable", isAvailable)
-	return isAvailable
+	return
 }

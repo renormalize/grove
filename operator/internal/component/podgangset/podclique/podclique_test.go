@@ -28,11 +28,10 @@ import (
 	testutils "github.com/NVIDIA/grove/operator/test/utils"
 
 	"github.com/go-logr/logr"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -96,7 +95,7 @@ func TestGetExistingResourceNames(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			t.Parallel()
 			// Create a PodGangSet with the specified number of replicas and PodCliques
-			pgsBuilder := testutils.NewPodGangSetBuilder(testPGSetName, testPGSNamespace).
+			pgsBuilder := testutils.NewPodGangSetBuilder(testPGSetName, testPGSNamespace, uuid.NewUUID()).
 				WithReplicas(tc.pgsReplicas).
 				WithCliqueStartupType(ptr.To(grovecorev1alpha1.CliqueStartupTypeAnyOrder))
 			for _, pclqTemplateName := range tc.podCliqueTemplateNames {
@@ -152,7 +151,7 @@ func TestDelete(t *testing.T) {
 	pgsObjMeta := metav1.ObjectMeta{
 		Name:      testPGSetName,
 		Namespace: testPGSNamespace,
-		UID:       types.UID(uuid.NewString()),
+		UID:       uuid.NewUUID(),
 	}
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
@@ -204,8 +203,8 @@ func createExistingPodCliquesFromPGS(pgs *grovecorev1alpha1.PodGangSet, podCliqu
 	// Add additional PodCliques not owned by the PodGangSet
 	nonExistingPGSName := "ebony"
 	for _, podCliqueName := range podCliqueNamesNotOwnedByPGS {
-		pclq := testutils.NewPodCliqueBuilder(nonExistingPGSName, types.UID(uuid.NewString()), podCliqueName, pgs.Namespace, 0).
-			WithOwnerReference("PodGangSet", nonExistingPGSName, uuid.NewString()).Build()
+		pclq := testutils.NewPodCliqueBuilder(nonExistingPGSName, uuid.NewUUID(), podCliqueName, pgs.Namespace, 0).
+			WithOwnerReference("PodGangSet", nonExistingPGSName, uuid.NewUUID()).Build()
 		existingPodCliques = append(existingPodCliques, pclq)
 	}
 	return existingPodCliques

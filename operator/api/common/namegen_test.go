@@ -14,10 +14,12 @@
 // limitations under the License.
 // */
 
-package v1alpha1
+package common
 
 import (
 	"testing"
+
+	"github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -180,7 +182,7 @@ func TestExtractScalingGroupNameFromPCSGFQN_Consistency(t *testing.T) {
 
 func TestGeneratePodGangNameForPodCliqueOwnedByPodGangSet(t *testing.T) {
 	// Create a PodGangSet for testing
-	pgs := &PodGangSet{
+	pgs := &v1alpha1.PodGangSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "simple1",
 		},
@@ -213,7 +215,7 @@ func TestGeneratePodGangNameForPodCliqueOwnedByPodGangSet(t *testing.T) {
 
 func TestGeneratePodGangNameForPodCliqueOwnedByPCSG(t *testing.T) {
 	// Create a PodGangSet for testing
-	pgs := &PodGangSet{
+	pgs := &v1alpha1.PodGangSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "simple1",
 		},
@@ -222,18 +224,18 @@ func TestGeneratePodGangNameForPodCliqueOwnedByPCSG(t *testing.T) {
 	tests := []struct {
 		name                string
 		pgsReplicaIndex     int
-		pcsg                *PodCliqueScalingGroup
+		pcsg                *v1alpha1.PodCliqueScalingGroup
 		pcsgReplicaIndex    int
 		expectedPodGangName string
 	}{
 		{
 			name:            "PCSG PodClique within minAvailable",
 			pgsReplicaIndex: 0,
-			pcsg: &PodCliqueScalingGroup{
+			pcsg: &v1alpha1.PodCliqueScalingGroup{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "simple1-0-sga",
 				},
-				Spec: PodCliqueScalingGroupSpec{
+				Spec: v1alpha1.PodCliqueScalingGroupSpec{
 					MinAvailable: ptr.To[int32](3),
 				},
 			},
@@ -243,11 +245,11 @@ func TestGeneratePodGangNameForPodCliqueOwnedByPCSG(t *testing.T) {
 		{
 			name:            "PCSG PodClique beyond minAvailable - first scaled",
 			pgsReplicaIndex: 0,
-			pcsg: &PodCliqueScalingGroup{
+			pcsg: &v1alpha1.PodCliqueScalingGroup{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "simple1-0-sga",
 				},
-				Spec: PodCliqueScalingGroupSpec{
+				Spec: v1alpha1.PodCliqueScalingGroupSpec{
 					MinAvailable: ptr.To[int32](3),
 				},
 			},
@@ -257,11 +259,11 @@ func TestGeneratePodGangNameForPodCliqueOwnedByPCSG(t *testing.T) {
 		{
 			name:            "PCSG PodClique beyond minAvailable - second scaled",
 			pgsReplicaIndex: 0,
-			pcsg: &PodCliqueScalingGroup{
+			pcsg: &v1alpha1.PodCliqueScalingGroup{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "simple1-0-sga",
 				},
-				Spec: PodCliqueScalingGroupSpec{
+				Spec: v1alpha1.PodCliqueScalingGroupSpec{
 					MinAvailable: ptr.To[int32](3),
 				},
 			},

@@ -19,6 +19,7 @@ package utils
 import (
 	"strconv"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,16 +33,16 @@ type PodCliqueScalingGroupBuilder struct {
 }
 
 // NewPodCliqueScalingGroupBuilder creates a new PodCliqueScalingGroupBuilder with basic configuration.
-func NewPodCliqueScalingGroupBuilder(name, namespace, pgsName string, replicaIndex int) *PodCliqueScalingGroupBuilder {
+func NewPodCliqueScalingGroupBuilder(name, namespace, pgsName string, pgsReplicaIndex int) *PodCliqueScalingGroupBuilder {
 	return &PodCliqueScalingGroupBuilder{
 		pcsg: &grovecorev1alpha1.PodCliqueScalingGroup{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
 				Namespace: namespace,
 				Labels: map[string]string{
-					grovecorev1alpha1.LabelManagedByKey:           grovecorev1alpha1.LabelManagedByValue,
-					grovecorev1alpha1.LabelPartOfKey:              pgsName,
-					grovecorev1alpha1.LabelPodGangSetReplicaIndex: strconv.Itoa(replicaIndex),
+					apicommon.LabelManagedByKey:           apicommon.LabelManagedByValue,
+					apicommon.LabelPartOfKey:              pgsName,
+					apicommon.LabelPodGangSetReplicaIndex: strconv.Itoa(pgsReplicaIndex),
 				},
 			},
 			Spec: grovecorev1alpha1.PodCliqueScalingGroupSpec{

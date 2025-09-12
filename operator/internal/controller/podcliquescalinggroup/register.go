@@ -19,8 +19,11 @@ package podcliquescalinggroup
 import (
 	"context"
 
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	ctrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
+	"github.com/NVIDIA/grove/operator/internal/utils"
 
 	"github.com/samber/lo"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -34,7 +37,7 @@ import (
 )
 
 const (
-	controllerName = "podcliquescalingroup-controller"
+	controllerName = "podcliquescalinggroup-controller"
 )
 
 // RegisterWithManager registers the PodCliqueScalingGroup Reconciler with the manager.
@@ -67,12 +70,12 @@ func podCliqueScalingGroupUpdatePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(createEvent event.CreateEvent) bool {
 			return ctrlutils.IsManagedByGrove(createEvent.Object.GetLabels()) &&
-				ctrlutils.HasExpectedOwner(grovecorev1alpha1.PodGangSetKind, createEvent.Object.GetOwnerReferences())
+				ctrlutils.HasExpectedOwner(constants.KindPodGangSet, createEvent.Object.GetOwnerReferences())
 		},
 		DeleteFunc: func(_ event.DeleteEvent) bool { return false },
 		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
 			return ctrlutils.IsManagedByGrove(updateEvent.ObjectOld.GetLabels()) &&
-				ctrlutils.HasExpectedOwner(grovecorev1alpha1.PodGangSetKind, updateEvent.ObjectOld.GetOwnerReferences())
+				ctrlutils.HasExpectedOwner(constants.KindPodGangSet, updateEvent.ObjectOld.GetOwnerReferences())
 		},
 		GenericFunc: func(_ event.GenericEvent) bool { return false },
 	}
@@ -89,9 +92,11 @@ func mapPGSToPCSG() handler.MapFunc {
 			return nil
 		}
 		requests := make([]reconcile.Request, 0, int(pgs.Spec.Replicas)*len(pcsgConfigs))
-		for pgsReplica := range pgs.Spec.Replicas {
+		// We are only interested in PGS events during rolling update.
+		if pgs.Status.RollingUpdateProgress != nil && pgs.Status.RollingUpdateProgress.CurrentlyUpdating != nil {
+			pgsReplicaIndex := pgs.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex
 			for _, pcsgConfig := range pcsgConfigs {
-				pcsgName := grovecorev1alpha1.GeneratePodCliqueScalingGroupName(grovecorev1alpha1.ResourceNameReplica{Name: pgs.Name, Replica: int(pgsReplica)}, pcsgConfig.Name)
+				pcsgName := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: int(pgsReplicaIndex)}, pcsgConfig.Name)
 				requests = append(requests, reconcile.Request{
 					NamespacedName: client.ObjectKey{
 						Name:      pcsgName,
@@ -109,10 +114,28 @@ func podGangSetPredicate() predicate.Predicate {
 		CreateFunc: func(_ event.CreateEvent) bool { return false },
 		DeleteFunc: func(_ event.DeleteEvent) bool { return false },
 		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
-			return ctrlutils.IsManagedByGrove(updateEvent.ObjectOld.GetLabels())
+			return shouldEnqueueOnPGSUpdate(updateEvent)
 		},
 		GenericFunc: func(_ event.GenericEvent) bool { return false },
 	}
+}
+
+func shouldEnqueueOnPGSUpdate(event event.UpdateEvent) bool {
+	oldPGS, okOld := event.ObjectOld.(*grovecorev1alpha1.PodGangSet)
+	newPGS, okNew := event.ObjectNew.(*grovecorev1alpha1.PodGangSet)
+	if !okOld || !okNew {
+		return false
+	}
+
+	if oldPGS.Status.RollingUpdateProgress != nil && newPGS.Status.RollingUpdateProgress != nil {
+		if utils.OnlyOneIsNil(oldPGS.Status.RollingUpdateProgress.CurrentlyUpdating, newPGS.Status.RollingUpdateProgress.CurrentlyUpdating) ||
+			oldPGS.Status.RollingUpdateProgress.CurrentlyUpdating != nil &&
+				newPGS.Status.RollingUpdateProgress.CurrentlyUpdating != nil &&
+				oldPGS.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex != newPGS.Status.RollingUpdateProgress.CurrentlyUpdating.ReplicaIndex {
+			return true
+		}
+	}
+	return false
 }
 
 func mapPCLQToPCSG() handler.MapFunc {
@@ -121,7 +144,7 @@ func mapPCLQToPCSG() handler.MapFunc {
 		if !ok {
 			return nil
 		}
-		pcsgName, ok := pclq.GetLabels()[grovecorev1alpha1.LabelPodCliqueScalingGroup]
+		pcsgName, ok := pclq.GetLabels()[apicommon.LabelPodCliqueScalingGroup]
 		if !ok || lo.IsEmpty(pcsgName) {
 			return nil
 		}
@@ -133,10 +156,10 @@ func podCliquePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(_ event.CreateEvent) bool { return false },
 		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
-			return ctrlutils.IsManagedPodClique(deleteEvent.Object, grovecorev1alpha1.PodCliqueScalingGroupKind)
+			return ctrlutils.IsManagedPodClique(deleteEvent.Object, constants.KindPodCliqueScalingGroup)
 		},
 		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
-			return ctrlutils.IsManagedPodClique(updateEvent.ObjectOld, grovecorev1alpha1.PodCliqueScalingGroupKind)
+			return ctrlutils.IsManagedPodClique(updateEvent.ObjectOld, constants.KindPodCliqueScalingGroup)
 		},
 	}
 }

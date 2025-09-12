@@ -17,6 +17,7 @@
 package utils
 
 import (
+	apicommon "github.com/NVIDIA/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	"github.com/samber/lo"
@@ -35,8 +36,8 @@ func HasExpectedOwner(expectedOwnerKind string, ownerRefs []metav1.OwnerReferenc
 // IsManagedByGrove checks if the pod is managed by Grove by inspecting its labels.
 // All grove managed resources will have a standard set of default labels.
 func IsManagedByGrove(labels map[string]string) bool {
-	if val, ok := labels[grovecorev1alpha1.LabelManagedByKey]; ok {
-		return grovecorev1alpha1.LabelManagedByValue == val
+	if val, ok := labels[apicommon.LabelManagedByKey]; ok {
+		return apicommon.LabelManagedByValue == val
 	}
 	return false
 }

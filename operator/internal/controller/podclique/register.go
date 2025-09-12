@@ -20,7 +20,9 @@ import (
 	"context"
 	"strings"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
+	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
 	grovectrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
 	"github.com/NVIDIA/grove/operator/internal/utils"
 	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
@@ -60,6 +62,16 @@ func (r *Reconciler) RegisterWithManager(mgr ctrl.Manager) error {
 		).
 		Owns(&corev1.Pod{}, builder.WithPredicates(podPredicate())).
 		Watches(
+			&grovecorev1alpha1.PodGangSet{},
+			handler.EnqueueRequestsFromMapFunc(mapPodGangSetToPCLQs()),
+			builder.WithPredicates(podGangSetPredicate()),
+		).
+		Watches(
+			&grovecorev1alpha1.PodCliqueScalingGroup{},
+			handler.EnqueueRequestsFromMapFunc(mapPodCliqueScalingGroupToPCLQs()),
+			builder.WithPredicates(podCliqueScalingGroupPredicate()),
+		).
+		Watches(
 			&groveschedulerv1alpha1.PodGang{},
 			handler.EnqueueRequestsFromMapFunc(mapPodGangToPCLQs()),
 			builder.WithPredicates(podGangPredicate()),
@@ -68,7 +80,7 @@ func (r *Reconciler) RegisterWithManager(mgr ctrl.Manager) error {
 }
 
 func managedPodCliquePredicate() predicate.Predicate {
-	expectedOwnerKinds := []string{grovecorev1alpha1.PodCliqueScalingGroupKind, grovecorev1alpha1.PodGangSetKind}
+	expectedOwnerKinds := []string{constants.KindPodCliqueScalingGroup, constants.KindPodGangSet}
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			return grovectrlutils.IsManagedPodClique(e.Object, expectedOwnerKinds...)
@@ -152,6 +164,73 @@ func hasStartedAndReadyChangedForAnyContainer(oldContainerStatuses []corev1.Cont
 	return false
 }
 
+// mapPodGangSetToPCLQs maps a PodGangSet to one or more reconcile.Request(s) to its constituent standalone Podcliques.
+// These events are needed to keep the PodClique.Status.CurrentPodGangSetGenerationHash in sync with the PodGangSet.
+func mapPodGangSetToPCLQs() handler.MapFunc {
+	return func(_ context.Context, obj client.Object) []reconcile.Request {
+		pgs, ok := obj.(*grovecorev1alpha1.PodGangSet)
+		if !ok {
+			return nil
+		}
+		return lo.Map(componentutils.GetPodCliqueFQNsForPGSNotInPCSG(pgs), func(pclqFQN string, _ int) reconcile.Request {
+			return reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: pgs.Namespace,
+				Name:      pclqFQN,
+			}}
+		})
+	}
+}
+
+func podGangSetPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(_ event.CreateEvent) bool { return false },
+		DeleteFunc: func(_ event.DeleteEvent) bool { return false },
+		UpdateFunc: func(event event.UpdateEvent) bool {
+			oldPGS, okOld := event.ObjectOld.(*grovecorev1alpha1.PodGangSet)
+			newPGS, okNew := event.ObjectNew.(*grovecorev1alpha1.PodGangSet)
+			if !okOld || !okNew {
+				return false
+			}
+			return oldPGS.Status.CurrentGenerationHash != newPGS.Status.CurrentGenerationHash
+		},
+		GenericFunc: func(_ event.GenericEvent) bool { return false },
+	}
+}
+
+// mapPodCliqueScalingGroupToPCLQs maps a PodCliqueScalingGroup to one or more reconcile.Request(s) to its constituent PodCliques.
+// These events are needed to keep the PodClique.Status.CurrentPodGangSetGenerationHash in sync with the PodGangSet.
+func mapPodCliqueScalingGroupToPCLQs() handler.MapFunc {
+	return func(_ context.Context, obj client.Object) []reconcile.Request {
+		pcsg, ok := obj.(*grovecorev1alpha1.PodCliqueScalingGroup)
+		if !ok {
+			return nil
+		}
+		return lo.Map(componentutils.GetPodCliqueFQNsForPCSG(pcsg), func(pclqFQN string, _ int) reconcile.Request {
+			return reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: pcsg.Namespace,
+				Name:      pclqFQN,
+			}}
+		})
+	}
+}
+
+func podCliqueScalingGroupPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(_ event.CreateEvent) bool { return false },
+		DeleteFunc: func(_ event.DeleteEvent) bool { return false },
+		UpdateFunc: func(event event.UpdateEvent) bool {
+			oldPCSG, okOld := event.ObjectOld.(*grovecorev1alpha1.PodCliqueScalingGroup)
+			newPCSG, okNew := event.ObjectNew.(*grovecorev1alpha1.PodCliqueScalingGroup)
+			if !okOld || !okNew {
+				return false
+			}
+			return oldPCSG.Status.CurrentPodGangSetGenerationHash != nil && newPCSG.Status.RollingUpdateProgress != nil &&
+				*oldPCSG.Status.CurrentPodGangSetGenerationHash != newPCSG.Status.RollingUpdateProgress.PodGangSetGenerationHash
+		},
+		GenericFunc: func(_ event.GenericEvent) bool { return false },
+	}
+}
+
 // mapPodGangToPCLQs maps a PodGang to one or more reconcile.Request(s) for its constituent PodClique's.
 func mapPodGangToPCLQs() handler.MapFunc {
 	return func(_ context.Context, obj client.Object) []reconcile.Request {
@@ -193,5 +272,5 @@ func isManagedPod(obj client.Object) bool {
 	if !ok {
 		return false
 	}
-	return grovectrlutils.HasExpectedOwner(grovecorev1alpha1.PodCliqueKind, pod.OwnerReferences) && grovectrlutils.IsManagedByGrove(pod.GetLabels())
+	return grovectrlutils.HasExpectedOwner(constants.KindPodClique, pod.OwnerReferences) && grovectrlutils.IsManagedByGrove(pod.GetLabels())
 }

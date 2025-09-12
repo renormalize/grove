@@ -14,38 +14,7 @@
 // limitations under the License.
 // */
 
-package v1alpha1
-
-// Common label keys to be placed on all resources managed by grove operator.
-const (
-	// LabelAppNameKey is a key of a label which sets the name of the resource.
-	LabelAppNameKey = "app.kubernetes.io/name"
-	// LabelManagedByKey is a key of a label which sets the operator which manages this resource.
-	LabelManagedByKey = "app.kubernetes.io/managed-by"
-	// LabelPartOfKey is a key of a label which sets the type of the resource.
-	LabelPartOfKey = "app.kubernetes.io/part-of"
-	// LabelManagedByValue is the value for LabelManagedByKey
-	LabelManagedByValue = "grove-operator"
-	// LabelComponentKey is a key for a label that sets the component type on resources provisioned for a PodGangSet.
-	LabelComponentKey = "app.kubernetes.io/component"
-	// LabelPodClique is a key for a label that sets the PodClique name.
-	LabelPodClique = "grove.io/podclique"
-	// LabelPodGang is a key for a label that sets the PodGang name.
-	LabelPodGang = "grove.io/podgang"
-	// LabelBasePodGang is a key for a label that sets the base PodGang name for scaled PodGangs.
-	// This label is present on scaled PodGangs (beyond MinAvailable) and points to their base PodGang.
-	LabelBasePodGang = "grove.io/base-podgang"
-	// LabelPodGangSetReplicaIndex is a key for a label that sets the replica index of a PodGangSet.
-	LabelPodGangSetReplicaIndex = "grove.io/podgangset-replica-index"
-	// LabelPodCliqueScalingGroup is a key for a label that sets the PodCliqueScalingGroup name.
-	LabelPodCliqueScalingGroup = "grove.io/podcliquescalinggroup"
-	// LabelPodCliqueScalingGroupReplicaIndex is a key for a label that sets the replica index of a PCSG within PodGangSet.
-	LabelPodCliqueScalingGroupReplicaIndex = "grove.io/podcliquescalinggroup-replica-index"
-	// LabelComponentPGSPodCliqueValue is the value for LabelComponentKey for PodClique resources managed by a PodGangSet.
-	LabelComponentPGSPodCliqueValue = "pgs-podclique"
-	// LabelComponentPCSGPodCliqueValue is the value for LabelComponentKey for PodClique resources managed by a PodCliqueScalingGroup.
-	LabelComponentPCSGPodCliqueValue = "pcsg-podclique"
-)
+package constants
 
 // Constants for finalizers.
 const (
@@ -59,22 +28,6 @@ const (
 	// This will be placed on all PodCliqueScalingGroup resources during reconciliation. This finalizer is used to clean up resources
 	// that are created for a PodCliqueScalingGroup when it is deleted.
 	FinalizerPodCliqueScalingGroup = "grove.io/podcliquescalinggroup.grove.io"
-)
-
-// Constants for events.
-const (
-	// EventReconciling is the event type which indicates that the reconcile operation has started.
-	EventReconciling = "Reconciling"
-	// EventReconciled is the event type which indicates that the reconcile operation has completed successfully.
-	EventReconciled = "Reconciled"
-	// EventReconcileError is the event type which indicates that the reconcile operation has failed.
-	EventReconcileError = "ReconcileError"
-	// EventDeleting is the event type which indicates that the delete operation has started.
-	EventDeleting = "Deleting"
-	// EventDeleted is the event type which indicates that the delete operation has completed successfully.
-	EventDeleted = "Deleted"
-	// EventDeleteError is the event type which indicates that the delete operation has failed.
-	EventDeleteError = "DeleteError"
 )
 
 // Constants for Grove environment variables
@@ -97,6 +50,21 @@ const (
 	EnvVarPCSGTemplateNumPods = "GROVE_PCSG_TEMPLATE_NUM_PODS"
 )
 
+const (
+	// EventReconciling is the event type which indicates that the reconcile operation has started.
+	EventReconciling = "Reconciling"
+	// EventReconciled is the event type which indicates that the reconcile operation has completed successfully.
+	EventReconciled = "Reconciled"
+	// EventReconcileError is the event type which indicates that the reconcile operation has failed.
+	EventReconcileError = "ReconcileError"
+	// EventDeleting is the event type which indicates that the delete operation has started.
+	EventDeleting = "Deleting"
+	// EventDeleted is the event type which indicates that the delete operation has completed successfully.
+	EventDeleted = "Deleted"
+	// EventDeleteError is the event type which indicates that the delete operation has failed.
+	EventDeleteError = "DeleteError"
+)
+
 // Constants for Condition Types
 const (
 	// ConditionTypeMinAvailableBreached indicates that the minimum number of ready pods in the PodClique are below the threshold defined in the PodCliqueSpec.MinAvailable threshold.
@@ -106,7 +74,7 @@ const (
 	ConditionTypePodCliqueScheduled = "PodCliqueScheduled"
 )
 
-// Constants for Condition Reasons
+// Constants for Condition Reasons.
 const (
 	// ConditionReasonInsufficientReadyPods indicates that the number of ready pods in the PodClique is below the threshold defined in the PodCliqueSpec.MinAvailable threshold.
 	ConditionReasonInsufficientReadyPods = "InsufficientReadyPods"
@@ -122,4 +90,15 @@ const (
 	ConditionReasonInsufficientAvailablePCSGReplicas = "InsufficientAvailablePodCliqueScalingGroupReplicas"
 	// ConditionReasonSufficientAvailablePCSGReplicas indicates that the number of ready replicas in the PodCliqueScalingGroup is greater than or equal to the PodCliqueScalingGroupSpec.MinAvailable.
 	ConditionReasonSufficientAvailablePCSGReplicas = "SufficientAvailablePodCliqueScalingGroupReplicas"
+	// ConditionReasonUpdateInProgress indicates that the resource is undergoing rolling update.
+	ConditionReasonUpdateInProgress = "UpdateInProgress"
+)
+
+const (
+	// KindPodGangSet is the kind for a PodGangSet resource.
+	KindPodGangSet = "PodGangSet"
+	// KindPodClique is the kind for a PodClique resource.
+	KindPodClique = "PodClique"
+	// KindPodCliqueScalingGroup is the kind for a PodCliqueScalingGroup resource.
+	KindPodCliqueScalingGroup = "PodCliqueScalingGroup"
 )

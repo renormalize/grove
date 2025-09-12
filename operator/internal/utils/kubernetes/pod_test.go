@@ -18,11 +18,11 @@ package kubernetes
 
 import (
 	"testing"
-	"time"
+
+	testutils "github.com/NVIDIA/grove/operator/test/utils"
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -59,24 +59,57 @@ func TestIsPodActive(t *testing.T) {
 			want:        false,
 		},
 	}
-	for _, testCase := range testCases {
-		t.Run(testCase.description, func(t *testing.T) {
-			pod := createPod(testCase.phase, testCase.isTerminating)
-			assert.Equal(t, testCase.want, IsPodActive(pod))
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			podBuilder := testutils.NewPodWithBuilderWithDefaultSpec(testPodName, testPodNamespace).WithPhase(tc.phase)
+			if tc.isTerminating {
+				podBuilder.MarkForTermination()
+			}
+			pod := podBuilder.Build()
+			assert.Equal(t, tc.want, IsPodActive(pod))
 		})
 	}
 }
 
-func createPod(phase corev1.PodPhase, isTerminating bool) *corev1.Pod {
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      testPodName,
-			Namespace: testPodNamespace,
+func TestIsPodScheduled(t *testing.T) {
+	testCases := []struct {
+		description        string
+		scheduledCondition *corev1.PodCondition
+		expectedResult     bool
+	}{
+		{
+			description:    "Pod does not have a PodScheduled condition",
+			expectedResult: false,
+		},
+		{
+			description: "Pod has a PodScheduled condition with status True",
+			scheduledCondition: &corev1.PodCondition{
+				Type:   corev1.PodScheduled,
+				Status: corev1.ConditionTrue,
+			},
+			expectedResult: true,
+		},
+		{
+			description: "Pod has a PodScheduled condition with status False",
+			scheduledCondition: &corev1.PodCondition{
+				Type:   corev1.PodScheduled,
+				Status: corev1.ConditionFalse,
+			},
+			expectedResult: false,
 		},
 	}
-	pod.Status.Phase = phase
-	if isTerminating {
-		pod.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			podBuilder := testutils.NewPodWithBuilderWithDefaultSpec(testPodName, testPodNamespace)
+			if tc.scheduledCondition != nil {
+				podBuilder.WithCondition(*tc.scheduledCondition)
+			}
+			pod := podBuilder.Build()
+			result := IsPodScheduled(pod)
+			if result != tc.expectedResult {
+				t.Errorf("expected %v, got %v", tc.expectedResult, result)
+			}
+		})
 	}
-	return pod
 }

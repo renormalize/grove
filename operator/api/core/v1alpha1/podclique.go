@@ -111,19 +111,58 @@ type PodCliqueStatus struct {
 	// Replicas is the total number of non-terminated Pods targeted by this PodClique.
 	Replicas int32 `json:"replicas,omitempty"`
 	// ReadyReplicas is the number of ready Pods targeted by this PodClique.
-	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
+	// +kubebuilder:default=0
+	ReadyReplicas int32 `json:"readyReplicas"`
 	// UpdatedReplicas is the number of Pods that have been updated and are at the desired revision of the PodClique.
-	UpdatedReplicas int32 `json:"updatedReplicas,omitempty"`
+	// +kubebuilder:default=0
+	UpdatedReplicas int32 `json:"updatedReplicas"`
 	// ScheduleGatedReplicas is the number of Pods that have been created with one or more scheduling gate(s) set.
 	// Sum of ReadyReplicas and ScheduleGatedReplicas will always be <= Replicas.
-	ScheduleGatedReplicas int32 `json:"scheduleGatedReplicas,omitempty"`
+	// +kubebuilder:default=0
+	ScheduleGatedReplicas int32 `json:"scheduleGatedReplicas"`
 	// ScheduledReplicas is the number of Pods that have been scheduled by the kube-scheduler.
-	ScheduledReplicas int32 `json:"scheduledReplicas,omitempty"`
+	// +kubebuilder:default=0
+	ScheduledReplicas int32 `json:"scheduledReplicas"`
 	// Selector is the label selector that determines which pods are part of the PodClique.
 	// PodClique is a unit of scale and this selector is used by HPA to scale the PodClique based on metrics captured for the pods that match this selector.
 	Selector *string `json:"hpaPodSelector,omitempty"`
 	// Conditions represents the latest available observations of the clique by its controller.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// CurrentPodGangSetGenerationHash establishes a correlation to PodGangSet generation hash indicating
+	// that the spec of the PodGangSet at this generation is fully realized in the PodClique.
+	CurrentPodGangSetGenerationHash *string `json:"currentPodGangSetGenerationHash,omitempty"`
+	// CurrentPodTemplateHash establishes a correlation to PodClique template hash indicating
+	// that the spec of the PodClique at this template hash is fully realized in the PodClique.
+	CurrentPodTemplateHash *string `json:"currentPodTemplateHash,omitempty"`
+	// RollingUpdateProgress provides details about the ongoing rolling update of the PodClique.
+	RollingUpdateProgress *PodCliqueRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
+}
+
+// PodCliqueRollingUpdateProgress provides details about the ongoing rolling update of the PodClique.
+type PodCliqueRollingUpdateProgress struct {
+	// UpdateStartedAt is the time at which the rolling update started.
+	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
+	// UpdateEndedAt is the time at which the rolling update ended.
+	// It will be set to nil if the rolling update is still in progress.
+	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
+	// PodGangSetGenerationHash is the PodGangSet generation hash corresponding to the PodGangSet spec that is being rolled out.
+	// While the update is in progress PodCliqueStatus.CurrentPodGangSetGenerationHash will not match this hash. Once the update is complete the
+	// value of this field will be copied to PodCliqueStatus.CurrentPodGangSetGenerationHash.
+	PodGangSetGenerationHash string `json:"podGangSetGenerationHash"`
+	// PodTemplateHash is the PodClique template hash corresponding to the PodClique spec that is being rolled out.
+	// While the update is in progress PodCliqueStatus.CurrentPodTemplateHash will not match this hash. Once the update is complete the
+	// value of this field will be copied to PodCliqueStatus.CurrentPodTemplateHash.
+	PodTemplateHash string `json:"podTemplateHash"`
+	// ReadyPodsSelectedToUpdate captures the pod names of ready Pods that are either currently being updated or have been previously updated.
+	ReadyPodsSelectedToUpdate *PodsSelectedToUpdate `json:"readyPodsSelectedToUpdate,omitempty"`
+}
+
+// PodsSelectedToUpdate captures the current and previous set of pod names that have been selected for update in a rolling update.
+type PodsSelectedToUpdate struct {
+	// Current captures the current pod name that is a target for update.
+	Current string `json:"current"`
+	// Completed captures the pod names that have already been updated.
+	Completed []string `json:"completed,omitempty"`
 }
 
 // SetLastErrors sets the last errors observed by the controller when reconciling the PodClique.

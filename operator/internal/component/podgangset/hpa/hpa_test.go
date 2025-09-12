@@ -19,12 +19,18 @@ package hpa
 import (
 	"testing"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	testutils "github.com/NVIDIA/grove/operator/test/utils"
 
 	"github.com/stretchr/testify/assert"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/utils/ptr"
+)
+
+var (
+	pgsUID = uuid.NewUUID()
 )
 
 func TestComputeExpectedHPAs(t *testing.T) {
@@ -35,7 +41,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 	}{
 		{
 			name: "PodClique HPA",
-			pgs: testutils.NewPodGangSetBuilder("test-pgs", "default").
+			pgs: testutils.NewPodGangSetBuilder("test-pgs", "default", pgsUID).
 				WithReplicas(1).
 				WithPodCliqueTemplateSpec(
 					testutils.NewPodCliqueTemplateSpecBuilder("test-clique").
@@ -47,7 +53,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 				Build(),
 			expected: []hpaInfo{
 				{
-					targetScaleResourceKind: grovecorev1alpha1.PodCliqueKind,
+					targetScaleResourceKind: constants.KindPodClique,
 					targetScaleResourceName: "test-pgs-0-test-clique",
 					scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 						MinReplicas: ptr.To(int32(2)),
@@ -58,7 +64,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 		},
 		{
 			name: "PodCliqueScalingGroup HPA",
-			pgs: testutils.NewPodGangSetBuilder("test-pgs", "default").
+			pgs: testutils.NewPodGangSetBuilder("test-pgs", "default", pgsUID).
 				WithReplicas(1).
 				WithPodCliqueScalingGroupConfig(grovecorev1alpha1.PodCliqueScalingGroupConfig{
 					Name:         "test-sg",
@@ -73,7 +79,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 				Build(),
 			expected: []hpaInfo{
 				{
-					targetScaleResourceKind: grovecorev1alpha1.PodCliqueScalingGroupKind,
+					targetScaleResourceKind: constants.KindPodCliqueScalingGroup,
 					targetScaleResourceName: "test-pgs-0-test-sg",
 					scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 						MinReplicas: ptr.To(int32(2)),
@@ -84,7 +90,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 		},
 		{
 			name: "Both PodClique and PodCliqueScalingGroup HPAs",
-			pgs: testutils.NewPodGangSetBuilder("test-pgs", "default").
+			pgs: testutils.NewPodGangSetBuilder("test-pgs", "default", pgsUID).
 				WithReplicas(1).
 				WithPodCliqueTemplateSpec(
 					testutils.NewPodCliqueTemplateSpecBuilder("individual-clique").
@@ -106,7 +112,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 				Build(),
 			expected: []hpaInfo{
 				{
-					targetScaleResourceKind: grovecorev1alpha1.PodCliqueKind,
+					targetScaleResourceKind: constants.KindPodClique,
 					targetScaleResourceName: "test-pgs-0-individual-clique",
 					scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 						MinReplicas: ptr.To(int32(2)),
@@ -114,7 +120,7 @@ func TestComputeExpectedHPAs(t *testing.T) {
 					},
 				},
 				{
-					targetScaleResourceKind: grovecorev1alpha1.PodCliqueScalingGroupKind,
+					targetScaleResourceKind: constants.KindPodCliqueScalingGroup,
 					targetScaleResourceName: "test-pgs-0-scaling-group",
 					scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 						MinReplicas: ptr.To(int32(1)),
@@ -152,7 +158,7 @@ func TestBuildResource(t *testing.T) {
 		{
 			name: "Sets HPA spec from scaleConfig",
 			hpaInfo: hpaInfo{
-				targetScaleResourceKind: grovecorev1alpha1.PodCliqueKind,
+				targetScaleResourceKind: constants.KindPodClique,
 				targetScaleResourceName: "test-resource",
 				scaleConfig: grovecorev1alpha1.AutoScalingConfig{
 					MinReplicas: ptr.To(int32(2)),
@@ -167,7 +173,7 @@ func TestBuildResource(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &_resource{}
-			pgs := testutils.NewPodGangSetBuilder("test-pgs", "default").Build()
+			pgs := testutils.NewPodGangSetBuilder("test-pgs", "default", pgsUID).Build()
 			hpa := &autoscalingv2.HorizontalPodAutoscaler{}
 
 			// This would normally be set by the scheme, but for testing we can skip it

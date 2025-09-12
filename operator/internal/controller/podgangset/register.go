@@ -18,7 +18,9 @@ package podgangset
 
 import (
 	"context"
+	"reflect"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	componentutils "github.com/NVIDIA/grove/operator/internal/component/utils"
 	grovectrlutils "github.com/NVIDIA/grove/operator/internal/controller/utils"
@@ -89,10 +91,10 @@ func podCliquePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(_ event.CreateEvent) bool { return false },
 		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
-			return grovectrlutils.IsManagedPodClique(deleteEvent.Object, grovecorev1alpha1.PodGangSetKind)
+			return grovectrlutils.IsManagedPodClique(deleteEvent.Object, constants.KindPodGangSet)
 		},
 		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
-			return grovectrlutils.IsManagedPodClique(updateEvent.ObjectOld, grovecorev1alpha1.PodGangSetKind, grovecorev1alpha1.PodCliqueScalingGroupKind) &&
+			return grovectrlutils.IsManagedPodClique(updateEvent.ObjectOld, constants.KindPodGangSet, constants.KindPodCliqueScalingGroup) &&
 				(hasSpecChanged(updateEvent) || hasStatusChanged(updateEvent))
 		},
 		GenericFunc: func(_ event.GenericEvent) bool { return false },
@@ -109,7 +111,7 @@ func podCliqueScalingGroupPredicate() predicate.Predicate {
 			if !okOld || !okNew {
 				return false
 			}
-			return hasMinAvailableBreachedConditionChanged(oldPCSG.Status.Conditions, newPCSG.Status.Conditions)
+			return hasMinAvailableBreachedConditionChanged(oldPCSG.Status.Conditions, newPCSG.Status.Conditions) || hasRollingUpdateStatusChanged(&oldPCSG.Status, &newPCSG.Status)
 		},
 		GenericFunc: func(_ event.TypedGenericEvent[client.Object]) bool { return false },
 	}
@@ -136,8 +138,8 @@ func hasAnyStatusReplicasChanged(oldPCLQStatus, newPCLQStatus grovecorev1alpha1.
 }
 
 func hasMinAvailableBreachedConditionChanged(oldConditions, newConditions []metav1.Condition) bool {
-	oldMinAvailableBreachedCond := meta.FindStatusCondition(oldConditions, grovecorev1alpha1.ConditionTypeMinAvailableBreached)
-	newMinAvailableBreachedCond := meta.FindStatusCondition(newConditions, grovecorev1alpha1.ConditionTypeMinAvailableBreached)
+	oldMinAvailableBreachedCond := meta.FindStatusCondition(oldConditions, constants.ConditionTypeMinAvailableBreached)
+	newMinAvailableBreachedCond := meta.FindStatusCondition(newConditions, constants.ConditionTypeMinAvailableBreached)
 	if utils.OnlyOneIsNil(oldMinAvailableBreachedCond, newMinAvailableBreachedCond) {
 		return true
 	}
@@ -145,4 +147,8 @@ func hasMinAvailableBreachedConditionChanged(oldConditions, newConditions []meta
 		return oldMinAvailableBreachedCond.Status != newMinAvailableBreachedCond.Status
 	}
 	return false
+}
+
+func hasRollingUpdateStatusChanged(oldPCSGStatus, newPCSGStatus *grovecorev1alpha1.PodCliqueScalingGroupStatus) bool {
+	return !reflect.DeepEqual(oldPCSGStatus.RollingUpdateProgress, newPCSGStatus.RollingUpdateProgress)
 }

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
 
@@ -58,7 +59,7 @@ type recorder struct {
 }
 
 func (r *recorder) RecordStart(ctx context.Context, obj ReconciledObject, operationType grovecorev1alpha1.LastOperationType) error {
-	eventReason := lo.Ternary[string](operationType == grovecorev1alpha1.LastOperationTypeReconcile, grovecorev1alpha1.EventReconciling, grovecorev1alpha1.EventDeleting)
+	eventReason := lo.Ternary[string](operationType == grovecorev1alpha1.LastOperationTypeReconcile, constants.EventReconciling, constants.EventDeleting)
 	resourceKind := obj.GetObjectKind().GroupVersionKind().Kind
 	r.eventRecorder.Event(obj, v1.EventTypeNormal, eventReason, fmt.Sprintf("Reconciling %s", resourceKind))
 	description := lo.Ternary(operationType == grovecorev1alpha1.LastOperationTypeReconcile, fmt.Sprintf("%s reconciliation is in progress", resourceKind), fmt.Sprintf("%s deletion is in progress", resourceKind))
@@ -98,9 +99,9 @@ func (r *recorder) recordCompletionEvent(obj ReconciledObject, operationType gro
 
 func getCompletionEventReason(operationType grovecorev1alpha1.LastOperationType, operationResult *ReconcileStepResult) string {
 	if operationResult != nil && operationResult.HasErrors() {
-		return lo.Ternary[string](operationType == grovecorev1alpha1.LastOperationTypeReconcile, grovecorev1alpha1.EventReconcileError, grovecorev1alpha1.EventDeleteError)
+		return lo.Ternary[string](operationType == grovecorev1alpha1.LastOperationTypeReconcile, constants.EventReconcileError, constants.EventDeleteError)
 	}
-	return lo.Ternary[string](operationType == grovecorev1alpha1.LastOperationTypeReconcile, grovecorev1alpha1.EventReconciled, grovecorev1alpha1.EventDeleted)
+	return lo.Ternary[string](operationType == grovecorev1alpha1.LastOperationTypeReconcile, constants.EventReconciled, constants.EventDeleted)
 }
 
 func getCompletionEventMessage(operationType grovecorev1alpha1.LastOperationType, operationResult *ReconcileStepResult, resourceKind string) string {

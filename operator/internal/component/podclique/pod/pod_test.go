@@ -19,6 +19,8 @@ package pod
 import (
 	"testing"
 
+	"github.com/NVIDIA/grove/operator/api/common"
+	"github.com/NVIDIA/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
 
 	"github.com/stretchr/testify/assert"
@@ -52,11 +54,11 @@ func TestAddEnvironmentVariables(t *testing.T) {
 				},
 			},
 			expectedEnvVars: []string{
-				grovecorev1alpha1.EnvVarPGSName,
-				grovecorev1alpha1.EnvVarPGSIndex,
-				grovecorev1alpha1.EnvVarPCLQName,
-				grovecorev1alpha1.EnvVarHeadlessService,
-				grovecorev1alpha1.EnvVarPodIndex,
+				constants.EnvVarPGSName,
+				constants.EnvVarPGSIndex,
+				constants.EnvVarPCLQName,
+				constants.EnvVarHeadlessService,
+				constants.EnvVarPodIndex,
 			},
 		},
 		{
@@ -66,7 +68,7 @@ func TestAddEnvironmentVariables(t *testing.T) {
 					Name:      "test-pclq",
 					Namespace: "test-ns",
 					Labels: map[string]string{
-						grovecorev1alpha1.LabelPodCliqueScalingGroup: "test-pcsg",
+						common.LabelPodCliqueScalingGroup: "test-pcsg",
 					},
 				},
 				Spec: grovecorev1alpha1.PodCliqueSpec{
@@ -81,11 +83,11 @@ func TestAddEnvironmentVariables(t *testing.T) {
 				},
 			},
 			expectedEnvVars: []string{
-				grovecorev1alpha1.EnvVarPGSName,
-				grovecorev1alpha1.EnvVarPGSIndex,
-				grovecorev1alpha1.EnvVarPCLQName,
-				grovecorev1alpha1.EnvVarHeadlessService,
-				grovecorev1alpha1.EnvVarPodIndex,
+				constants.EnvVarPGSName,
+				constants.EnvVarPGSIndex,
+				constants.EnvVarPCLQName,
+				constants.EnvVarHeadlessService,
+				constants.EnvVarPodIndex,
 			},
 		},
 	}
@@ -152,10 +154,10 @@ func TestAddGroveEnvironmentVariables_NoDuplicates(t *testing.T) {
 				},
 			},
 			expectedEnvVars: []string{
-				grovecorev1alpha1.EnvVarPGSName,
-				grovecorev1alpha1.EnvVarPGSIndex,
-				grovecorev1alpha1.EnvVarPCLQName,
-				grovecorev1alpha1.EnvVarHeadlessService,
+				constants.EnvVarPGSName,
+				constants.EnvVarPGSIndex,
+				constants.EnvVarPCLQName,
+				constants.EnvVarHeadlessService,
 			},
 			shouldReplace: map[string]string{
 				"GROVE_PGS_NAME":  "test-pgs",
@@ -185,10 +187,10 @@ func TestAddGroveEnvironmentVariables_NoDuplicates(t *testing.T) {
 				},
 			},
 			expectedEnvVars: []string{
-				grovecorev1alpha1.EnvVarPGSName,
-				grovecorev1alpha1.EnvVarPGSIndex,
-				grovecorev1alpha1.EnvVarPCLQName,
-				grovecorev1alpha1.EnvVarHeadlessService,
+				constants.EnvVarPGSName,
+				constants.EnvVarPGSIndex,
+				constants.EnvVarPCLQName,
+				constants.EnvVarHeadlessService,
 			},
 			shouldPreserve: []string{"USER_VAR", "CUSTOM_CONFIG"},
 		},
@@ -216,10 +218,10 @@ func TestAddGroveEnvironmentVariables_NoDuplicates(t *testing.T) {
 				},
 			},
 			expectedEnvVars: []string{
-				grovecorev1alpha1.EnvVarPGSName,
-				grovecorev1alpha1.EnvVarPGSIndex,
-				grovecorev1alpha1.EnvVarPCLQName,
-				grovecorev1alpha1.EnvVarHeadlessService,
+				constants.EnvVarPGSName,
+				constants.EnvVarPGSIndex,
+				constants.EnvVarPCLQName,
+				constants.EnvVarHeadlessService,
 			},
 			shouldReplace: map[string]string{
 				"GROVE_PGS_NAME": "test-pgs",
@@ -233,7 +235,7 @@ func TestAddGroveEnvironmentVariables_NoDuplicates(t *testing.T) {
 					Name:      "test-pclq",
 					Namespace: "test-ns",
 					Labels: map[string]string{
-						grovecorev1alpha1.LabelPodCliqueScalingGroup: "test-pcsg",
+						common.LabelPodCliqueScalingGroup: "test-pcsg",
 					},
 				},
 				Spec: grovecorev1alpha1.PodCliqueSpec{
@@ -252,10 +254,10 @@ func TestAddGroveEnvironmentVariables_NoDuplicates(t *testing.T) {
 				},
 			},
 			expectedEnvVars: []string{
-				grovecorev1alpha1.EnvVarPGSName,
-				grovecorev1alpha1.EnvVarPGSIndex,
-				grovecorev1alpha1.EnvVarPCLQName,
-				grovecorev1alpha1.EnvVarHeadlessService,
+				constants.EnvVarPGSName,
+				constants.EnvVarPGSIndex,
+				constants.EnvVarPCLQName,
+				constants.EnvVarHeadlessService,
 			},
 			shouldReplace:  map[string]string{},
 			shouldPreserve: []string{"USER_VAR"},
@@ -327,10 +329,10 @@ func TestAddGroveEnvironmentVariables_MultipleContainers(t *testing.T) {
 
 	// Both containers should have Grove environment variables
 	expectedEnvVars := []string{
-		grovecorev1alpha1.EnvVarPGSName,
-		grovecorev1alpha1.EnvVarPGSIndex,
-		grovecorev1alpha1.EnvVarPCLQName,
-		grovecorev1alpha1.EnvVarHeadlessService,
+		constants.EnvVarPGSName,
+		constants.EnvVarPGSIndex,
+		constants.EnvVarPCLQName,
+		constants.EnvVarHeadlessService,
 	}
 
 	for _, container := range pod.Spec.Containers {
