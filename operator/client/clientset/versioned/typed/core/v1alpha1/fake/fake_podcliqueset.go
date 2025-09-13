@@ -24,19 +24,19 @@ import (
 	gentype "k8s.io/client-go/gentype"
 )
 
-// fakePodGangSets implements PodGangSetInterface
-type fakePodGangSets struct {
+// fakePodCliqueSets implements PodCliqueSetInterface
+type fakePodCliqueSets struct {
 	*gentype.FakeClientWithList[*v1alpha1.PodCliqueSet, *v1alpha1.PodCliqueSetList]
 	Fake *FakeGroveV1alpha1
 }
 
-func newFakePodGangSets(fake *FakeGroveV1alpha1, namespace string) corev1alpha1.PodGangSetInterface {
-	return &fakePodGangSets{
+func newFakePodCliqueSets(fake *FakeGroveV1alpha1, namespace string) corev1alpha1.PodCliqueSetInterface {
+	return &fakePodCliqueSets{
 		gentype.NewFakeClientWithList[*v1alpha1.PodCliqueSet, *v1alpha1.PodCliqueSetList](
 			fake.Fake,
 			namespace,
-			v1alpha1.SchemeGroupVersion.WithResource("podgangsets"),
-			v1alpha1.SchemeGroupVersion.WithKind("PodGangSet"),
+			v1alpha1.SchemeGroupVersion.WithResource("podcliquesets"),
+			v1alpha1.SchemeGroupVersion.WithKind("PodCliqueSet"),
 			func() *v1alpha1.PodCliqueSet { return &v1alpha1.PodCliqueSet{} },
 			func() *v1alpha1.PodCliqueSetList { return &v1alpha1.PodCliqueSetList{} },
 			func(dst, src *v1alpha1.PodCliqueSetList) { dst.ListMeta = src.ListMeta },

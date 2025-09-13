@@ -25,46 +25,46 @@ import (
 	cache "k8s.io/client-go/tools/cache"
 )
 
-// PodGangSetLister helps list PodGangSets.
+// PodCliqueSetLister helps list PodCliqueSets.
 // All objects returned here must be treated as read-only.
-type PodGangSetLister interface {
-	// List lists all PodGangSets in the indexer.
+type PodCliqueSetLister interface {
+	// List lists all PodCliqueSets in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*corev1alpha1.PodCliqueSet, err error)
-	// PodGangSets returns an object that can list and get PodGangSets.
-	PodGangSets(namespace string) PodGangSetNamespaceLister
-	PodGangSetListerExpansion
+	// PodCliqueSets returns an object that can list and get PodCliqueSets.
+	PodCliqueSets(namespace string) PodCliqueSetNamespaceLister
+	PodCliqueSetListerExpansion
 }
 
-// podGangSetLister implements the PodGangSetLister interface.
-type podGangSetLister struct {
+// podCliqueSetLister implements the PodCliqueSetLister interface.
+type podCliqueSetLister struct {
 	listers.ResourceIndexer[*corev1alpha1.PodCliqueSet]
 }
 
-// NewPodGangSetLister returns a new PodGangSetLister.
-func NewPodGangSetLister(indexer cache.Indexer) PodGangSetLister {
-	return &podGangSetLister{listers.New[*corev1alpha1.PodCliqueSet](indexer, corev1alpha1.Resource("podgangset"))}
+// NewPodCliqueSetLister returns a new PodCliqueSetLister.
+func NewPodCliqueSetLister(indexer cache.Indexer) PodCliqueSetLister {
+	return &podCliqueSetLister{listers.New[*corev1alpha1.PodCliqueSet](indexer, corev1alpha1.Resource("podcliqueset"))}
 }
 
-// PodGangSets returns an object that can list and get PodGangSets.
-func (s *podGangSetLister) PodGangSets(namespace string) PodGangSetNamespaceLister {
-	return podGangSetNamespaceLister{listers.NewNamespaced[*corev1alpha1.PodCliqueSet](s.ResourceIndexer, namespace)}
+// PodCliqueSets returns an object that can list and get PodCliqueSets.
+func (s *podCliqueSetLister) PodCliqueSets(namespace string) PodCliqueSetNamespaceLister {
+	return podCliqueSetNamespaceLister{listers.NewNamespaced[*corev1alpha1.PodCliqueSet](s.ResourceIndexer, namespace)}
 }
 
-// PodGangSetNamespaceLister helps list and get PodGangSets.
+// PodCliqueSetNamespaceLister helps list and get PodCliqueSets.
 // All objects returned here must be treated as read-only.
-type PodGangSetNamespaceLister interface {
-	// List lists all PodGangSets in the indexer for a given namespace.
+type PodCliqueSetNamespaceLister interface {
+	// List lists all PodCliqueSets in the indexer for a given namespace.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*corev1alpha1.PodCliqueSet, err error)
-	// Get retrieves the PodGangSet from the indexer for a given namespace and name.
+	// Get retrieves the PodCliqueSet from the indexer for a given namespace and name.
 	// Objects returned here must be treated as read-only.
 	Get(name string) (*corev1alpha1.PodCliqueSet, error)
-	PodGangSetNamespaceListerExpansion
+	PodCliqueSetNamespaceListerExpansion
 }
 
-// podGangSetNamespaceLister implements the PodGangSetNamespaceLister
+// podCliqueSetNamespaceLister implements the PodCliqueSetNamespaceLister
 // interface.
-type podGangSetNamespaceLister struct {
+type podCliqueSetNamespaceLister struct {
 	listers.ResourceIndexer[*corev1alpha1.PodCliqueSet]
 }

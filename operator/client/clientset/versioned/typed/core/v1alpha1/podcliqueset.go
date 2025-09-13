@@ -29,37 +29,37 @@ import (
 	gentype "k8s.io/client-go/gentype"
 )
 
-// PodGangSetsGetter has a method to return a PodGangSetInterface.
+// PodCliqueSetsGetter has a method to return a PodCliqueSetInterface.
 // A group's client should implement this interface.
-type PodGangSetsGetter interface {
-	PodGangSets(namespace string) PodGangSetInterface
+type PodCliqueSetsGetter interface {
+	PodCliqueSets(namespace string) PodCliqueSetInterface
 }
 
-// PodGangSetInterface has methods to work with PodGangSet resources.
-type PodGangSetInterface interface {
-	Create(ctx context.Context, podGangSet *corev1alpha1.PodCliqueSet, opts v1.CreateOptions) (*corev1alpha1.PodCliqueSet, error)
-	Update(ctx context.Context, podGangSet *corev1alpha1.PodCliqueSet, opts v1.UpdateOptions) (*corev1alpha1.PodCliqueSet, error)
+// PodCliqueSetInterface has methods to work with PodCliqueSet resources.
+type PodCliqueSetInterface interface {
+	Create(ctx context.Context, podCliqueSet *corev1alpha1.PodCliqueSet, opts v1.CreateOptions) (*corev1alpha1.PodCliqueSet, error)
+	Update(ctx context.Context, podCliqueSet *corev1alpha1.PodCliqueSet, opts v1.UpdateOptions) (*corev1alpha1.PodCliqueSet, error)
 	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-	UpdateStatus(ctx context.Context, podGangSet *corev1alpha1.PodCliqueSet, opts v1.UpdateOptions) (*corev1alpha1.PodCliqueSet, error)
+	UpdateStatus(ctx context.Context, podCliqueSet *corev1alpha1.PodCliqueSet, opts v1.UpdateOptions) (*corev1alpha1.PodCliqueSet, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
 	Get(ctx context.Context, name string, opts v1.GetOptions) (*corev1alpha1.PodCliqueSet, error)
 	List(ctx context.Context, opts v1.ListOptions) (*corev1alpha1.PodCliqueSetList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
 	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *corev1alpha1.PodCliqueSet, err error)
-	PodGangSetExpansion
+	PodCliqueSetExpansion
 }
 
-// podGangSets implements PodGangSetInterface
-type podGangSets struct {
+// podCliqueSets implements PodCliqueSetInterface
+type podCliqueSets struct {
 	*gentype.ClientWithList[*corev1alpha1.PodCliqueSet, *corev1alpha1.PodCliqueSetList]
 }
 
-// newPodGangSets returns a PodGangSets
-func newPodGangSets(c *GroveV1alpha1Client, namespace string) *podGangSets {
-	return &podGangSets{
+// newPodCliqueSets returns a PodCliqueSets
+func newPodCliqueSets(c *GroveV1alpha1Client, namespace string) *podCliqueSets {
+	return &podCliqueSets{
 		gentype.NewClientWithList[*corev1alpha1.PodCliqueSet, *corev1alpha1.PodCliqueSetList](
-			"podgangsets",
+			"podcliquesets",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			namespace,
