@@ -117,7 +117,6 @@ func createDefaultPodSpec() corev1.PodSpec {
 				Command: []string{"/bin/sh", "-c", "sleep 2m"},
 			},
 		},
-		RestartPolicy:                 corev1.RestartPolicyAlways,
 		TerminationGracePeriodSeconds: ptr.To[int64](30),
 	}
 }
