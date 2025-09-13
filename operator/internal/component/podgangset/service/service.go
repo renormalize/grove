@@ -48,7 +48,7 @@ type _resource struct {
 }
 
 // New creates an instance of Service component operator.
-func New(client client.Client, scheme *runtime.Scheme) component.Operator[grovecorev1alpha1.PodGangSet] {
+func New(client client.Client, scheme *runtime.Scheme) component.Operator[grovecorev1alpha1.PodCliqueSet] {
 	return &_resource{
 		client: client,
 		scheme: scheme,
@@ -75,7 +75,7 @@ func (r _resource) GetExistingResourceNames(ctx context.Context, logger logr.Log
 }
 
 // Sync synchronizes all resources that the Service Operator manages.
-func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) error {
+func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodCliqueSet) error {
 	replicaIndexToObjectKeys := getObjectKeys(pgs)
 	tasks := make([]utils.Task, 0, len(replicaIndexToObjectKeys))
 	for replicaIndex, objectKey := range replicaIndexToObjectKeys {
@@ -114,7 +114,7 @@ func (r _resource) Delete(ctx context.Context, logger logr.Logger, pgObjMeta met
 	return nil
 }
 
-func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int, pgServiceObjectKey client.ObjectKey) error {
+func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodCliqueSet, pgsReplicaIndex int, pgServiceObjectKey client.ObjectKey) error {
 	logger.Info("Running CreateOrUpdate PodGangSet Headless Service", "pgsReplicaIndex", pgsReplicaIndex, "objectKey", pgServiceObjectKey)
 	pgService := emptyPGService(pgServiceObjectKey)
 	opResult, err := controllerutil.CreateOrPatch(ctx, r.client, pgService, func() error {
@@ -131,7 +131,7 @@ func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pgs
 	return nil
 }
 
-func (r _resource) buildResource(svc *corev1.Service, pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int) error {
+func (r _resource) buildResource(svc *corev1.Service, pgs *grovecorev1alpha1.PodCliqueSet, pgsReplicaIndex int) error {
 	svc.Labels = getLabels(pgs.Name, client.ObjectKeyFromObject(svc), pgsReplicaIndex)
 	var publishNotReadyAddresses bool
 	if pgs.Spec.Template.HeadlessServiceConfig != nil {
@@ -181,7 +181,7 @@ func getSelectorLabelsForAllHeadlessServices(pgsName string) map[string]string {
 	)
 }
 
-func getObjectKeys(pgs *grovecorev1alpha1.PodGangSet) []client.ObjectKey {
+func getObjectKeys(pgs *grovecorev1alpha1.PodCliqueSet) []client.ObjectKey {
 	objectKeys := make([]client.ObjectKey, 0, pgs.Spec.Replicas)
 	for replicaIndex := range pgs.Spec.Replicas {
 		serviceName := apicommon.GenerateHeadlessServiceName(apicommon.ResourceNameReplica{Name: pgs.Name, Replica: int(replicaIndex)})

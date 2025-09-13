@@ -425,7 +425,7 @@ func (r _resource) createPods(ctx context.Context, logger logr.Logger, sc *syncC
 // syncContext holds the relevant state required during the sync flow run.
 type syncContext struct {
 	ctx                           context.Context
-	pgs                           *grovecorev1alpha1.PodGangSet
+	pgs                           *grovecorev1alpha1.PodCliqueSet
 	pclq                          *grovecorev1alpha1.PodClique
 	associatedPodGangName         string
 	existingPCLQPods              []*corev1.Pod

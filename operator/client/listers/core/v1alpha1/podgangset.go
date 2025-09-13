@@ -30,7 +30,7 @@ import (
 type PodGangSetLister interface {
 	// List lists all PodGangSets in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*corev1alpha1.PodGangSet, err error)
+	List(selector labels.Selector) (ret []*corev1alpha1.PodCliqueSet, err error)
 	// PodGangSets returns an object that can list and get PodGangSets.
 	PodGangSets(namespace string) PodGangSetNamespaceLister
 	PodGangSetListerExpansion
@@ -38,17 +38,17 @@ type PodGangSetLister interface {
 
 // podGangSetLister implements the PodGangSetLister interface.
 type podGangSetLister struct {
-	listers.ResourceIndexer[*corev1alpha1.PodGangSet]
+	listers.ResourceIndexer[*corev1alpha1.PodCliqueSet]
 }
 
 // NewPodGangSetLister returns a new PodGangSetLister.
 func NewPodGangSetLister(indexer cache.Indexer) PodGangSetLister {
-	return &podGangSetLister{listers.New[*corev1alpha1.PodGangSet](indexer, corev1alpha1.Resource("podgangset"))}
+	return &podGangSetLister{listers.New[*corev1alpha1.PodCliqueSet](indexer, corev1alpha1.Resource("podgangset"))}
 }
 
 // PodGangSets returns an object that can list and get PodGangSets.
 func (s *podGangSetLister) PodGangSets(namespace string) PodGangSetNamespaceLister {
-	return podGangSetNamespaceLister{listers.NewNamespaced[*corev1alpha1.PodGangSet](s.ResourceIndexer, namespace)}
+	return podGangSetNamespaceLister{listers.NewNamespaced[*corev1alpha1.PodCliqueSet](s.ResourceIndexer, namespace)}
 }
 
 // PodGangSetNamespaceLister helps list and get PodGangSets.
@@ -56,15 +56,15 @@ func (s *podGangSetLister) PodGangSets(namespace string) PodGangSetNamespaceList
 type PodGangSetNamespaceLister interface {
 	// List lists all PodGangSets in the indexer for a given namespace.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*corev1alpha1.PodGangSet, err error)
+	List(selector labels.Selector) (ret []*corev1alpha1.PodCliqueSet, err error)
 	// Get retrieves the PodGangSet from the indexer for a given namespace and name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*corev1alpha1.PodGangSet, error)
+	Get(name string) (*corev1alpha1.PodCliqueSet, error)
 	PodGangSetNamespaceListerExpansion
 }
 
 // podGangSetNamespaceLister implements the PodGangSetNamespaceLister
 // interface.
 type podGangSetNamespaceLister struct {
-	listers.ResourceIndexer[*corev1alpha1.PodGangSet]
+	listers.ResourceIndexer[*corev1alpha1.PodCliqueSet]
 }

@@ -50,7 +50,7 @@ type _resource struct {
 }
 
 // New creates an instance of RoleBinding component operator.
-func New(client client.Client, scheme *runtime.Scheme) component.Operator[grovecorev1alpha1.PodGangSet] {
+func New(client client.Client, scheme *runtime.Scheme) component.Operator[grovecorev1alpha1.PodCliqueSet] {
 	return &_resource{
 		client: client,
 		scheme: scheme,
@@ -80,7 +80,7 @@ func (r _resource) GetExistingResourceNames(ctx context.Context, _ logr.Logger, 
 }
 
 // Sync synchronizes all resources that the RoleBinding Operator manages.
-func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) error {
+func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodCliqueSet) error {
 	existingRoleBindingNames, err := r.GetExistingResourceNames(ctx, logger, pgs.ObjectMeta)
 	if err != nil {
 		return groveerr.WrapError(err,
@@ -132,7 +132,7 @@ func (r _resource) Delete(ctx context.Context, logger logr.Logger, pgsObjMeta me
 	return nil
 }
 
-func (r _resource) buildResource(pgs *grovecorev1alpha1.PodGangSet, roleBinding *rbacv1.RoleBinding) error {
+func (r _resource) buildResource(pgs *grovecorev1alpha1.PodCliqueSet, roleBinding *rbacv1.RoleBinding) error {
 	roleBinding.Labels = getLabels(pgs.ObjectMeta)
 	if err := controllerutil.SetControllerReference(pgs, roleBinding, r.scheme); err != nil {
 		return groveerr.WrapError(err,

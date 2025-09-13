@@ -49,7 +49,7 @@ type _resource struct {
 }
 
 // New creates an instance of ServiceAccount component operator.
-func New(client client.Client, scheme *runtime.Scheme) component.Operator[v1alpha1.PodGangSet] {
+func New(client client.Client, scheme *runtime.Scheme) component.Operator[v1alpha1.PodCliqueSet] {
 	return &_resource{
 		client: client,
 		scheme: scheme,
@@ -79,7 +79,7 @@ func (r _resource) GetExistingResourceNames(ctx context.Context, _ logr.Logger, 
 }
 
 // Sync synchronizes all resources that the ServiceAccount Operator manages.
-func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodGangSet) error {
+func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodCliqueSet) error {
 	objectKey := getObjectKey(pgs.ObjectMeta)
 	sa := emptyServiceAccount(objectKey)
 
@@ -116,7 +116,7 @@ func (r _resource) Delete(ctx context.Context, logger logr.Logger, pgsObjMeta me
 	return nil
 }
 
-func (r _resource) buildResource(pgs *v1alpha1.PodGangSet, sa *corev1.ServiceAccount) error {
+func (r _resource) buildResource(pgs *v1alpha1.PodCliqueSet, sa *corev1.ServiceAccount) error {
 	sa.Labels = getLabels(pgs.ObjectMeta)
 	if err := controllerutil.SetControllerReference(pgs, sa, r.scheme); err != nil {
 		return groveerr.WrapError(err,

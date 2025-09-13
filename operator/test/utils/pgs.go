@@ -27,7 +27,7 @@ import (
 
 // PodGangSetBuilder is a builder for PodGangSet objects.
 type PodGangSetBuilder struct {
-	pgs *grovecorev1alpha1.PodGangSet
+	pgs *grovecorev1alpha1.PodCliqueSet
 }
 
 // NewPodGangSetBuilder creates a new PodGangSetBuilder.
@@ -143,18 +143,18 @@ func (b *PodGangSetBuilder) WithPodGangSetGenerationHash(pgsGenerationHash *stri
 }
 
 // Build creates a PodGangSet object.
-func (b *PodGangSetBuilder) Build() *grovecorev1alpha1.PodGangSet {
+func (b *PodGangSetBuilder) Build() *grovecorev1alpha1.PodCliqueSet {
 	return b.pgs
 }
 
-func createEmptyPodGangSet(name, namespace string, uid types.UID) *grovecorev1alpha1.PodGangSet {
-	return &grovecorev1alpha1.PodGangSet{
+func createEmptyPodGangSet(name, namespace string, uid types.UID) *grovecorev1alpha1.PodCliqueSet {
+	return &grovecorev1alpha1.PodCliqueSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 			UID:       uid,
 		},
-		Spec: grovecorev1alpha1.PodGangSetSpec{
+		Spec: grovecorev1alpha1.PodCliqueSetSpec{
 			Replicas: 1,
 		},
 	}

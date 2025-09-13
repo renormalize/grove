@@ -182,7 +182,7 @@ func TestExtractScalingGroupNameFromPCSGFQN_Consistency(t *testing.T) {
 
 func TestGeneratePodGangNameForPodCliqueOwnedByPodGangSet(t *testing.T) {
 	// Create a PodGangSet for testing
-	pgs := &v1alpha1.PodGangSet{
+	pgs := &v1alpha1.PodCliqueSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "simple1",
 		},
@@ -215,7 +215,7 @@ func TestGeneratePodGangNameForPodCliqueOwnedByPodGangSet(t *testing.T) {
 
 func TestGeneratePodGangNameForPodCliqueOwnedByPCSG(t *testing.T) {
 	// Create a PodGangSet for testing
-	pgs := &v1alpha1.PodGangSet{
+	pgs := &v1alpha1.PodCliqueSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "simple1",
 		},

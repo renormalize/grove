@@ -62,7 +62,7 @@ func (d deletionWork) hasPendingPGSReplicaDeletion() bool {
 	return len(d.deletionTasks) > 0
 }
 
-func (r _resource) getPGSReplicaDeletionWork(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) (*deletionWork, error) {
+func (r _resource) getPGSReplicaDeletionWork(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodCliqueSet) (*deletionWork, error) {
 	var (
 		now              = time.Now()
 		pgsObjectKey     = client.ObjectKeyFromObject(pgs)
@@ -119,7 +119,7 @@ func (r _resource) getMinAvailableBreachedPCSGs(ctx context.Context, pgsObjKey c
 	return breachedPCSGNames, minWaitFor, nil
 }
 
-func (r _resource) getMinAvailableBreachedPCLQsNotInPCSG(ctx context.Context, pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int, since time.Time) (breachedPCLQNames []string, minWaitFor time.Duration, skipPGSReplica bool, err error) {
+func (r _resource) getMinAvailableBreachedPCLQsNotInPCSG(ctx context.Context, pgs *grovecorev1alpha1.PodCliqueSet, pgsReplicaIndex int, since time.Time) (breachedPCLQNames []string, minWaitFor time.Duration, skipPGSReplica bool, err error) {
 	pclqFQNsNotInPCSG := make([]string, 0, len(pgs.Spec.Template.Cliques))
 	for _, pclqTemplateSpec := range pgs.Spec.Template.Cliques {
 		if !isPCLQInPCSG(pclqTemplateSpec.Name, pgs.Spec.Template.PodCliqueScalingGroupConfigs) {
@@ -182,7 +182,7 @@ func getMinAvailableBreachedPCSGInfo(pcsgs []grovecorev1alpha1.PodCliqueScalingG
 }
 
 // createPGSReplicaDeleteTask creates a Task to delete all the PodCliques that are part of a PGS replica.
-func (r _resource) createPGSReplicaDeleteTask(logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pgsReplicaIndex int, reason string) utils.Task {
+func (r _resource) createPGSReplicaDeleteTask(logger logr.Logger, pgs *grovecorev1alpha1.PodCliqueSet, pgsReplicaIndex int, reason string) utils.Task {
 	return utils.Task{
 		Name: fmt.Sprintf("DeletePGSReplicaPodCliques-%d", pgsReplicaIndex),
 		Fn: func(ctx context.Context) error {

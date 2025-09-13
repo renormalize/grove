@@ -31,8 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-func (r *Reconciler) triggerDeletionFlow(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodGangSet) ctrlcommon.ReconcileStepResult {
-	deleteStepFns := []ctrlcommon.ReconcileStepFn[v1alpha1.PodGangSet]{
+func (r *Reconciler) triggerDeletionFlow(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodCliqueSet) ctrlcommon.ReconcileStepResult {
+	deleteStepFns := []ctrlcommon.ReconcileStepFn[v1alpha1.PodCliqueSet]{
 		r.recordDeletionStart,
 		r.deletePodGangSetResources,
 		r.verifyNoResourcesAwaitsCleanup,
@@ -47,7 +47,7 @@ func (r *Reconciler) triggerDeletionFlow(ctx context.Context, logger logr.Logger
 	return ctrlcommon.DoNotRequeue()
 }
 
-func (r *Reconciler) recordDeletionStart(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodGangSet) ctrlcommon.ReconcileStepResult {
+func (r *Reconciler) recordDeletionStart(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodCliqueSet) ctrlcommon.ReconcileStepResult {
 	if err := r.reconcileStatusRecorder.RecordStart(ctx, pgs, v1alpha1.LastOperationTypeDelete); err != nil {
 		errMsg := "failed to record deletion start operation"
 		logger.Error(err, errMsg, "PodGangSet", pgs)
@@ -56,7 +56,7 @@ func (r *Reconciler) recordDeletionStart(ctx context.Context, logger logr.Logger
 	return ctrlcommon.ContinueReconcile()
 }
 
-func (r *Reconciler) deletePodGangSetResources(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodGangSet) ctrlcommon.ReconcileStepResult {
+func (r *Reconciler) deletePodGangSetResources(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodCliqueSet) ctrlcommon.ReconcileStepResult {
 	operators := r.operatorRegistry.GetAllOperators()
 	deleteTasks := make([]utils.Task, 0, len(operators))
 	for kind, operator := range operators {
@@ -76,11 +76,11 @@ func (r *Reconciler) deletePodGangSetResources(ctx context.Context, logger logr.
 	return ctrlcommon.ContinueReconcile()
 }
 
-func (r *Reconciler) verifyNoResourcesAwaitsCleanup(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodGangSet) ctrlcommon.ReconcileStepResult {
+func (r *Reconciler) verifyNoResourcesAwaitsCleanup(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodCliqueSet) ctrlcommon.ReconcileStepResult {
 	return ctrlutils.VerifyNoResourceAwaitsCleanup(ctx, logger, r.operatorRegistry, pgs.ObjectMeta)
 }
 
-func (r *Reconciler) removeFinalizer(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodGangSet) ctrlcommon.ReconcileStepResult {
+func (r *Reconciler) removeFinalizer(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodCliqueSet) ctrlcommon.ReconcileStepResult {
 	if !controllerutil.ContainsFinalizer(pgs, constants.FinalizerPodGangSet) {
 		logger.Info("Finalizer not found", "PodGangSet", pgs)
 		return ctrlcommon.ContinueReconcile()
@@ -92,7 +92,7 @@ func (r *Reconciler) removeFinalizer(ctx context.Context, logger logr.Logger, pg
 	return ctrlcommon.ContinueReconcile()
 }
 
-func (r *Reconciler) recordIncompleteDeletion(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodGangSet, errResult *ctrlcommon.ReconcileStepResult) ctrlcommon.ReconcileStepResult {
+func (r *Reconciler) recordIncompleteDeletion(ctx context.Context, logger logr.Logger, pgs *v1alpha1.PodCliqueSet, errResult *ctrlcommon.ReconcileStepResult) ctrlcommon.ReconcileStepResult {
 	if err := r.reconcileStatusRecorder.RecordCompletion(ctx, pgs, v1alpha1.LastOperationTypeDelete, errResult); err != nil {
 		logger.Error(err, "failed to record deletion completion operation", "PodGangSet", pgs)
 		// combine all errors

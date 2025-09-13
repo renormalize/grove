@@ -40,7 +40,7 @@ import (
 
 type syncContext struct {
 	ctx                            context.Context
-	pgs                            *grovecorev1alpha1.PodGangSet
+	pgs                            *grovecorev1alpha1.PodCliqueSet
 	pcsg                           *grovecorev1alpha1.PodCliqueScalingGroup
 	existingPCLQs                  []grovecorev1alpha1.PodClique
 	pcsgIndicesToTerminate         []string
@@ -270,7 +270,7 @@ func (r _resource) getExistingPCLQs(ctx context.Context, pcsg *grovecorev1alpha1
 	return existingPCLQs, nil
 }
 
-func getExpectedPCLQPodTemplateHashMap(pgs *grovecorev1alpha1.PodGangSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) map[string]string {
+func getExpectedPCLQPodTemplateHashMap(pgs *grovecorev1alpha1.PodCliqueSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) map[string]string {
 	pclqFQNToHash := make(map[string]string)
 	pcsgPCLQNames := pcsg.Spec.CliqueNames
 	for _, pcsgCliqueName := range pcsgPCLQNames {

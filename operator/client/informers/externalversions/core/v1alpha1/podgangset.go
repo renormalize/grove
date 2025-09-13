@@ -83,7 +83,7 @@ func NewFilteredPodGangSetInformer(client versioned.Interface, namespace string,
 				return client.GroveV1alpha1().PodGangSets(namespace).Watch(ctx, options)
 			},
 		},
-		&apicorev1alpha1.PodGangSet{},
+		&apicorev1alpha1.PodCliqueSet{},
 		resyncPeriod,
 		indexers,
 	)
@@ -94,7 +94,7 @@ func (f *podGangSetInformer) defaultInformer(client versioned.Interface, resyncP
 }
 
 func (f *podGangSetInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apicorev1alpha1.PodGangSet{}, f.defaultInformer)
+	return f.factory.InformerFor(&apicorev1alpha1.PodCliqueSet{}, f.defaultInformer)
 }
 
 func (f *podGangSetInformer) Lister() corev1alpha1.PodGangSetLister {

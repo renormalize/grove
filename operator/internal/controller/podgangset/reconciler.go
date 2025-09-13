@@ -40,7 +40,7 @@ type Reconciler struct {
 	config                        configv1alpha1.PodGangSetControllerConfiguration
 	client                        ctrlclient.Client
 	reconcileStatusRecorder       ctrlcommon.ReconcileStatusRecorder
-	operatorRegistry              component.OperatorRegistry[grovecorev1alpha1.PodGangSet]
+	operatorRegistry              component.OperatorRegistry[grovecorev1alpha1.PodCliqueSet]
 	pgsGenerationHashExpectations sync.Map
 }
 
@@ -60,7 +60,7 @@ func NewReconciler(mgr ctrl.Manager, controllerCfg configv1alpha1.PodGangSetCont
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := ctrllogger.FromContext(ctx).WithName(controllerName)
 
-	pgs := &grovecorev1alpha1.PodGangSet{}
+	pgs := &grovecorev1alpha1.PodCliqueSet{}
 	if result := ctrlutils.GetPodGangSet(ctx, r.client, logger, req.NamespacedName, pgs); ctrlcommon.ShortCircuitReconcileFlow(result) {
 		return result.Result()
 	}
@@ -77,7 +77,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return reconcileSpecFlowResult.Result()
 }
 
-func (r *Reconciler) reconcileDelete(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) ctrlcommon.ReconcileStepResult {
+func (r *Reconciler) reconcileDelete(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodCliqueSet) ctrlcommon.ReconcileStepResult {
 	if !pgs.DeletionTimestamp.IsZero() {
 		if !controllerutil.ContainsFinalizer(pgs, constants.FinalizerPodGangSet) {
 			return ctrlcommon.DoNotRequeue()

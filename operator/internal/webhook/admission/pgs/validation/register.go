@@ -32,7 +32,7 @@ const (
 // RegisterWithManager registers the webhook with the manager.
 func (h *Handler) RegisterWithManager(mgr manager.Manager) error {
 	webhook := admission.
-		WithCustomValidator(mgr.GetScheme(), &v1alpha1.PodGangSet{}, h).
+		WithCustomValidator(mgr.GetScheme(), &v1alpha1.PodCliqueSet{}, h).
 		WithRecoverPanic(true)
 	mgr.GetWebhookServer().Register(webhookPath, webhook)
 	return nil

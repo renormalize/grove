@@ -62,7 +62,7 @@ func (r *Reconciler) RegisterWithManager(mgr ctrl.Manager) error {
 		).
 		Owns(&corev1.Pod{}, builder.WithPredicates(podPredicate())).
 		Watches(
-			&grovecorev1alpha1.PodGangSet{},
+			&grovecorev1alpha1.PodCliqueSet{},
 			handler.EnqueueRequestsFromMapFunc(mapPodGangSetToPCLQs()),
 			builder.WithPredicates(podGangSetPredicate()),
 		).
@@ -168,7 +168,7 @@ func hasStartedAndReadyChangedForAnyContainer(oldContainerStatuses []corev1.Cont
 // These events are needed to keep the PodClique.Status.CurrentPodGangSetGenerationHash in sync with the PodGangSet.
 func mapPodGangSetToPCLQs() handler.MapFunc {
 	return func(_ context.Context, obj client.Object) []reconcile.Request {
-		pgs, ok := obj.(*grovecorev1alpha1.PodGangSet)
+		pgs, ok := obj.(*grovecorev1alpha1.PodCliqueSet)
 		if !ok {
 			return nil
 		}
@@ -186,8 +186,8 @@ func podGangSetPredicate() predicate.Predicate {
 		CreateFunc: func(_ event.CreateEvent) bool { return false },
 		DeleteFunc: func(_ event.DeleteEvent) bool { return false },
 		UpdateFunc: func(event event.UpdateEvent) bool {
-			oldPGS, okOld := event.ObjectOld.(*grovecorev1alpha1.PodGangSet)
-			newPGS, okNew := event.ObjectNew.(*grovecorev1alpha1.PodGangSet)
+			oldPGS, okOld := event.ObjectOld.(*grovecorev1alpha1.PodCliqueSet)
+			newPGS, okNew := event.ObjectNew.(*grovecorev1alpha1.PodCliqueSet)
 			if !okOld || !okNew {
 				return false
 			}

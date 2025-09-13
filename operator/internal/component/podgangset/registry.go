@@ -35,9 +35,9 @@ import (
 )
 
 // CreateOperatorRegistry initializes the operator registry for the PodGangSet reconciler.
-func CreateOperatorRegistry(mgr manager.Manager, eventRecorder record.EventRecorder) component.OperatorRegistry[v1alpha1.PodGangSet] {
+func CreateOperatorRegistry(mgr manager.Manager, eventRecorder record.EventRecorder) component.OperatorRegistry[v1alpha1.PodCliqueSet] {
 	cl := mgr.GetClient()
-	reg := component.NewOperatorRegistry[v1alpha1.PodGangSet]()
+	reg := component.NewOperatorRegistry[v1alpha1.PodCliqueSet]()
 	reg.Register(component.KindPodClique, podclique.New(cl, mgr.GetScheme(), eventRecorder))
 	reg.Register(component.KindHeadlessService, service.New(cl, mgr.GetScheme()))
 	reg.Register(component.KindRole, role.New(cl, mgr.GetScheme()))

@@ -83,8 +83,8 @@ func (h *Handler) ValidateDelete(_ context.Context, _ runtime.Object) (admission
 	return nil, nil
 }
 
-func castToPodGangSet(obj runtime.Object) (*v1alpha1.PodGangSet, error) {
-	pgs, ok := obj.(*v1alpha1.PodGangSet)
+func castToPodGangSet(obj runtime.Object) (*v1alpha1.PodCliqueSet, error) {
+	pgs, ok := obj.(*v1alpha1.PodCliqueSet)
 	if !ok {
 		return nil, fmt.Errorf("expected an PodGangSet object but got %T", obj)
 	}

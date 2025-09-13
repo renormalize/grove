@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) ctrlcommon.ReconcileStepResult {
+func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodCliqueSet) ctrlcommon.ReconcileStepResult {
 	// Calculate available replicas using PCSG-inspired approach
 	err := r.mutateReplicas(ctx, logger, pgs)
 	if err != nil {
@@ -45,7 +45,7 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pg
 	return ctrlcommon.ContinueReconcile()
 }
 
-func (r *Reconciler) mutateReplicas(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) error {
+func (r *Reconciler) mutateReplicas(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodCliqueSet) error {
 	// Set basic replica count
 	pgs.Status.Replicas = pgs.Spec.Replicas
 	availableReplicas, updatedReplicas, err := r.computeAvailableAndUpdatedReplicas(ctx, logger, pgs)
@@ -60,7 +60,7 @@ func (r *Reconciler) mutateReplicas(ctx context.Context, logger logr.Logger, pgs
 // computeAvailableAndUpdatedReplicas calculates the number of available replicas for a PodGangSet.
 // It checks both standalone PodCliques and PodCliqueScalingGroups to determine availability.
 // A replica is considered available if it has all its required components (PCSGs and standalone PCLQs) available.
-func (r *Reconciler) computeAvailableAndUpdatedReplicas(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) (int32, int32, error) {
+func (r *Reconciler) computeAvailableAndUpdatedReplicas(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodCliqueSet) (int32, int32, error) {
 	var (
 		availableReplicas int32
 		updatedReplicas   int32

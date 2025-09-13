@@ -189,7 +189,7 @@ func createDefaultPodCliques(pgsObjMeta metav1.ObjectMeta, pclqNamePrefix string
 	return podCliqueNames
 }
 
-func createExistingPodCliquesFromPGS(pgs *grovecorev1alpha1.PodGangSet, podCliqueNamesNotOwnedByPGS []string) []client.Object {
+func createExistingPodCliquesFromPGS(pgs *grovecorev1alpha1.PodCliqueSet, podCliqueNamesNotOwnedByPGS []string) []client.Object {
 	existingPodCliques := make([]client.Object, 0, len(pgs.Spec.Template.Cliques)*int(pgs.Spec.Replicas)+len(podCliqueNamesNotOwnedByPGS))
 	for replicaIndex := range pgs.Spec.Replicas {
 		for _, pclqTemplate := range pgs.Spec.Template.Cliques {

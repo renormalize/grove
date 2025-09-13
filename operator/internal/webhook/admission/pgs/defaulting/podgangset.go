@@ -32,7 +32,7 @@ const (
 )
 
 // defaultPodGangSet adds defaults to a PodGangSet.
-func defaultPodGangSet(pgs *grovecorev1alpha1.PodGangSet) {
+func defaultPodGangSet(pgs *grovecorev1alpha1.PodCliqueSet) {
 	if utils.IsEmptyStringType(pgs.Namespace) {
 		pgs.Namespace = "default"
 	}
@@ -40,12 +40,12 @@ func defaultPodGangSet(pgs *grovecorev1alpha1.PodGangSet) {
 }
 
 // defaultPodGangSetSpec adds defaults to the specification of a PodGangSet.
-func defaultPodGangSetSpec(spec *grovecorev1alpha1.PodGangSetSpec) {
+func defaultPodGangSetSpec(spec *grovecorev1alpha1.PodCliqueSetSpec) {
 	// default PodGangSetTemplateSpec
 	defaultPodGangSetTemplateSpec(&spec.Template)
 }
 
-func defaultPodGangSetTemplateSpec(spec *grovecorev1alpha1.PodGangSetTemplateSpec) {
+func defaultPodGangSetTemplateSpec(spec *grovecorev1alpha1.PodCliqueSetTemplateSpec) {
 	// default PodCliqueTemplateSpecs
 	spec.Cliques = defaultPodCliqueTemplateSpecs(spec.Cliques)
 	// default PodCliqueScalingGroupConfigs

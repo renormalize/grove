@@ -42,10 +42,10 @@ var allowedStartupTypes = sets.New(grovecorev1alpha1.CliqueStartupTypeInOrder, g
 
 type pgsValidator struct {
 	operation admissionv1.Operation
-	pgs       *grovecorev1alpha1.PodGangSet
+	pgs       *grovecorev1alpha1.PodCliqueSet
 }
 
-func newPGSValidator(pgs *grovecorev1alpha1.PodGangSet, operation admissionv1.Operation) *pgsValidator {
+func newPGSValidator(pgs *grovecorev1alpha1.PodCliqueSet, operation admissionv1.Operation) *pgsValidator {
 	return &pgsValidator{
 		operation: operation,
 		pgs:       pgs,
@@ -473,7 +473,7 @@ func (v *pgsValidator) validatePodSpec(spec corev1.PodSpec, fldPath *field.Path)
 // ---------------------------- validate update of PodGangSet -----------------------------------------------
 
 // validateUpdate validates the update to a PodGangSet object. It compares the old and new PodGangSet objects and validates that the changes done are allowed/valid.
-func (v *pgsValidator) validateUpdate(oldPgs *grovecorev1alpha1.PodGangSet) error {
+func (v *pgsValidator) validateUpdate(oldPgs *grovecorev1alpha1.PodCliqueSet) error {
 	allErrs := field.ErrorList{}
 	fldPath := field.NewPath("spec")
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(v.pgs.Spec.ReplicaSpreadConstraints, oldPgs.Spec.ReplicaSpreadConstraints, fldPath.Child("replicaSpreadConstraints"))...)
@@ -481,13 +481,13 @@ func (v *pgsValidator) validateUpdate(oldPgs *grovecorev1alpha1.PodGangSet) erro
 	return allErrs.ToAggregate()
 }
 
-func validatePodGangSetSpecUpdate(newSpec, oldSpec *grovecorev1alpha1.PodGangSetSpec, fldPath *field.Path) field.ErrorList {
+func validatePodGangSetSpecUpdate(newSpec, oldSpec *grovecorev1alpha1.PodCliqueSetSpec, fldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 	allErrs = append(allErrs, validatePodGangTemplateSpecUpdate(&newSpec.Template, &oldSpec.Template, fldPath.Child("template"))...)
 	return allErrs
 }
 
-func validatePodGangTemplateSpecUpdate(newSpec, oldSpec *grovecorev1alpha1.PodGangSetTemplateSpec, fldPath *field.Path) field.ErrorList {
+func validatePodGangTemplateSpecUpdate(newSpec, oldSpec *grovecorev1alpha1.PodCliqueSetTemplateSpec, fldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	allErrs = append(allErrs, validatePodCliqueUpdate(newSpec.Cliques, oldSpec.Cliques, newSpec.StartupType, fldPath.Child("cliques"))...)

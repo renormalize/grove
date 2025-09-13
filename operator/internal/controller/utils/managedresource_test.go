@@ -193,7 +193,7 @@ func TestIsManagedPodClique(t *testing.T) {
 		},
 		{
 			description: "should return false when object is not a PodClique",
-			obj: &grovecorev1alpha1.PodGangSet{
+			obj: &grovecorev1alpha1.PodCliqueSet{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pgs",
 					Namespace: "different-ns",

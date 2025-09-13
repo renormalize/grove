@@ -102,11 +102,11 @@ func (r *Reconciler) processRollingUpdate(ctx context.Context, logger logr.Logge
 	return ctrlcommon.ContinueReconcile()
 }
 
-func pgsHasNoActiveRollingUpdate(pgs *grovecorev1alpha1.PodGangSet) bool {
+func pgsHasNoActiveRollingUpdate(pgs *grovecorev1alpha1.PodCliqueSet) bool {
 	return pgs.Status.CurrentGenerationHash == nil || pgs.Status.RollingUpdateProgress == nil || pgs.Status.RollingUpdateProgress.CurrentlyUpdating == nil
 }
 
-func shouldCheckPendingUpdatesForPCLQ(logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet, pclq *grovecorev1alpha1.PodClique) (bool, error) {
+func shouldCheckPendingUpdatesForPCLQ(logger logr.Logger, pgs *grovecorev1alpha1.PodCliqueSet, pclq *grovecorev1alpha1.PodClique) (bool, error) {
 	// Only if PCLQ does not belong to any PCSG should an update be triggered for the PCLQ. For PCLQs that belong to
 	// a PCSG, the PCSG controller will handle the updates by deleting the PCLQ resources instead of updating PCLQ pods
 	// individually.
@@ -128,7 +128,7 @@ func shouldCheckPendingUpdatesForPCLQ(logger logr.Logger, pgs *grovecorev1alpha1
 	return true, nil
 }
 
-func shouldResetOrTriggerRollingUpdate(pgs *grovecorev1alpha1.PodGangSet, pclq *grovecorev1alpha1.PodClique) bool {
+func shouldResetOrTriggerRollingUpdate(pgs *grovecorev1alpha1.PodCliqueSet, pclq *grovecorev1alpha1.PodClique) bool {
 	// PCLQ has never been updated yet and PGS has a new generation hash.
 	firstEverUpdateRequired := pclq.Status.RollingUpdateProgress == nil && pclq.Status.CurrentPodGangSetGenerationHash != nil && *pgs.Status.CurrentGenerationHash != *pclq.Status.CurrentPodGangSetGenerationHash
 	if firstEverUpdateRequired {
@@ -148,7 +148,7 @@ func shouldResetOrTriggerRollingUpdate(pgs *grovecorev1alpha1.PodGangSet, pclq *
 	return true
 }
 
-func (r *Reconciler) initOrResetRollingUpdate(ctx context.Context, pgs *grovecorev1alpha1.PodGangSet, pclq *grovecorev1alpha1.PodClique) error {
+func (r *Reconciler) initOrResetRollingUpdate(ctx context.Context, pgs *grovecorev1alpha1.PodCliqueSet, pclq *grovecorev1alpha1.PodClique) error {
 	podTemplateHash, err := componentutils.GetExpectedPCLQPodTemplateHash(pgs, pclq.ObjectMeta)
 	if err != nil {
 		return fmt.Errorf("could not update PodClique %s status with rolling update progress: %w", client.ObjectKeyFromObject(pclq), err)

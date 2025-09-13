@@ -193,4 +193,4 @@ func WithPCSGCurrentPGSGenerationHash(pgsGenerationHash string) PCSGOption {
 // ============================================================================
 
 // PGSOption is a function that modifies a PodGangSet for testing.
-type PGSOption func(*grovecorev1alpha1.PodGangSet)
+type PGSOption func(*grovecorev1alpha1.PodCliqueSet)

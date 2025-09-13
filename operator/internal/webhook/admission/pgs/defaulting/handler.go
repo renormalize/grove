@@ -44,7 +44,7 @@ func NewHandler(mgr manager.Manager) *Handler {
 // Default implements webhook.CustomDefaulter
 func (h *Handler) Default(ctx context.Context, obj runtime.Object) error {
 	h.logger.Info("Defaulting webhook invoked for PodGangSet")
-	pgs, ok := obj.(*v1alpha1.PodGangSet)
+	pgs, ok := obj.(*v1alpha1.PodCliqueSet)
 	if !ok {
 		return fmt.Errorf("expected an PodGangSet object but got %T", obj)
 	}

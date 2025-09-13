@@ -37,34 +37,34 @@ type PodGangSetsGetter interface {
 
 // PodGangSetInterface has methods to work with PodGangSet resources.
 type PodGangSetInterface interface {
-	Create(ctx context.Context, podGangSet *corev1alpha1.PodGangSet, opts v1.CreateOptions) (*corev1alpha1.PodGangSet, error)
-	Update(ctx context.Context, podGangSet *corev1alpha1.PodGangSet, opts v1.UpdateOptions) (*corev1alpha1.PodGangSet, error)
+	Create(ctx context.Context, podGangSet *corev1alpha1.PodCliqueSet, opts v1.CreateOptions) (*corev1alpha1.PodCliqueSet, error)
+	Update(ctx context.Context, podGangSet *corev1alpha1.PodCliqueSet, opts v1.UpdateOptions) (*corev1alpha1.PodCliqueSet, error)
 	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-	UpdateStatus(ctx context.Context, podGangSet *corev1alpha1.PodGangSet, opts v1.UpdateOptions) (*corev1alpha1.PodGangSet, error)
+	UpdateStatus(ctx context.Context, podGangSet *corev1alpha1.PodCliqueSet, opts v1.UpdateOptions) (*corev1alpha1.PodCliqueSet, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*corev1alpha1.PodGangSet, error)
-	List(ctx context.Context, opts v1.ListOptions) (*corev1alpha1.PodGangSetList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*corev1alpha1.PodCliqueSet, error)
+	List(ctx context.Context, opts v1.ListOptions) (*corev1alpha1.PodCliqueSetList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *corev1alpha1.PodGangSet, err error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *corev1alpha1.PodCliqueSet, err error)
 	PodGangSetExpansion
 }
 
 // podGangSets implements PodGangSetInterface
 type podGangSets struct {
-	*gentype.ClientWithList[*corev1alpha1.PodGangSet, *corev1alpha1.PodGangSetList]
+	*gentype.ClientWithList[*corev1alpha1.PodCliqueSet, *corev1alpha1.PodCliqueSetList]
 }
 
 // newPodGangSets returns a PodGangSets
 func newPodGangSets(c *GroveV1alpha1Client, namespace string) *podGangSets {
 	return &podGangSets{
-		gentype.NewClientWithList[*corev1alpha1.PodGangSet, *corev1alpha1.PodGangSetList](
+		gentype.NewClientWithList[*corev1alpha1.PodCliqueSet, *corev1alpha1.PodCliqueSetList](
 			"podgangsets",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			namespace,
-			func() *corev1alpha1.PodGangSet { return &corev1alpha1.PodGangSet{} },
-			func() *corev1alpha1.PodGangSetList { return &corev1alpha1.PodGangSetList{} },
+			func() *corev1alpha1.PodCliqueSet { return &corev1alpha1.PodCliqueSet{} },
+			func() *corev1alpha1.PodCliqueSetList { return &corev1alpha1.PodCliqueSetList{} },
 		),
 	}
 }

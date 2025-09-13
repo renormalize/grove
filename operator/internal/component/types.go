@@ -38,7 +38,7 @@ const (
 
 // GroveCustomResourceType defines a type bound for generic types.
 type GroveCustomResourceType interface {
-	grovecorev1alpha1.PodGangSet | grovecorev1alpha1.PodClique | grovecorev1alpha1.PodCliqueScalingGroup
+	grovecorev1alpha1.PodCliqueSet | grovecorev1alpha1.PodClique | grovecorev1alpha1.PodCliqueScalingGroup
 }
 
 // Operator is a facade that manages one or more resources that are provisioned for a PodGangSet.

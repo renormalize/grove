@@ -34,7 +34,7 @@ import (
 )
 
 // GetPodGangSet gets the latest PodGangSet object. It will usually hit the informer cache. If the object is not found, it will log a message and return DoNotRequeue.
-func GetPodGangSet(ctx context.Context, cl client.Client, logger logr.Logger, objectKey client.ObjectKey, pgs *v1alpha1.PodGangSet) grovectrl.ReconcileStepResult {
+func GetPodGangSet(ctx context.Context, cl client.Client, logger logr.Logger, objectKey client.ObjectKey, pgs *v1alpha1.PodCliqueSet) grovectrl.ReconcileStepResult {
 	if err := cl.Get(ctx, objectKey, pgs); err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("PodGangSet not found", "objectKey", objectKey)

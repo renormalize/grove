@@ -164,7 +164,7 @@ func IsLastPCLQUpdateCompleted(pclq *grovecorev1alpha1.PodClique) bool {
 }
 
 // GetExpectedPCLQPodTemplateHash finds the matching PodCliqueTemplateSpec from the PodGangSet and computes the pod template hash for the PCLQ pod spec.
-func GetExpectedPCLQPodTemplateHash(pgs *grovecorev1alpha1.PodGangSet, pclqObjectMeta metav1.ObjectMeta) (string, error) {
+func GetExpectedPCLQPodTemplateHash(pgs *grovecorev1alpha1.PodCliqueSet, pclqObjectMeta metav1.ObjectMeta) (string, error) {
 	cliqueName, err := utils.GetPodCliqueNameFromPodCliqueFQN(pclqObjectMeta)
 	if err != nil {
 		return "", err

@@ -91,13 +91,13 @@ func CreatePodGangNameFromPCSGFQN(pcsgFQN string, scaledPodGangIndex int) string
 
 // GeneratePodGangNameForPodCliqueOwnedByPodGangSet generates the PodGang name for a PodClique
 // that is directly owned by a PodGangSet.
-func GeneratePodGangNameForPodCliqueOwnedByPodGangSet(pgs *v1alpha1.PodGangSet, pgsReplicaIndex int) string {
+func GeneratePodGangNameForPodCliqueOwnedByPodGangSet(pgs *v1alpha1.PodCliqueSet, pgsReplicaIndex int) string {
 	return GenerateBasePodGangName(ResourceNameReplica{Name: pgs.Name, Replica: pgsReplicaIndex})
 }
 
 // GeneratePodGangNameForPodCliqueOwnedByPCSG generates the PodGang name for a PodClique
 // that is owned by a PodCliqueScalingGroup, using the PCSG object directly (no config lookup needed).
-func GeneratePodGangNameForPodCliqueOwnedByPCSG(pgs *v1alpha1.PodGangSet, pgsReplicaIndex int, pcsg *v1alpha1.PodCliqueScalingGroup, pcsgReplicaIndex int) string {
+func GeneratePodGangNameForPodCliqueOwnedByPCSG(pgs *v1alpha1.PodCliqueSet, pgsReplicaIndex int, pcsg *v1alpha1.PodCliqueScalingGroup, pcsgReplicaIndex int) string {
 	// MinAvailable should always be non-nil due to kubebuilder default and defaulting webhook
 	minAvailable := *pcsg.Spec.MinAvailable
 

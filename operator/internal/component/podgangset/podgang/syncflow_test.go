@@ -96,15 +96,15 @@ func TestMinAvailableWithHPAScaling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create test PodGangSet
-			pgs := &grovecorev1alpha1.PodGangSet{
+			pgs := &grovecorev1alpha1.PodCliqueSet{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pgs",
 					Namespace: "default",
 					UID:       "test-uid-123",
 				},
-				Spec: grovecorev1alpha1.PodGangSetSpec{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
 					Replicas: 1,
-					Template: grovecorev1alpha1.PodGangSetTemplateSpec{
+					Template: grovecorev1alpha1.PodCliqueSetTemplateSpec{
 						Cliques: []*grovecorev1alpha1.PodCliqueTemplateSpec{
 							{
 								Name: "test-clique",
@@ -229,15 +229,15 @@ func TestGetPodsPendingCreation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create test PodGangSet
-			pgs := &grovecorev1alpha1.PodGangSet{
+			pgs := &grovecorev1alpha1.PodCliqueSet{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pgs",
 					Namespace: "default",
 					UID:       "test-uid-123",
 				},
-				Spec: grovecorev1alpha1.PodGangSetSpec{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
 					Replicas: 1,
-					Template: grovecorev1alpha1.PodGangSetTemplateSpec{
+					Template: grovecorev1alpha1.PodCliqueSetTemplateSpec{
 						Cliques: []*grovecorev1alpha1.PodCliqueTemplateSpec{
 							{
 								Name: "frontend",

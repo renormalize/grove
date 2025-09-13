@@ -49,7 +49,7 @@ type _resource struct {
 }
 
 // New creates an instance of Secret component operator.
-func New(client client.Client, scheme *runtime.Scheme) component.Operator[grovecorev1alpha1.PodGangSet] {
+func New(client client.Client, scheme *runtime.Scheme) component.Operator[grovecorev1alpha1.PodCliqueSet] {
 	return &_resource{
 		client: client,
 		scheme: scheme,
@@ -76,7 +76,7 @@ func (r _resource) GetExistingResourceNames(ctx context.Context, _ logr.Logger, 
 	return secretNames, nil
 }
 
-func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodGangSet) error {
+func (r _resource) Sync(ctx context.Context, logger logr.Logger, pgs *grovecorev1alpha1.PodCliqueSet) error {
 	pgsObjKey := client.ObjectKeyFromObject(pgs)
 	existingSecretNames, err := r.GetExistingResourceNames(ctx, logger, pgs.ObjectMeta)
 	if err != nil {
@@ -124,7 +124,7 @@ func (r _resource) Delete(ctx context.Context, logger logr.Logger, pgsObjMeta me
 	return nil
 }
 
-func (r _resource) buildResource(pgs *grovecorev1alpha1.PodGangSet, secret *corev1.Secret) error {
+func (r _resource) buildResource(pgs *grovecorev1alpha1.PodCliqueSet, secret *corev1.Secret) error {
 	secret.Labels = getLabels(pgs.Name, secret.Name)
 	if err := controllerutil.SetControllerReference(pgs, secret, r.scheme); err != nil {
 		return groveerr.WrapError(err,
