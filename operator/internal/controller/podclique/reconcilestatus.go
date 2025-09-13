@@ -99,12 +99,12 @@ func mutateCurrentHashes(logger logr.Logger, pgs *grovecorev1alpha1.PodCliqueSet
 		}
 		if pclq.Status.CurrentPodTemplateHash == nil || *pclq.Status.CurrentPodTemplateHash == expectedPodTemplateHash {
 			pclq.Status.CurrentPodTemplateHash = ptr.To(expectedPodTemplateHash)
-			pclq.Status.CurrentPodGangSetGenerationHash = pgs.Status.CurrentGenerationHash
+			pclq.Status.CurrentPodCliqueSetGenerationHash = pgs.Status.CurrentGenerationHash
 		}
 	} else if componentutils.IsLastPCLQUpdateCompleted(pclq) {
 		logger.Info("PodClique update has completed, setting CurrentPodGangSetGenerationHash")
 		pclq.Status.CurrentPodTemplateHash = ptr.To(pclq.Status.RollingUpdateProgress.PodTemplateHash)
-		pclq.Status.CurrentPodGangSetGenerationHash = ptr.To(pclq.Status.RollingUpdateProgress.PodGangSetGenerationHash)
+		pclq.Status.CurrentPodCliqueSetGenerationHash = ptr.To(pclq.Status.RollingUpdateProgress.PodCliqueSetGenerationHash)
 	}
 	return nil
 }

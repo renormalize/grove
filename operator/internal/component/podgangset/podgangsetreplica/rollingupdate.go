@@ -278,8 +278,8 @@ func (pri *pgsReplicaInfo) getNumScheduledPods(pgs *grovecorev1alpha1.PodCliqueS
 }
 
 func isPCLQUpdateComplete(pclq *grovecorev1alpha1.PodClique, currentPGSGenerationHash string) bool {
-	if pclq.Status.CurrentPodGangSetGenerationHash != nil &&
-		*pclq.Status.CurrentPodGangSetGenerationHash == currentPGSGenerationHash &&
+	if pclq.Status.CurrentPodCliqueSetGenerationHash != nil &&
+		*pclq.Status.CurrentPodCliqueSetGenerationHash == currentPGSGenerationHash &&
 		pclq.Status.UpdatedReplicas >= *pclq.Spec.MinAvailable &&
 		pclq.Status.ReadyReplicas >= *pclq.Spec.MinAvailable {
 		return true

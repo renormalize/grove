@@ -224,8 +224,8 @@ func podCliqueScalingGroupPredicate() predicate.Predicate {
 			if !okOld || !okNew {
 				return false
 			}
-			return oldPCSG.Status.CurrentPodGangSetGenerationHash != nil && newPCSG.Status.RollingUpdateProgress != nil &&
-				*oldPCSG.Status.CurrentPodGangSetGenerationHash != newPCSG.Status.RollingUpdateProgress.PodGangSetGenerationHash
+			return oldPCSG.Status.CurrentPodCliqueSetGenerationHash != nil && newPCSG.Status.RollingUpdateProgress != nil &&
+				*oldPCSG.Status.CurrentPodCliqueSetGenerationHash != newPCSG.Status.RollingUpdateProgress.PodCliqueSetGenerationHash
 		},
 		GenericFunc: func(_ event.GenericEvent) bool { return false },
 	}

@@ -165,7 +165,7 @@ func IsPCSGUpdateInProgress(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) bool 
 
 // IsPCSGUpdateComplete returns whether the rolling update of the PodCliqueScalingGroup is complete.
 func IsPCSGUpdateComplete(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pgsGenerationHash string) bool {
-	return pcsg.Status.CurrentPodGangSetGenerationHash != nil && *pcsg.Status.CurrentPodGangSetGenerationHash == pgsGenerationHash
+	return pcsg.Status.CurrentPodCliqueSetGenerationHash != nil && *pcsg.Status.CurrentPodCliqueSetGenerationHash == pgsGenerationHash
 }
 
 // GetPodCliqueFQNsForPCSG generates the PodClique FQNs for all PodCliques that are owned by a PodCliqueScalingGroup.

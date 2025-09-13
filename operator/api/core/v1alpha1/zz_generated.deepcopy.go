@@ -421,8 +421,8 @@ func (in *PodCliqueScalingGroupStatus) DeepCopyInto(out *PodCliqueScalingGroupSt
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.CurrentPodGangSetGenerationHash != nil {
-		in, out := &in.CurrentPodGangSetGenerationHash, &out.CurrentPodGangSetGenerationHash
+	if in.CurrentPodCliqueSetGenerationHash != nil {
+		in, out := &in.CurrentPodCliqueSetGenerationHash, &out.CurrentPodCliqueSetGenerationHash
 		*out = new(string)
 		**out = **in
 	}
@@ -755,8 +755,8 @@ func (in *PodCliqueStatus) DeepCopyInto(out *PodCliqueStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.CurrentPodGangSetGenerationHash != nil {
-		in, out := &in.CurrentPodGangSetGenerationHash, &out.CurrentPodGangSetGenerationHash
+	if in.CurrentPodCliqueSetGenerationHash != nil {
+		in, out := &in.CurrentPodCliqueSetGenerationHash, &out.CurrentPodCliqueSetGenerationHash
 		*out = new(string)
 		**out = **in
 	}

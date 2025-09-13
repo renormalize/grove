@@ -125,7 +125,7 @@ func computeReplicaStatus(logger logr.Logger, currentPGSGenerationHash *string, 
 		isUpdated = isAvailable &&
 			currentPGSGenerationHash != nil &&
 			lo.EveryBy(nonTerminatedPCSGPodCliques, func(pclq grovecorev1alpha1.PodClique) bool {
-				return pclq.Status.CurrentPodGangSetGenerationHash != nil && *pclq.Status.CurrentPodGangSetGenerationHash == *currentPGSGenerationHash
+				return pclq.Status.CurrentPodCliqueSetGenerationHash != nil && *pclq.Status.CurrentPodCliqueSetGenerationHash == *currentPGSGenerationHash
 			})
 	}
 	return
@@ -263,5 +263,5 @@ func mutateCurrentPodGangSetGenerationHash(logger logr.Logger, pgs *grovecorev1a
 		logger.Info("PodCliqueScalingGroup is currently updating, cannot set PodGangSet CurrentGenerationHash yet")
 		return
 	}
-	pcsg.Status.CurrentPodGangSetGenerationHash = pgs.Status.CurrentGenerationHash
+	pcsg.Status.CurrentPodCliqueSetGenerationHash = pgs.Status.CurrentGenerationHash
 }
