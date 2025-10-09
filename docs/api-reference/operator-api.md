@@ -602,7 +602,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `enabled` _boolean_ | Enabled indicates whether the authorizer is enabled. |  |  |
-| `exemptServiceAccounts` _string array_ | ExemptServiceAccounts is a list of service accounts that are exempt from authorizer checks. |  |  |
+| `exemptServiceAccountUserNames` _string array_ | ExemptServiceAccountUserNames is a list of service account usernames that are exempt from authorizer checks.<br />Each service account username name in ExemptServiceAccountUserNames should be of the following format:<br />system:serviceaccount:<namespace>:<service-account-name>. ServiceAccounts are represented in this<br />format when checking the username in authenticationv1.UserInfo.Name. |  |  |
 
 
 #### ClientConnectionConfiguration

@@ -180,7 +180,10 @@ type PodCliqueScalingGroupControllerConfiguration struct {
 type AuthorizerConfig struct {
 	// Enabled indicates whether the authorizer is enabled.
 	Enabled bool `json:"enabled"`
-	// ExemptServiceAccounts is a list of service accounts that are exempt from authorizer checks.
+	// ExemptServiceAccountUserNames is a list of service account usernames that are exempt from authorizer checks.
+	// Each service account username name in ExemptServiceAccountUserNames should be of the following format:
+	// system:serviceaccount:<namespace>:<service-account-name>. ServiceAccounts are represented in this
+	// format when checking the username in authenticationv1.UserInfo.Name.
 	// +optional
-	ExemptServiceAccounts []string `json:"exemptServiceAccounts,omitempty"`
+	ExemptServiceAccountUserNames []string `json:"exemptServiceAccountUserNames,omitempty"`
 }

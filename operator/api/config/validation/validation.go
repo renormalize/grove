@@ -21,6 +21,7 @@ import (
 
 	configv1alpha1 "github.com/NVIDIA/grove/operator/api/config/v1alpha1"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -30,6 +31,8 @@ import (
 func ValidateOperatorConfiguration(config *configv1alpha1.OperatorConfiguration) field.ErrorList {
 	allErrs := field.ErrorList{}
 	allErrs = append(allErrs, validateLogConfiguration(config)...)
+	allErrs = append(allErrs, validateLeaderElectionConfiguration(config.LeaderElection, field.NewPath("leaderElection"))...)
+	allErrs = append(allErrs, validateClientConnectionConfiguration(config.ClientConnection, field.NewPath("clientConnection"))...)
 	allErrs = append(allErrs, validateControllerConfiguration(config.Controllers, field.NewPath("controllers"))...)
 	return allErrs
 }
@@ -41,6 +44,35 @@ func validateLogConfiguration(config *configv1alpha1.OperatorConfiguration) fiel
 	}
 	if len(strings.TrimSpace(string(config.LogFormat))) > 0 && !sets.New(configv1alpha1.AllLogFormats...).Has(config.LogFormat) {
 		allErrs = append(allErrs, field.NotSupported(field.NewPath("logFormat"), config.LogFormat, configv1alpha1.AllLogFormats))
+	}
+	return allErrs
+}
+
+func validateLeaderElectionConfiguration(cfg configv1alpha1.LeaderElectionConfiguration, fldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+	if !cfg.Enabled {
+		return allErrs
+	}
+	allErrs = append(allErrs, mustBeGreaterThanZeroDuration(cfg.LeaseDuration, fldPath.Child("leaseDuration"))...)
+	allErrs = append(allErrs, mustBeGreaterThanZeroDuration(cfg.RenewDeadline, fldPath.Child("renewDeadline"))...)
+	allErrs = append(allErrs, mustBeGreaterThanZeroDuration(cfg.RetryPeriod, fldPath.Child("retryPeriod"))...)
+
+	if cfg.LeaseDuration.Duration <= cfg.RenewDeadline.Duration {
+		allErrs = append(allErrs, field.Invalid(fldPath.Child("leaseDuration"), cfg.RenewDeadline, "LeaseDuration must be greater than RenewDeadline"))
+	}
+	if len(cfg.ResourceLock) == 0 {
+		allErrs = append(allErrs, field.Required(fldPath.Child("resourceLock"), "resourceLock is required"))
+	}
+	if len(cfg.ResourceName) == 0 {
+		allErrs = append(allErrs, field.Required(fldPath.Child("resourceName"), "resourceName is required"))
+	}
+	return allErrs
+}
+
+func validateClientConnectionConfiguration(cfg configv1alpha1.ClientConnectionConfiguration, fldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+	if cfg.Burst < 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath.Child("burst"), cfg.Burst, "must be non-negative"))
 	}
 	return allErrs
 }
@@ -68,6 +100,14 @@ func validateConcurrentSyncs(concurrentSyncs *int, fldPath *field.Path) field.Er
 	allErrs := field.ErrorList{}
 	if ptr.Deref(concurrentSyncs, 0) <= 0 {
 		allErrs = append(allErrs, field.Invalid(fldPath.Child("concurrentSyncs"), concurrentSyncs, "must be greater than 0"))
+	}
+	return allErrs
+}
+
+func mustBeGreaterThanZeroDuration(duration metav1.Duration, fldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+	if duration.Duration <= 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath, duration, "must be greater than 0"))
 	}
 	return allErrs
 }

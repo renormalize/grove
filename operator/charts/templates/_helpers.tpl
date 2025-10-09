@@ -34,7 +34,15 @@ config.yaml: |
   {{- if .Values.config.authorizer.enabled }}
   authorizer:
     enabled: {{ .Values.config.authorizer.enabled }}
-    exemptServiceAccounts: {{ join "," .Values.config.authorizer.exemptServiceAccounts }}
+    reconcilerServiceAccountUserName: {{ printf "system:serviceaccount:%s:%s" .Release.Namespace .Values.serviceAccount.name }}
+    exemptServiceAccountUserNames:
+    {{- if .Values.config.authorizer.exemptServiceAccountUserNames }}
+    {{- range $idx, $name := .Values.config.authorizer.exemptServiceAccountUserNames }}
+      - {{ $name }}
+    {{- end }}
+    {{- else }}
+      []
+    {{- end }}
   {{- end }}
 
 {{- end -}}
@@ -112,6 +120,13 @@ release: "{{ .Release.Name }}"
 {{- define "operator.pcs.defaulting.webhook.labels" -}}
 {{- include "common.chart.labels" . }}
 {{- range $key, $val := .Values.webhooks.podCliqueSetDefaultingWebhook.labels }}
+{{ $key }}: {{ $val }}
+{{- end }}
+{{- end -}}
+
+{{- define "operator.authorizer.webhook.labels" -}}
+{{- include "common.chart.labels" . }}
+{{- range $key, $val := .Values.webhooks.authorizerWebhook.labels }}
 {{ $key }}: {{ $val }}
 {{- end }}
 {{- end -}}

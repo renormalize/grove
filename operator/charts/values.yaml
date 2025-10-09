@@ -18,7 +18,7 @@ resources:
     ephemeral-storage: 128Mi
 
 # Set of tolerations to apply to the operator deployment.
-tolerations: []
+tolerations: [ ]
 
 # This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
 serviceAccount:
@@ -61,8 +61,8 @@ config:
   logLevel: info
   logFormat: json
   authorizer:
-    enabled: false
-    exemptServiceAccounts:
+    enabled: true
+    exemptServiceAccountUserNames:
       - system:serviceaccount:kube-system:generic-garbage-collector
       - system:serviceaccount:kube-system:horizontal-pod-autoscaler
 
@@ -110,16 +110,19 @@ clusterRoleBinding:
 
 webhooks:
   podCliqueSetValidationWebhook:
-    isEnabled: true
     labels:
       app.kubernetes.io/component: operator-pcs-validating-webhook
       app.kubernetes.io/name: pcs-validating-webhook
       app.kubernetes.io/part-of: grove
   podCliqueSetDefaultingWebhook:
-    isEnabled: true
     labels:
       app.kubernetes.io/component: operator-pcs-defaulting-webhook
       app.kubernetes.io/name: pcs-defaulting-webhook
+      app.kubernetes.io/part-of: grove
+  authorizerWebhook:
+    labels:
+      app.kubernetes.io/component: operator-authorizer-webhook
+      app.kubernetes.io/name: authorizer-webhook
       app.kubernetes.io/part-of: grove
 
 webhookServerSecret:
