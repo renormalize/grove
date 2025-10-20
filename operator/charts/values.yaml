@@ -65,6 +65,8 @@ config:
     exemptServiceAccountUserNames:
       - system:serviceaccount:kube-system:generic-garbage-collector
       - system:serviceaccount:kube-system:horizontal-pod-autoscaler
+      - system:serviceaccount:kai-scheduler:pod-grouper
+      - system:serviceaccount:kai-scheduler:binder
 
 configMap:
   labels:
