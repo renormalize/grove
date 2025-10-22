@@ -22,11 +22,11 @@ import (
 	"slices"
 	"time"
 
-	apicommon "github.com/NVIDIA/grove/operator/api/common"
-	"github.com/NVIDIA/grove/operator/api/common/constants"
-	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
-	"github.com/NVIDIA/grove/operator/internal/utils"
-	k8sutils "github.com/NVIDIA/grove/operator/internal/utils/kubernetes"
+	apicommon "github.com/ai-dynamo/grove/operator/api/common"
+	"github.com/ai-dynamo/grove/operator/api/common/constants"
+	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	"github.com/ai-dynamo/grove/operator/internal/utils"
+	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
 
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"

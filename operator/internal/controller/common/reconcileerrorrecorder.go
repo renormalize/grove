@@ -19,8 +19,8 @@ package common
 import (
 	"context"
 
-	grovecorev1alpha1 "github.com/NVIDIA/grove/operator/api/core/v1alpha1"
-	groveerr "github.com/NVIDIA/grove/operator/internal/errors"
+	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
