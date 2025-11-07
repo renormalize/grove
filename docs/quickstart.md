@@ -14,7 +14,6 @@ By the end of this quickstart, you'll understand how to:
 - A Kubernetes cluster (we'll use kind for local testing)
 - `kubectl` installed and configured
 - Docker Desktop running (for kind)
-- 10-15 minutes
 
 ## Understanding the Example Workload
 
@@ -63,7 +62,7 @@ kubectl apply -f samples/simple/simple1.yaml
 Watch as Grove creates and schedules all resources:
 
 ```bash
-kubectl get pcs,pclq,pcsg,pg,pod -owide
+kubectl get pcs,pclq,pcsg,pg,pod -o wide
 ```
 
 Expected output:
@@ -108,7 +107,7 @@ kubectl scale pcsg simple1-0-sga --replicas=2
 
 Observe the new resources:
 ```bash
-kubectl get pcs,pclq,pcsg,pg,pod -owide
+kubectl get pcs,pclq,pcsg,pg,pod -o wide
 ```
 
 **What happened?**
@@ -132,7 +131,7 @@ kubectl scale pcs simple1 --replicas=2
 
 Check the resources:
 ```bash
-kubectl get pcs,pclq,pcsg,pg,pod -owide
+kubectl get pcs,pclq,pcsg,pg,pod -o wide
 ```
 
 **What happened?**
@@ -165,7 +164,7 @@ PodCliqueSet (simple1)
 **Scaling behaviors:**
 - `kubectl scale pcs simple1`: Creates/removes complete replicas
 - `kubectl scale pcsg simple1-0-sga`: Scales just the grouped components (pcb + pcc)
-- Auto-scaling (when CPU threshold is met): Automatically scales `pca` or the scaling group
+- Auto-scaling: Grove can automatically create and manage HPA resources based on the `ScaleConfig` defined at PodClique and PodCliqueScalingGroup levels of a PodCliqueSet, or delegate scaling responsibility to a custom autoscaler, such as [Dynamo Planer](https://docs.nvidia.com/dynamo/latest/planner/planner_intro.html).
 
 ## Step 7: Clean Up
 
@@ -186,11 +185,10 @@ Only the Grove operator pod should remain.
 
 Now that you understand the basics, explore:
 
-- **[Installation Guide](installation.md)** - Learn about remote cluster deployment
+- **[Installation Guide](installation.md)** - Learn more about local and remote cluster deployment
+- **[Core Concepts Tutorial](user-guide/core-concepts/overview.md)** - Step-by-step hands-on tutorial on Grove application development
 - **[API Reference](api-reference/operator-api.md)** - Deep dive into all configuration options
-- **[Samples](../operator/samples/)** - Explore more complex examples
-- **Auto-scaling** - Trigger CPU-based auto-scaling by generating load
-- **Startup Ordering** - Define dependencies between components
+- **[Samples](../operator/samples/)** - Explore more examples
 
 ## Key Concepts Recap
 
@@ -208,7 +206,12 @@ Now that you understand the basics, explore:
 - Ensure your cluster has enough resources for gang scheduling
 
 ### Auto-scaling not working
-- For kind clusters, install metrics-server:
+- For kind clusters, install metrics-server (*choose one of following methods*):
+    - Use `operator/Makefile` target
+  ```bash
+  make deploy-addons
+  ```
+    - Manual setup
   ```bash
   kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
   ```

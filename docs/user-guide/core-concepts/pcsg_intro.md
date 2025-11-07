@@ -1,6 +1,6 @@
 # PodCliqueScalingGroup
 
-In the [previous guide](./pcs_and_pclq_intro.md) we covered some hands on examples on how to use PodCliqueSet and PodCliqueScalingGroup. In this guide we go over some hands-on exampels on how to use PodCliqueScalingGroup to represent multinode components.
+In the [previous guide](./pcs_and_pclq_intro.md) we covered some hands on examples on how to use PodCliqueSet and PodCliques. In this guide we go over some hands-on examples on how to use PodCliqueScalingGroup to represent multinode components.
 
 Refer to [Overview](./overview.md) for instructions on how to run the examples in this guide.
 
@@ -73,13 +73,17 @@ spec:
 - Scaling the group preserves the 1:3 leader-to-worker ratio
 
 ### **Deploy:**
-```bash
-# **Note:** The following commands assume you are in the `/grove/operator` directory, where `/grove` is the root of your cloned Grove repository.
-kubectl apply -f [/samples/user-guide/concept-overview/multi-node-aggregated.yaml](../../operator/samples/user-guide/concept-overview/multi-node-aggregated.yaml)
-kubectl get pods -l app.kubernetes.io/part-of=multinode-aggregated -o wide
-After running you should observe
 
+In this example, we will deploy the file: [multi-node-aggregated.yaml](../../../operator/samples/user-guide/concept-overview/multi-node-aggregated.yaml)
+```bash
+# NOTE: Run the following commands from the `/path/to/grove/operator` directory,
+# where `/path/to/grove` is the root of your cloned Grove repository.
+kubectl apply -f samples/user-guide/concept-overview/multi-node-aggregated.yaml
+kubectl get pods -l app.kubernetes.io/part-of=multinode-aggregated -o wide
 ```
+
+After running you should observe
+```bash
 rohanv@rohanv-mlt operator % kubectl get pods -l app.kubernetes.io/part-of=multinode-aggregated -o wide
 NAME                                                   READY   STATUS    RESTARTS   AGE   IP            NODE            NOMINATED NODE   READINESS GATES
 multinode-aggregated-0-model-instance-0-leader-zq4j5   1/1     Running   0          11s   10.244.2.0    fake-node-002   <none>           <none>
@@ -102,7 +106,7 @@ kubectl scale pcsg multinode-aggregated-0-model-instance --replicas=3
 ```
 After running this command you should observe
 
-```
+```bash
 rohanv@rohanv-mlt operator % kubectl get pods -l app.kubernetes.io/part-of=multinode-aggregated -o wide
 NAME                                                   READY   STATUS    RESTARTS   AGE   IP            NODE            NOMINATED NODE   READINESS GATES
 multinode-aggregated-0-model-instance-0-leader-zq4j5   1/1     Running   0          68m   10.244.2.0    fake-node-002   <none>           <none>
@@ -126,7 +130,7 @@ While you can scale the PodCliqueScalingGroup to replicate the "super-pod" unit,
 kubectl get pclq
 ```
 After running this you should observe the following PodCliques, with the naming format in line with what we described above.
-```
+```bash
 rohanv@rohanv-mlt operator % kubectl get pclq
 NAME                                             AGE
 multinode-aggregated-0-model-instance-0-leader   95m
@@ -143,7 +147,7 @@ kubectl scale pclq multinode-aggregated-0-model-instance-0-worker --replicas=4
 ```
 After running this you will observe:
 
-```
+```bash
 rohanv@rohanv-mlt operator % kubectl get pods -l app.kubernetes.io/part-of=multinode-aggregated -o wide
 NAME                                                   READY   STATUS    RESTARTS   AGE   IP            NODE            NOMINATED NODE   READINESS GATES
 multinode-aggregated-0-model-instance-0-leader-zq4j5   1/1     Running   0          12h   10.244.2.0    fake-node-002   <none>           <none>
@@ -283,12 +287,17 @@ spec:
 - Each PCSG can have different resource allocations
 
 ### **Deploy**
+
+In this example, we will deploy the file: [multi-node-disaggregated.yaml](../../../operator/samples/user-guide/concept-overview/multi-node-disaggregated.yaml)
 ```bash
-# **Note:** The following commands assume you are in the `/grove/operator` directory, where `/grove` is the root of your cloned Grove repository.
-kubectl apply -f [/samples/user-guide/concept-overview/multi-node-disaggregated.yaml](../../operator/samples/user-guide/concept-overview/multi-node-disaggregated.yaml)
+# NOTE: Run the following commands from the `/path/to/grove/operator` directory,
+# where `/path/to/grove` is the root of your cloned Grove repository.
+kubectl apply -f samples/user-guide/concept-overview/multi-node-disaggregated.yaml
 kubectl get pods -l app.kubernetes.io/part-of=multinode-disaggregated -o wide
-After running you will observe
 ```
+
+After running you will observe
+```bash
 rohanv@rohanv-mlt operator % kubectl get pods -l app.kubernetes.io/part-of=multinode-disaggregated -o wide
 NAME                                                READY   STATUS    RESTARTS   AGE   IP            NODE            NOMINATED NODE   READINESS GATES
 multinode-disaggregated-0-decode-0-dleader-khqxf    1/1     Running   0          35s   10.244.19.0   fake-node-019   <none>           <none>
