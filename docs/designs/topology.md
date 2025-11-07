@@ -45,14 +45,14 @@ while allowing users to specify required constraints for strict placement (upper
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  Admin Layer:                                                           │
-│  ┌──────────────────────┐          ┌──────────────────────┐            │
-│  │ ClusterTopology      │          │ Kueue Topology       │            │
-│  │ "grove-topology"     │          │ "grove-topology"     │            │
-│  │                      │          │ (manual creation)    │            │
-│  └──────────┬───────────┘          └───────────┬──────────┘            │
+│  ┌──────────────────────┐          ┌──────────────────────┐             │
+│  │ ClusterTopology      │          │ Kueue Topology       │             │
+│  │ "grove-topology"     │          │ "grove-topology"     │             │
+│  │                      │          │ (manual creation)    │             │
+│  └──────────┬───────────┘          └──────────-─┬─────────┘             │
 │             │                                   │                       │
 │             │                                   │                       │
-│  Operator Config: topology.enabled=true                                │
+│  Operator Config: topology.enabled=true         |                       |
 │             │                                   │                       │
 │             │ (validates against)               │ (referenced by)       │
 ├─────────────┼───────────────────────────────────┼───────────────────────┤
@@ -109,55 +109,55 @@ narrowest scope.
 **API Structure:**
 
 ```go
-// TopologyDomain represents a predefined topology level in the hierarchy
+// TopologyDomain represents a predefined topology level in the hierarchy.
 type TopologyDomain string
 
 const (
-TopologyDomainRegion     TopologyDomain = "region"
-TopologyDomainZone       TopologyDomain = "zone"
-TopologyDomainDataCenter TopologyDomain = "datacenter"
-TopologyDomainBlock      TopologyDomain = "block"
-TopologyDomainRack       TopologyDomain = "rack"
-TopologyDomainHost       TopologyDomain = "host"
-TopologyDomainNuma       TopologyDomain = "numa"
+    TopologyDomainRegion     TopologyDomain = "region"
+    TopologyDomainZone       TopologyDomain = "zone"
+    TopologyDomainDataCenter TopologyDomain = "datacenter"
+    TopologyDomainBlock      TopologyDomain = "block"
+    TopologyDomainRack       TopologyDomain = "rack"
+    TopologyDomainHost       TopologyDomain = "host"
+    TopologyDomainNuma       TopologyDomain = "numa"
 )
 
 // Topology ordering (broadest to narrowest):
 // Region > Zone > DataCenter > Block > Rack > Host > Numa
 
-// ClusterTopology defines the topology hierarchy for the cluster
-// This resource is immutable after creation
+// ClusterTopology defines the topology hierarchy for the cluster.
+// This resource is immutable after creation.
 type ClusterTopology struct {
-metav1.TypeMeta   `json:",inline"`
-metav1.ObjectMeta `json:"metadata,omitempty"`
+    metav1.TypeMeta   `json:",inline"`
+    metav1.ObjectMeta `json:"metadata,omitempty"`
 
-Spec ClusterTopologySpec `json:"spec,omitempty"`
+    Spec ClusterTopologySpec `json:"spec,omitempty"`
 }
 
 type ClusterTopologySpec struct {
-// Levels is an ordered list of topology levels from broadest to narrowest scope
-// The order in this list defines the hierarchy (index 0 = highest level)
-// This field is immutable after creation
-// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="levels list is immutable"
-// +kubebuilder:validation:MinItems=1
-// +kubebuilder:validation:MaxItems=8
-Levels []TopologyLevel `json:"levels"`
+    // Levels is an ordered list of topology levels from broadest to narrowest scope.
+    // The order in this list defines the hierarchy (index 0 = highest level).
+    // This field is immutable after creation.
+    // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="levels list is immutable"
+    // +kubebuilder:validation:MinItems=1
+    // +kubebuilder:validation:MaxItems=8
+    Levels []TopologyLevel `json:"levels"`
 }
 
 type TopologyLevel struct {
-// Domain is the predefined level identifier used in TopologyConstraint references
-// Must be one of: region, zone, datacenter, block, rack, host, numa
-// +kubebuilder:validation:Required
-// +kubebuilder:validation:Enum=region;zone;datacenter;block;rack;host;numa
-Domain TopologyDomain `json:"domain"`
+    // Domain is the predefined level identifier used in TopologyConstraint references.
+    // Must be one of: region, zone, datacenter, block, rack, host, numa.
+    // +kubebuilder:validation:Required
+    // +kubebuilder:validation:Enum=region;zone;datacenter;block;rack;host;numa
+    Domain TopologyDomain `json:"domain"`
 
-// Key is the node label key that identifies this topology domain
-// Must be a valid Kubernetes label key (qualified name)
-// Examples: "topology.kubernetes.io/zone", "kubernetes.io/hostname"
-// +kubebuilder:validation:Required
-// +kubebuilder:validation:MinLength=1
-// +kubebuilder:validation:MaxLength=64
-Key string `json:"key"`
+    // Key is the node label key that identifies this topology domain.
+    // Must be a valid Kubernetes label key (qualified name).
+    // Examples: "topology.kubernetes.io/zone", "kubernetes.io/hostname".
+    // +kubebuilder:validation:Required
+    // +kubebuilder:validation:MinLength=1
+    // +kubebuilder:validation:MaxLength=64
+    Key string `json:"key"`
 }
 ```
 
@@ -315,14 +315,14 @@ topology:
 
 ```go
 type TopologyConstraint struct {
-// PackDomain specifies the topology level name for grouping replicas
-// Controls placement constraint for EACH individual replica instance
-// Must be one of: region, zone, datacenter, block, rack, host, numa
-// Example: "rack" means each replica independently placed within one rack
-// Note: Does NOT constrain all replicas to the same rack together
-// Different replicas can be in different topology domains
-// +kubebuilder:validation:Enum=region;zone;datacenter;block;rack;host;numa
-PackDomain *TopologyDomain `json:"packDomain,omitempty"`
+    // PackDomain specifies the topology level name for grouping replicas
+    // Controls placement constraint for EACH individual replica instance
+    // Must be one of: region, zone, datacenter, block, rack, host, numa
+    // Example: "rack" means each replica independently placed within one rack
+    // Note: Does NOT constrain all replicas to the same rack together
+    // Different replicas can be in different topology domains
+    // +kubebuilder:validation:Enum=region;zone;datacenter;block;rack;host;numa
+    PackDomain *TopologyDomain `json:"packDomain,omitempty"`
 }
 ```
 
@@ -345,11 +345,11 @@ PackDomain *TopologyDomain `json:"packDomain,omitempty"`
 
 ```go
 type PodCliqueSetTemplateSpec struct {
-// ... existing fields ...
+    // ... existing fields ...
 
-// TopologyConstraint defines topology placement requirements for PodCliqueSet
-// +optional
-TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
+    // TopologyConstraint defines topology placement requirements for PodCliqueSet.
+    // +optional
+    TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
 }
 ```
 
@@ -357,12 +357,12 @@ TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
 
 ```go
 type PodCliqueScalingGroupConfig struct {
-// ... existing fields ...
+    // ... existing fields ...
 
-// TopologyConstraint defines topology placement requirements for PodCliqueScalingGroup
-// Must be equal to or stricter than parent PodCliqueSet constraints
-// +optional
-TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
+    // TopologyConstraint defines topology placement requirements for PodCliqueScalingGroup.
+    // Must be equal to or stricter than parent PodCliqueSet constraints.
+    // +optional
+    TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
 }
 ```
 
@@ -370,12 +370,12 @@ TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
 
 ```go
 type PodCliqueTemplateSpec struct {
-// ... existing fields ...
+    // ... existing fields ...
 
-// TopologyConstraint defines topology placement requirements for PodClique
-// Must be equal to or stricter than parent resource constraints
-// +optional
-TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
+    // TopologyConstraint defines topology placement requirements for PodClique.
+    // Must be equal to or stricter than parent resource constraints.
+    // +optional
+    TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
 }
 ```
 
@@ -422,23 +422,23 @@ KAI scheduler.
 
 ```go
 type PodGangSpec struct {
-// PodGroups is a list of member pod groups in the PodGang
-PodGroups []PodGroup `json:"podgroups"`
+    // PodGroups is a list of member pod groups in the PodGang
+    PodGroups []PodGroup `json:"podgroups"`
 
-// TopologyConstraint defines topology packing constraints for entire pod gang
-// Translated from PodCliqueSet.TopologyConstraint
-// Updated by operator on each reconciliation when PodCliqueSet topology constraints change
-// +optional
-TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
+    // TopologyConstraint defines topology packing constraints for entire pod gang
+    // Translated from PodCliqueSet.TopologyConstraint
+    // Updated by operator on each reconciliation when PodCliqueSet topology constraints change
+    // +optional
+    TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
 
-// TopologyConstraintGroupConfigs defines groups of PodGroups for topology-aware placement
-// Enhanced with topology constraints for PodCliqueScalingGroup (PCSG) level packing
-// Updated by operator on each reconciliation when PCSG topology constraints change
-// +optional
-TopologyConstraintGroupConfigs []TopologyConstraintGroupConfig `json:"topologyConstraintGroupConfigs,omitempty"`
+    // TopologyConstraintGroupConfigs defines groups of PodGroups for topology-aware placement
+    // Enhanced with topology constraints for PodCliqueScalingGroup (PCSG) level packing
+    // Updated by operator on each reconciliation when PCSG topology constraints change
+    // +optional
+    TopologyConstraintGroupConfigs []TopologyConstraintGroupConfig `json:"topologyConstraintGroupConfigs,omitempty"`
 
-// PriorityClassName is the name of the PriorityClass for the PodGang
-PriorityClassName string `json:"priorityClassName,omitempty"`
+    // PriorityClassName is the name of the PriorityClass for the PodGang
+    PriorityClassName string `json:"priorityClassName,omitempty"`
 }
 ```
 
@@ -446,11 +446,11 @@ PriorityClassName string `json:"priorityClassName,omitempty"`
 
 The operator adds topology information to PodGang metadata via annotation:
 
-```go
-// Annotation added to PodGang
+```yaml
+# Annotation added to PodGang
 metadata:
-annotations:
-grove.io/topology-name: "<user-configured-name>"
+  annotations:
+    grove.io/topology-name: "<user-configured-name>"
 ```
 
 This annotation allows the scheduler to locate the Kueue Topology resource without requiring a spec field, providing
@@ -459,16 +459,16 @@ flexibility for future API changes.
 **TopologyConstraintGroupConfig:**
 
 ```go
-// TopologyConstraintGroupConfig defines topology constraints for a group of PodGroups
+// TopologyConstraintGroupConfig defines topology constraints for a group of PodGroups.
 type TopologyConstraintGroupConfig struct {
-// PodGroupNames is the list of PodGroup names in the topology constraint group
-PodGroupNames []string `json:"podGroupNames"`
+    // PodGroupNames is the list of PodGroup names in the topology constraint group.
+    PodGroupNames []string `json:"podGroupNames"`
 
-// TopologyConstraint defines topology packing constraints for this group
-// Enables PCSG-level topology constraints
-// Updated by operator when PodCliqueScalingGroup topology constraints change
-// +optional
-TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
+    // TopologyConstraint defines topology packing constraints for this group.
+    // Enables PCSG-level topology constraints.
+    // Updated by operator when PodCliqueScalingGroup topology constraints change.
+    // +optional
+    TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
 }
 ```
 
@@ -476,20 +476,20 @@ TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
 
 ```go
 type PodGroup struct {
-// Name is the name of the PodGroup
-Name string `json:"name"`
+    // Name is the name of the PodGroup
+    Name string `json:"name"`
 
-// PodReferences is a list of references to the Pods in this group
-PodReferences []NamespacedName `json:"podReferences"`
+    // PodReferences is a list of references to the Pods in this group
+    PodReferences []NamespacedName `json:"podReferences"`
 
-// MinReplicas is the number of replicas that needs to be gang scheduled
-MinReplicas int32 `json:"minReplicas"`
+    // MinReplicas is the number of replicas that needs to be gang scheduled
+    MinReplicas int32 `json:"minReplicas"`
 
-// TopologyConstraint defines topology packing constraints for this PodGroup
-// Enables PodClique-level topology constraints
-// Updated by operator when PodClique topology constraints change
-// +optional
-TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
+    // TopologyConstraint defines topology packing constraints for this PodGroup
+    // Enables PodClique-level topology constraints
+    // Updated by operator when PodClique topology constraints change
+    // +optional
+    TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
 }
 ```
 
@@ -497,25 +497,25 @@ TopologyConstraint *TopologyConstraint `json:"topologyConstraint,omitempty"`
 
 ```go
 type TopologyConstraint struct {
-// PackConstraint defines topology packing constraint with required and preferred levels
-// Operator translates user's level name to corresponding keys
-// +optional
-PackConstraint *TopologyPackConstraint `json:"packConstraint,omitempty"`
+    // PackConstraint defines topology packing constraint with required and preferred levels.
+    // Operator translates user's level name to corresponding keys.
+    // +optional
+    PackConstraint *TopologyPackConstraint `json:"packConstraint,omitempty"`
 }
 
 type TopologyPackConstraint struct {
-// Required defines topology constraint that must be satisfied
-// Holds key (not level name) translated from user's packDomain specification
-// Example: "topology.kubernetes.io/rack"
-// +optional
-Required *string `json:"required,omitempty"`
+    // Required defines topology constraint that must be satisfied.
+    // Holds key (not level name) translated from user's packDomain specification.
+    // Example: "topology.kubernetes.io/rack".
+    // +optional
+    Required *string `json:"required,omitempty"`
 
-// Preferred defines best-effort topology constraint
-// Auto-generated by operator using strictest level key for optimization
-// Scheduler can fallback to less strict levels if preferred cannot be satisfied
-// Example: "kubernetes.io/hostname"
-// +optional
-Preferred *string `json:"preferred,omitempty"`
+    // Preferred defines best-effort topology constraint.
+    // Auto-generated by operator using strictest level key for optimization.
+    // Scheduler can fallback to less strict levels if preferred cannot be satisfied.
+    // Example: "kubernetes.io/hostname".
+    // +optional
+    Preferred *string `json:"preferred,omitempty"`
 }
 ```
 
@@ -591,7 +591,7 @@ User creates PodCliqueSet with 3 replicas:
 
 ```yaml
 spec:
-   replicas: 3
+  replicas: 3
   template:
     topologyConstraint:
       packDomain: "rack"  # User specifies level NAME (per-replica constraint)
@@ -631,7 +631,7 @@ Grove operator requires read access to ClusterTopology and permission to manage 
 
 ```yaml
 rules:
-   - apiGroups: [ "grove.io" ]
-   resources: [ "clustertopologies", "clustertopologies/finalizers" ]
+  - apiGroups: [ "grove.io" ]
+    resources: [ "clustertopologies", "clustertopologies/finalizers" ]
     verbs: [ "get", "list", "watch", "update" ]
 ```
