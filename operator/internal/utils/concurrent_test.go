@@ -18,6 +18,7 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"testing"
@@ -205,4 +206,47 @@ func createErringTaskFn(name string) func(ctx context.Context) error {
 
 func generateRandomDelay() time.Duration {
 	return time.Duration(5+rand.Intn(15)) * time.Millisecond
+}
+
+// TestRunResult_GetAggregatedError tests combining multiple errors into a single error.
+func TestRunResult_GetAggregatedError(t *testing.T) {
+	// No errors returns nil
+	result := RunResult{Errors: []error{}}
+	assert.Nil(t, result.GetAggregatedError())
+
+	// Single error returns that error
+	err1 := fmt.Errorf("task failed")
+	result = RunResult{Errors: []error{err1}}
+	aggregatedErr := result.GetAggregatedError()
+	assert.NotNil(t, aggregatedErr)
+	assert.True(t, errors.Is(aggregatedErr, err1))
+
+	// Multiple errors returns joined error
+	err2 := fmt.Errorf("another failure")
+	result = RunResult{Errors: []error{err1, err2}}
+	aggregatedErr = result.GetAggregatedError()
+	assert.NotNil(t, aggregatedErr)
+	assert.True(t, errors.Is(aggregatedErr, err1))
+	assert.True(t, errors.Is(aggregatedErr, err2))
+}
+
+// TestRunResult_GetSummary tests generating a summary string of task execution results.
+func TestRunResult_GetSummary(t *testing.T) {
+	// Empty result
+	result := RunResult{}
+	summary := result.GetSummary()
+	assert.Contains(t, summary, "SuccessfulTasks: []")
+	assert.Contains(t, summary, "FailedTasks: []")
+	assert.Contains(t, summary, "SkippedTasks: []")
+
+	// Result with successful tasks
+	result = RunResult{
+		SuccessfulTasks: []string{"task1", "task2"},
+		FailedTasks:     []string{"task3"},
+		SkippedTasks:    []string{"task4", "task5"},
+	}
+	summary = result.GetSummary()
+	assert.Contains(t, summary, "SuccessfulTasks: [task1 task2]")
+	assert.Contains(t, summary, "FailedTasks: [task3]")
+	assert.Contains(t, summary, "SkippedTasks: [task4 task5]")
 }
