@@ -146,7 +146,7 @@ func TestValidateUpdate(t *testing.T) {
 	}{
 		{
 			name: "valid update passes validation",
-			newObj: testutils.NewPodCliqueSetBuilder("test-pcs", "default", uuid.NewUUID()).
+			oldObj: testutils.NewPodCliqueSetBuilder("test-pcs", "default", uuid.NewUUID()).
 				WithReplicas(2).
 				WithTerminationDelay(4 * time.Hour).
 				WithCliqueStartupType(ptr.To(grovecorev1alpha1.CliqueStartupTypeAnyOrder)).
@@ -157,7 +157,7 @@ func TestValidateUpdate(t *testing.T) {
 						WithMinAvailable(1).
 						Build()).
 				Build(),
-			oldObj: testutils.NewPodCliqueSetBuilder("test-pcs", "default", uuid.NewUUID()).
+			newObj: testutils.NewPodCliqueSetBuilder("test-pcs", "default", uuid.NewUUID()).
 				WithReplicas(1).
 				WithTerminationDelay(4 * time.Hour).
 				WithCliqueStartupType(ptr.To(grovecorev1alpha1.CliqueStartupTypeAnyOrder)).
@@ -172,21 +172,21 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		{
 			name:          "wrong new object type fails validation",
-			newObj:        &corev1.Pod{},
-			oldObj:        createDummyPodCliqueSet("test"),
+			oldObj:        &corev1.Pod{},
+			newObj:        createDummyPodCliqueSet("test"),
 			expectError:   true,
 			errorContains: "failed to cast new object to PodCliqueSet",
 		},
 		{
 			name:          "wrong old object type fails validation",
-			newObj:        createDummyPodCliqueSet("test"),
-			oldObj:        &corev1.Pod{},
+			oldObj:        createDummyPodCliqueSet("test"),
+			newObj:        &corev1.Pod{},
 			expectError:   true,
 			errorContains: "failed to cast old object to PodCliqueSet",
 		},
 		{
 			name: "invalid update with changed startup type fails validation",
-			newObj: testutils.NewPodCliqueSetBuilder("test-pcs", "default", uuid.NewUUID()).
+			oldObj: testutils.NewPodCliqueSetBuilder("test-pcs", "default", uuid.NewUUID()).
 				WithReplicas(1).
 				WithTerminationDelay(4 * time.Hour).
 				WithCliqueStartupType(ptr.To(grovecorev1alpha1.CliqueStartupTypeInOrder)).
@@ -197,7 +197,7 @@ func TestValidateUpdate(t *testing.T) {
 						WithMinAvailable(1).
 						Build()).
 				Build(),
-			oldObj: testutils.NewPodCliqueSetBuilder("test-pcs", "default", uuid.NewUUID()).
+			newObj: testutils.NewPodCliqueSetBuilder("test-pcs", "default", uuid.NewUUID()).
 				WithReplicas(1).
 				WithTerminationDelay(4 * time.Hour).
 				WithCliqueStartupType(ptr.To(grovecorev1alpha1.CliqueStartupTypeAnyOrder)).
