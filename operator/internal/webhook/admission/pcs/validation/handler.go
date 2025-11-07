@@ -60,7 +60,7 @@ func (h *Handler) ValidateCreate(ctx context.Context, obj runtime.Object) (admis
 }
 
 // ValidateUpdate validates a PodCliqueSet update request.
-func (h *Handler) ValidateUpdate(ctx context.Context, newObj, oldObj runtime.Object) (admission.Warnings, error) {
+func (h *Handler) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	h.logValidatorFunctionInvocation(ctx)
 	newPCS, err := castToPodCliqueSet(newObj)
 	if err != nil {
