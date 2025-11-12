@@ -56,12 +56,13 @@ type OperatorConfiguration struct {
 	metav1.TypeMeta  `json:",inline"`
 	ClientConnection ClientConnectionConfiguration `json:"runtimeClientConnection"`
 	LeaderElection   LeaderElectionConfiguration
-	Server           ServerConfiguration     `json:"server"`
-	Debugging        *DebuggingConfiguration `json:"debugging,omitempty"`
-	Controllers      ControllerConfiguration `json:"controllers"`
-	LogLevel         LogLevel                `json:"logLevel"`
-	LogFormat        LogFormat               `json:"logFormat"`
-	Authorizer       AuthorizerConfig        `json:"authorizer"`
+	Server           ServerConfiguration          `json:"server"`
+	Debugging        *DebuggingConfiguration      `json:"debugging,omitempty"`
+	Controllers      ControllerConfiguration      `json:"controllers"`
+	LogLevel         LogLevel                     `json:"logLevel"`
+	LogFormat        LogFormat                    `json:"logFormat"`
+	Authorizer       AuthorizerConfig             `json:"authorizer"`
+	ClusterTopology  ClusterTopologyConfiguration `json:"clusterTopology"`
 }
 
 // LeaderElectionConfiguration defines the configuration for the leader election.
@@ -186,4 +187,14 @@ type AuthorizerConfig struct {
 	// format when checking the username in authenticationv1.UserInfo.Name.
 	// +optional
 	ExemptServiceAccountUserNames []string `json:"exemptServiceAccountUserNames,omitempty"`
+}
+
+// ClusterTopologyConfiguration defines the configuration for topology-aware scheduling.
+type ClusterTopologyConfiguration struct {
+	// Enabled indicates whether topology-aware scheduling is enabled.
+	Enabled bool `json:"enabled"`
+	// Name is the ClusterTopology resource name to use.
+	// Defaults to "grove-topology" if not specified when topology is enabled.
+	// +optional
+	Name string `json:"name,omitempty"`
 }

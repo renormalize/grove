@@ -17,10 +17,13 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"os"
 
 	configv1alpha1 "github.com/ai-dynamo/grove/operator/api/config/v1alpha1"
+	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	groveopts "github.com/ai-dynamo/grove/operator/cmd/opts"
 	grovectrl "github.com/ai-dynamo/grove/operator/internal/controller"
 	"github.com/ai-dynamo/grove/operator/internal/controller/cert"
@@ -28,7 +31,9 @@ import (
 	groveversion "github.com/ai-dynamo/grove/operator/internal/version"
 
 	"github.com/spf13/pflag"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
@@ -61,6 +66,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx := ctrl.SetupSignalHandler()
+
+	if err = validateClusterTopology(ctx, mgr.GetAPIReader(), operatorCfg.ClusterTopology); err != nil {
+		logger.Error(err, "cannot validate cluster topology, operator cannot start")
+		os.Exit(1)
+	}
+
 	webhookCertsReadyCh := make(chan struct{})
 	if err = cert.ManageWebhookCerts(mgr, operatorCfg.Server.Webhooks.ServerCertDir, operatorCfg.Authorizer.Enabled, webhookCertsReadyCh); err != nil {
 		logger.Error(err, "failed to setup cert rotation")
@@ -82,7 +94,6 @@ func main() {
 	}()
 
 	logger.Info("Starting manager")
-	ctx := ctrl.SetupSignalHandler()
 	if err = mgr.Start(ctx); err != nil {
 		logger.Error(err, "Error running manager")
 		os.Exit(1)
@@ -106,4 +117,16 @@ func printFlags() {
 		flagKVs = append(flagKVs, f.Name, f.Value.String())
 	})
 	logger.Info("Running with flags", flagKVs...)
+}
+
+func validateClusterTopology(ctx context.Context, reader client.Reader, clusterTopologyConfig configv1alpha1.ClusterTopologyConfiguration) error {
+	if !clusterTopologyConfig.Enabled {
+		return nil
+	}
+	var clusterTopology grovecorev1alpha1.ClusterTopology
+	if err := reader.Get(ctx, types.NamespacedName{Name: clusterTopologyConfig.Name}, &clusterTopology); err != nil {
+		return fmt.Errorf("failed to fetch ClusterTopology %s: %w", clusterTopologyConfig.Name, err)
+	}
+	logger.Info("topology validated successfully", "cluster topology", clusterTopologyConfig.Name)
+	return nil
 }

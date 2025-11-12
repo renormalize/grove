@@ -37,6 +37,14 @@ rules:
   - patch
   - update
 - apiGroups:
+  - grove.io
+  resources:
+  - clustertopologies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - ""
   resources:
   - nodes

@@ -23,6 +23,8 @@ var (
 	podCliqueCRD string
 	//go:embed grove.io_podcliquesets.yaml
 	podCliqueSetCRD string
+	//go:embed grove.io_clustertopologies.yaml
+	clusterTopologyCRD string
 )
 
 // PodCliqueCRD returns the PodClique CRD
@@ -33,4 +35,9 @@ func PodCliqueCRD() string {
 // PodCliqueSetCRD returns the PodCliqueSet CRD
 func PodCliqueSetCRD() string {
 	return podCliqueSetCRD
+}
+
+// ClusterTopologyCRD returns the ClusterTopology CRD
+func ClusterTopologyCRD() string {
+	return clusterTopologyCRD
 }

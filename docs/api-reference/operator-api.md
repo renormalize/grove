@@ -688,6 +688,23 @@ _Appears in:_
 | `acceptContentTypes` _string_ | AcceptContentTypes defines the Accept header sent by clients when connecting to the server,<br />overriding the default value of 'application/json'. This field will control all connections<br />to the server used by a particular client. |  |  |
 
 
+#### ClusterTopologyConfiguration
+
+
+
+ClusterTopologyConfiguration defines the configuration for topology-aware scheduling.
+
+
+
+_Appears in:_
+- [OperatorConfiguration](#operatorconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `enabled` _boolean_ | Enabled indicates whether topology-aware scheduling is enabled. |  |  |
+| `name` _string_ | Name is the ClusterTopology resource name to use.<br />Defaults to "grove-topology" if not specified when topology is enabled. |  |  |
+
+
 #### ControllerConfiguration
 
 

@@ -60,6 +60,9 @@ config:
       concurrentSyncs: 3
   logLevel: info
   logFormat: json
+  clusterTopology:
+    enabled: false
+    name: "grove-topology"
   authorizer:
     enabled: false
     exemptServiceAccountUserNames:
