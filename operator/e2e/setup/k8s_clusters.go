@@ -21,7 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -42,9 +44,13 @@ import (
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -53,6 +59,25 @@ const (
 	// defaultPollInterval is the interval for most polling conditions
 	defaultPollInterval = 5 * time.Second
 )
+
+// transientErrors contains error substrings that indicate a webhook is not ready yet
+var transientErrors = []string{
+	"no endpoints available",
+	"connection refused",
+	"i/o timeout",
+	"Bad Gateway",
+	"Service Unavailable",
+}
+
+// isTransient checks if an error string contains any transient error patterns
+func isTransient(errStr string) bool {
+	for _, s := range transientErrors {
+		if strings.Contains(errStr, s) {
+			return true
+		}
+	}
+	return false
+}
 
 // NodeTaint represents a Kubernetes node taint
 type NodeTaint struct {
@@ -311,6 +336,13 @@ func SetupCompleteK3DCluster(ctx context.Context, cfg ClusterConfig, skaffoldYAM
 	if err := utils.WaitForPodsInNamespace(ctx, gpuOperatorConfig.Namespace, gpuOperatorConfig.RestConfig, 0, defaultPollTimeout, defaultPollInterval, gpuOperatorConfig.Logger); err != nil {
 		cleanup()
 		return nil, nil, fmt.Errorf("NVIDIA GPU Operator not ready: %w", err)
+	}
+
+	// Wait for Grove webhook to be ready by actually testing it
+	// This ensures the webhook is ready to handle requests before tests start
+	if err := waitForWebhookReady(ctx, restConfig, logger); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("grove webhook not ready: %w", err)
 	}
 
 	// Find any deployed images that are not in the prepull list
@@ -1003,4 +1035,74 @@ func buildLDFlagsForE2E() string {
 		gitCommit, treeState, buildDate)
 
 	return ldflags
+}
+
+// waitForWebhookReady waits for the webhook server to be ready.
+// This ensures the webhook server is fully registered with the Kubernetes API server
+// and can handle admission requests before tests start.
+// We do this by making a dry-run request to create a PodCliqueSet using workload1.yaml -
+// if the webhook is ready, the request will be processed (may fail validation, but that's fine).
+// If the webhook is not ready, we'll get "no endpoints available" or similar errors.
+func waitForWebhookReady(ctx context.Context, restConfig *rest.Config, logger *utils.Logger) error {
+	logger.Info("⏳ Waiting for Grove webhook to be ready...")
+
+	dynamicClient, err := dynamic.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create dynamic client: %w", err)
+	}
+
+	// Define the GVR for PodCliqueSet
+	pcsGVR := schema.GroupVersionResource{
+		Group:    "grove.io",
+		Version:  "v1alpha1",
+		Resource: "podcliquesets",
+	}
+
+	// Get the path to workload1.yaml relative to this source file
+	_, currentFile, _, _ := runtime.Caller(0)
+	workload1YAMLPath := filepath.Join(filepath.Dir(currentFile), "../yaml/workload1.yaml")
+
+	// Read workload1.yaml to get a real PodCliqueSet for testing the webhook
+	workloadYAML, err := os.ReadFile(workload1YAMLPath)
+	if err != nil {
+		return fmt.Errorf("failed to read workload1.yaml: %w", err)
+	}
+
+	testPCS := &unstructured.Unstructured{}
+	if err := yaml.Unmarshal(workloadYAML, &testPCS.Object); err != nil {
+		return fmt.Errorf("failed to parse workload1.yaml: %w", err)
+	}
+
+	// Override the name and namespace for the webhook test
+	testPCS.SetName("webhook-ready-test")
+	testPCS.SetNamespace("default")
+
+	return utils.PollForCondition(ctx, defaultPollTimeout, defaultPollInterval, func() (bool, error) {
+		// Try to create the PodCliqueSet with dry-run mode
+		// This will invoke the webhook without actually creating the resource
+		_, err := dynamicClient.Resource(pcsGVR).Namespace("default").Create(
+			ctx,
+			testPCS,
+			metav1.CreateOptions{
+				DryRun: []string{metav1.DryRunAll},
+			},
+		)
+
+		if err != nil {
+			errStr := err.Error()
+			// These errors indicate the webhook is not ready yet
+			if isTransient(errStr) {
+				logger.Debugf("  Webhook not ready yet: %v", err)
+				return false, nil
+			}
+			// Any other error (including validation errors) means the webhook responded
+			// which is what we want to confirm
+			logger.Infof("✅ Grove webhook is ready (responded with: %v)", err)
+			return true, nil
+		}
+
+		// Success means the webhook processed the request
+		logger.Info("✅ Grove webhook is ready")
+		return true, nil
+	})
 }
