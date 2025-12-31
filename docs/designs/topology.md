@@ -569,6 +569,9 @@ type PodGangSpec struct {
 ```go
 // TopologyConstraintGroupConfig defines topology constraints for a group of PodGroups.
 type TopologyConstraintGroupConfig struct {
+    // Name is the name of the topology constraint group.
+    // It will drive from the corresponding PCSG name.
+    Name string `json:"name"`   
     // TopologyConstraint defines topology packing constraints for this group.
     // Enables PCSG-level topology constraints.
     // Updated by operator when PodCliqueScalingGroup topology constraints change.
