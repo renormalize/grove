@@ -49,7 +49,7 @@ function check_controller_gen_prereq() {
 
 function generate_deepcopy_defaulter() {
   kube::codegen::gen_helpers \
-    --boilerplate "${REPO_HACK_DIR}/boilerplate.go.txt" \
+    --boilerplate "${REPO_HACK_DIR}/boilerplate.generatego.txt" \
     "${MODULE_ROOT}"
 }
 
@@ -80,7 +80,7 @@ function generate_clientset() {
     --with-watch \
     --output-dir "${OPERATOR_ROOT}/client" \
     --output-pkg "github.com/ai-dynamo/grove/operator/client" \
-    --boilerplate "${REPO_HACK_DIR}/boilerplate.go.txt" \
+    --boilerplate "${REPO_HACK_DIR}/boilerplate.generatego.txt" \
     "${MODULE_ROOT}"
 }
 
