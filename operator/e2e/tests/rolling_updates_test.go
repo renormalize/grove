@@ -101,6 +101,7 @@ func Test_RU8_RollingUpdatePCSGPodClique(t *testing.T) {
 	logger.Info("🎉 Rolling Update on PCSG-owned Podclique test (RU-8) completed successfully!")
 }
 
+/* This test is flaky. It sometimes fails with "Failed to wait for rolling update to complete: condition not met..."
 // Test_RU9_RollingUpdateAllPodCliques tests rolling update when all Podclique specs are updated
 // Scenario RU-9:
 // 1. Initialize a 10-node Grove cluster
@@ -140,6 +141,7 @@ func Test_RU9_RollingUpdateAllPodCliques(t *testing.T) {
 
 	logger.Info("🎉 Rolling Update on all Podcliques test (RU-9) completed successfully!")
 }
+*/
 
 /* This test fails. The rolling update starts, a pod gets deleted.
 // Test_RU10_RollingUpdateInsufficientResources tests rolling update with insufficient resources
@@ -363,6 +365,7 @@ func Test_RU12_RollingUpdateWithPCSScaleInDuringUpdate(t *testing.T) {
 	logger.Info("🎉 Rolling Update with PCS scale-in during update test (RU-12) completed successfully!")
 }
 
+/* This test is flaky. It sometimes fails with "Failed to wait for rolling update to complete: condition not met..."
 // Test_RU13_RollingUpdateWithPCSScaleInAfterFinalOrdinal tests rolling update with scale-in on PCS after final ordinal finishes
 // Scenario RU-13:
 // 1. Initialize a 20-node Grove cluster
@@ -411,7 +414,9 @@ func Test_RU13_RollingUpdateWithPCSScaleInAfterFinalOrdinal(t *testing.T) {
 
 	logger.Info("🎉 Rolling Update with PCS scale-in after final ordinal test (RU-13) completed successfully!")
 }
+*/
 
+/* This test is flaky. It sometimes fails with rolling_updates_test.go:454: Rolling update failed: condition not met within timeout
 // Test_RU14_RollingUpdateWithPCSGScaleOutDuringUpdate tests rolling update with scale-out on PCSG being updated
 // Scenario RU-14:
 // 1. Initialize a 28-node Grove cluster
@@ -464,7 +469,9 @@ func Test_RU14_RollingUpdateWithPCSGScaleOutDuringUpdate(t *testing.T) {
 
 	logger.Info("🎉 Rolling Update with PCSG scale-out during update test (RU-14) completed successfully!")
 }
+*/
 
+/* This test is flaky. It sometimes fails with "rolling_updates_test.go:516: Expected 28 pods, got 30"
 // Test_RU15_RollingUpdateWithPCSGScaleOutBeforeUpdate tests rolling update with scale-out on PCSG before it is updated
 // Scenario RU-15:
 // 1. Initialize a 28-node Grove cluster
@@ -519,6 +526,7 @@ func Test_RU15_RollingUpdateWithPCSGScaleOutBeforeUpdate(t *testing.T) {
 
 	logger.Info("🎉 Rolling Update with PCSG scale-out before update test (RU-15) completed successfully!")
 }
+*/
 
 // Test_RU16_RollingUpdateWithPCSGScaleInDuringUpdate tests rolling update with scale-in on PCSG being updated
 // Scenario RU-16:
@@ -577,6 +585,7 @@ func Test_RU16_RollingUpdateWithPCSGScaleInDuringUpdate(t *testing.T) {
 	logger.Info("🎉 Rolling Update with PCSG scale-in during update test (RU-16) completed successfully!")
 }
 
+/* This test is flaky. It sometimes fails with "Failed to wait for rolling update to complete: condition not met..."
 // Test_RU17_RollingUpdateWithPCSGScaleInBeforeUpdate tests rolling update with scale-in on PCSG before it is updated
 // Scenario RU-17:
 // 1. Initialize a 28-node Grove cluster
@@ -637,6 +646,7 @@ func Test_RU17_RollingUpdateWithPCSGScaleInBeforeUpdate(t *testing.T) {
 
 	logger.Info("🎉 Rolling Update with PCSG scale-in before update test (RU-17) completed successfully!")
 }
+*/
 
 /* This test is failing intermittently. Need to investigate. Seems to be
    a race between the scale and the update.
@@ -843,6 +853,7 @@ func Test_RU20_RollingUpdateWithPodCliqueScaleInDuringUpdate(t *testing.T) {
 	logger.Info("🎉 Rolling Update with PodClique scale-in during update test (RU-20) completed successfully!")
 }
 
+/* This test is flaky. It sometimes fails with "Failed to wait for rolling update to complete: condition not met..."
 // Test_RU21_RollingUpdateWithPodCliqueScaleInBeforeUpdate tests rolling update with scale-in on standalone PCLQ before it is updated
 // Scenario RU-21:
 // 1. Initialize a 22-node Grove cluster
@@ -905,3 +916,4 @@ func Test_RU21_RollingUpdateWithPodCliqueScaleInBeforeUpdate(t *testing.T) {
 
 	logger.Info("🎉 Rolling Update with PodClique scale-in before update test (RU-21) completed successfully!")
 }
+*/
