@@ -28,6 +28,101 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// TestGetSelectorLabelsForPods_PCSGOwnedPodClique tests that getSelectorLabelsForPods
+// returns the correct selector labels for PCSG-owned PodCliques.
+func TestGetSelectorLabelsForPods_PCSGOwnedPodClique(t *testing.T) {
+	const (
+		pcsName  = "workload1"
+		pcsgName = "workload1-0-sg-x"
+		pclqName = "workload1-0-sg-x-0-pc-a"
+	)
+
+	tests := []struct {
+		name           string
+		pclqObjectMeta metav1.ObjectMeta
+		expectedLabels map[string]string
+		description    string
+	}{
+		{
+			name: "PCS-owned PodClique should use PCS name in selector",
+			pclqObjectMeta: metav1.ObjectMeta{
+				Name:      "workload1-0-pc-a",
+				Namespace: "default",
+				Labels: map[string]string{
+					common.LabelPartOfKey:    pcsName,
+					common.LabelManagedByKey: common.LabelManagedByValue,
+					common.LabelPodClique:    "workload1-0-pc-a",
+				},
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: "grove.io/v1alpha1",
+						Kind:       "PodCliqueSet",
+						Name:       pcsName,
+					},
+				},
+			},
+			expectedLabels: map[string]string{
+				common.LabelManagedByKey: common.LabelManagedByValue,
+				common.LabelPartOfKey:    pcsName,
+				common.LabelPodClique:    "workload1-0-pc-a",
+			},
+			description: "PCS-owned PodCliques work correctly (owner name == PCS name)",
+		},
+		{
+			name: "PCSG-owned PodClique should use PCS name in selector (not PCSG name)",
+			pclqObjectMeta: metav1.ObjectMeta{
+				Name:      pclqName,
+				Namespace: "default",
+				Labels: map[string]string{
+					common.LabelPartOfKey:             pcsName,
+					common.LabelManagedByKey:          common.LabelManagedByValue,
+					common.LabelPodClique:             pclqName,
+					common.LabelPodCliqueScalingGroup: pcsgName,
+				},
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: "grove.io/v1alpha1",
+						Kind:       "PodCliqueScalingGroup",
+						Name:       pcsgName,
+					},
+				},
+			},
+			expectedLabels: map[string]string{
+				common.LabelManagedByKey: common.LabelManagedByValue,
+				common.LabelPartOfKey:    pcsName,
+				common.LabelPodClique:    pclqName,
+			},
+			description: "PCSG-owned PodCliques should use PCS name from labels, not owner reference",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actualLabels := getSelectorLabelsForPods(tt.pclqObjectMeta)
+
+			// Check each expected label
+			for key, expectedValue := range tt.expectedLabels {
+				actualValue, exists := actualLabels[key]
+				if !exists {
+					t.Errorf("Expected label %q not found in selector", key)
+					continue
+				}
+				if actualValue != expectedValue {
+					t.Errorf("Label %q: expected %q, got %q. %s",
+						key, expectedValue, actualValue, tt.description)
+				}
+			}
+
+			// Specifically check the LabelPartOfKey
+			if actualLabels[common.LabelPartOfKey] != tt.expectedLabels[common.LabelPartOfKey] {
+				t.Errorf("LabelPartOfKey: expected %q, got %q",
+					tt.expectedLabels[common.LabelPartOfKey],
+					actualLabels[common.LabelPartOfKey])
+			}
+		})
+	}
+}
+
 func TestAddEnvironmentVariables(t *testing.T) {
 	tests := []struct {
 		name              string
