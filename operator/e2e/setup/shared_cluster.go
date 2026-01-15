@@ -39,6 +39,14 @@ import (
 const (
 	// relativeSkaffoldYAMLPath is the path to the skaffold.yaml file relative to the e2e/tests directory
 	relativeSkaffoldYAMLPath = "../../skaffold.yaml"
+
+	// cleanupTimeout is the maximum time to wait for all resources and pods to be deleted during cleanup.
+	// This needs to be long enough to allow for cascade deletion propagation through
+	// PodCliqueSet -> PodCliqueScalingGroup -> PodClique -> Pod
+	cleanupTimeout = 60 * time.Second
+
+	// cleanupPollInterval is the interval between checks during cleanup polling
+	cleanupPollInterval = 1 * time.Second
 )
 
 // resourceType represents a Kubernetes resource type for cleanup operations
@@ -54,7 +62,6 @@ var groveManagedResourceTypes = []resourceType{
 	// Grove CRDs
 	{"grove.io", "v1alpha1", "podcliquesets", "PodCliqueSets"},
 	{"grove.io", "v1alpha1", "podcliquescalinggroups", "PodCliqueScalingGroups"},
-	{"grove.io", "v1alpha1", "podgangsets", "PodGangSets"},
 	{"scheduler.grove.io", "v1alpha1", "podgangs", "PodGangs"},
 	{"grove.io", "v1alpha1", "podcliques", "PodCliques"},
 	// Kubernetes core resources
@@ -241,8 +248,8 @@ func (scm *SharedClusterManager) CleanupWorkloads(ctx context.Context) error {
 		scm.logger.Warnf("failed to delete PodCliqueSets: %v", err)
 	}
 
-	// Step 2: Poll for all resources and pods to be cleaned up, wait for 30 seconds or until all resources and pods are deleted
-	if err := scm.waitForAllGroveManagedResourcesAndPodsDeleted(ctx, 30*time.Second, 1*time.Second); err != nil {
+	// Step 2: Poll for all resources and pods to be cleaned up
+	if err := scm.waitForAllGroveManagedResourcesAndPodsDeleted(ctx, cleanupTimeout, cleanupPollInterval); err != nil {
 		// List remaining resources and pods for debugging
 		scm.listRemainingGroveManagedResources(ctx)
 		scm.listRemainingPods(ctx, "default")
@@ -288,7 +295,7 @@ func (scm *SharedClusterManager) deleteAllResources(ctx context.Context, group, 
 // isSystemPod checks if a pod is a system pod that should be ignored during cleanup
 func isSystemPod(pod *v1.Pod) bool {
 	// Skip pods managed by DaemonSets or system namespaces
-	if pod.Namespace == "kube-system" || pod.Namespace == "grove-system" {
+	if pod.Namespace == "kube-system" || pod.Namespace == OperatorNamespace {
 		return true
 	}
 
@@ -354,9 +361,16 @@ func (scm *SharedClusterManager) waitForAllGroveManagedResourcesAndPodsDeleted(c
 				Resource: rt.resource,
 			}
 
-			resourceList, err := scm.dynamicClient.Resource(gvr).List(ctx, metav1.ListOptions{
+			// PodCliqueSets are user-created top-level resources and don't have the managed-by label,
+			// so we need to check for them without the label selector
+			listOptions := metav1.ListOptions{
 				LabelSelector: labelSelector,
-			})
+			}
+			if rt.resource == "podcliquesets" {
+				listOptions = metav1.ListOptions{}
+			}
+
+			resourceList, err := scm.dynamicClient.Resource(gvr).List(ctx, listOptions)
 			if err != nil {
 				// If we can't list the resource type, assume it doesn't exist or is being deleted
 				continue
@@ -405,9 +419,15 @@ func (scm *SharedClusterManager) listRemainingGroveManagedResources(ctx context.
 			Resource: rt.resource,
 		}
 
-		resourceList, err := scm.dynamicClient.Resource(gvr).List(ctx, metav1.ListOptions{
+		// PodCliqueSets are user-created top-level resources and don't have the managed-by label
+		listOptions := metav1.ListOptions{
 			LabelSelector: labelSelector,
-		})
+		}
+		if rt.resource == "podcliquesets" {
+			listOptions = metav1.ListOptions{}
+		}
+
+		resourceList, err := scm.dynamicClient.Resource(gvr).List(ctx, listOptions)
 		if err != nil {
 			scm.logger.Errorf("Failed to list %s: %v", rt.name, err)
 			continue
