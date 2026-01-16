@@ -252,6 +252,7 @@ func (r _resource) buildExpectedScaledPodGangsForPCSG(sc *syncContext, pcsReplic
 				fqn:                     podGangName,
 				pclqs:                   pcsgPodCliqueInfos,
 				pcsgTopologyConstraints: pcsgTopologyConstraints,
+				topologyConstraint:      createTopologyPackConstraint(sc, apicommonconstants.KindPodCliqueSet, client.ObjectKeyFromObject(sc.pcs), sc.pcs.Spec.Template.TopologyConstraint),
 			})
 		}
 	}
