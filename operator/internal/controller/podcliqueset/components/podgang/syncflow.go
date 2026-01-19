@@ -289,6 +289,7 @@ func (r _resource) buildExpectedScaledPodGangsForPCSG(sc *syncContext, pcsReplic
 func doBuildExpectedScaledPodGangForPCSG(sc *syncContext, pcsgFQN string, pcsgConfig grovecorev1alpha1.PodCliqueScalingGroupConfig, pcsgReplica int, podGangIndex int) (*podGangInfo, error) {
 	var (
 		pclqInfos          = make([]pclqInfo, 0, len(pcsgConfig.CliqueNames))
+		pclqFQNs           = make([]string, 0, len(pcsgConfig.CliqueNames))
 		topologyConstraint *groveschedulerv1alpha1.TopologyConstraint
 	)
 
@@ -300,12 +301,25 @@ func doBuildExpectedScaledPodGangForPCSG(sc *syncContext, pcsgFQN string, pcsgCo
 		}
 		pclqFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcsgFQN, Replica: pcsgReplica}, pclqName)
 		pclqInfos = append(pclqInfos, buildPodCliqueInfo(sc, pclqTemplateSpec, pclqFQN, true))
+		pclqFQNs = append(pclqFQNs, pclqFQN)
 	}
-	topologyConstraint = createTopologyPackConstraint(sc, types.NamespacedName{Namespace: sc.pcs.Namespace, Name: pcsgFQN}, pcsgConfig.TopologyConstraint)
+
+	var pcsgTopologyConstraints []groveschedulerv1alpha1.TopologyConstraintGroupConfig
+	if sc.tasEnabled {
+		topologyConstraint = createTopologyPackConstraint(sc, client.ObjectKeyFromObject(sc.pcs), sc.pcs.Spec.Template.TopologyConstraint)
+		pcsgTopologyConstraint := groveschedulerv1alpha1.TopologyConstraintGroupConfig{
+			Name:               fmt.Sprintf("%s-%d", pcsgFQN, pcsgReplica),
+			PodGroupNames:      pclqFQNs,
+			TopologyConstraint: createTopologyPackConstraint(sc, types.NamespacedName{Namespace: sc.pcs.Namespace, Name: pcsgFQN}, pcsgConfig.TopologyConstraint),
+		}
+		pcsgTopologyConstraints = []groveschedulerv1alpha1.TopologyConstraintGroupConfig{pcsgTopologyConstraint}
+	}
+
 	pg := &podGangInfo{
-		fqn:                apicommon.CreatePodGangNameFromPCSGFQN(pcsgFQN, podGangIndex),
-		topologyConstraint: topologyConstraint,
-		pclqs:              pclqInfos,
+		fqn:                     apicommon.CreatePodGangNameFromPCSGFQN(pcsgFQN, podGangIndex),
+		topologyConstraint:      topologyConstraint,
+		pclqs:                   pclqInfos,
+		pcsgTopologyConstraints: pcsgTopologyConstraints,
 	}
 
 	return pg, nil
