@@ -640,15 +640,6 @@ func scalePCSGAcrossAllReplicas(tc TestContext, pcsName, pcsgName string, pcsRep
 	return errCh
 }
 
-// convertUnstructuredToTyped converts an unstructured map to a typed object
-func convertUnstructuredToTyped(u map[string]interface{}, typed interface{}) error {
-	data, err := json.Marshal(u)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, typed)
-}
-
 // convertTypedToUnstructured converts a typed object to an unstructured object
 func convertTypedToUnstructured(typed interface{}) (*unstructured.Unstructured, error) {
 	data, err := json.Marshal(typed)

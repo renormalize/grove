@@ -536,7 +536,7 @@ func InstallCoreComponents(ctx context.Context, restConfig *rest.Config, kaiConf
 			skaffoldConfig := &SkaffoldInstallConfig{
 				SkaffoldYAMLPath: absoluteSkaffoldYAMLPath,
 				RestConfig:       restConfig,
-				Profiles:         []string{"debug"},
+				Profiles:         []string{"topology-test"},
 				PushRepo:         fmt.Sprintf("localhost:%s", registryPort),
 				PullRepo:         fmt.Sprintf("registry:%s", registryPort),
 				Namespace:        OperatorNamespace,
@@ -568,6 +568,11 @@ func InstallCoreComponents(ctx context.Context, restConfig *rest.Config, kaiConf
 	// Check for any errors
 	for err := range errChan {
 		return err // Return the first error encountered
+	}
+
+	// Apply hierarchical topology labels to worker nodes
+	if err := applyTopologyLabels(ctx, restConfig, logger); err != nil {
+		return fmt.Errorf("failed to apply topology labels: %w", err)
 	}
 
 	logger.Debug("✅ All component installations completed successfully")

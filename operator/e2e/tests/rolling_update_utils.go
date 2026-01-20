@@ -28,6 +28,7 @@ import (
 	"time"
 
 	grovev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	"github.com/ai-dynamo/grove/operator/e2e/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -85,7 +86,7 @@ func triggerPodCliqueRollingUpdate(tc TestContext, cliqueName string) error {
 
 		// Convert unstructured to typed PodCliqueSet
 		var pcs grovev1alpha1.PodCliqueSet
-		err = convertUnstructuredToTyped(unstructuredPCS.Object, &pcs)
+		err = utils.ConvertUnstructuredToTyped(unstructuredPCS.Object, &pcs)
 		if err != nil {
 			return fmt.Errorf("failed to convert to PodCliqueSet: %w", err)
 		}
@@ -155,7 +156,7 @@ func patchPCSWithSIGTERMIgnoringCommand(tc TestContext) error {
 		}
 
 		var pcs grovev1alpha1.PodCliqueSet
-		err = convertUnstructuredToTyped(unstructuredPCS.Object, &pcs)
+		err = utils.ConvertUnstructuredToTyped(unstructuredPCS.Object, &pcs)
 		if err != nil {
 			return fmt.Errorf("failed to convert to PodCliqueSet: %w", err)
 		}
@@ -210,7 +211,7 @@ func waitForRollingUpdateComplete(tc TestContext, expectedReplicas int32) error 
 		}
 
 		var pcs grovev1alpha1.PodCliqueSet
-		err = convertUnstructuredToTyped(unstructuredPCS.Object, &pcs)
+		err = utils.ConvertUnstructuredToTyped(unstructuredPCS.Object, &pcs)
 		if err != nil {
 			return false, err
 		}
@@ -256,7 +257,7 @@ func waitForOrdinalUpdating(tc TestContext, ordinal int32) error {
 		}
 
 		var pcs grovev1alpha1.PodCliqueSet
-		err = convertUnstructuredToTyped(unstructuredPCS.Object, &pcs)
+		err = utils.ConvertUnstructuredToTyped(unstructuredPCS.Object, &pcs)
 		if err != nil {
 			return false, err
 		}
@@ -956,7 +957,7 @@ func scalePodCliqueInPCS(tc TestContext, cliqueName string, replicas int32) erro
 	}
 
 	var pcs grovev1alpha1.PodCliqueSet
-	if err := convertUnstructuredToTyped(unstructuredPCS.Object, &pcs); err != nil {
+	if err := utils.ConvertUnstructuredToTyped(unstructuredPCS.Object, &pcs); err != nil {
 		return fmt.Errorf("failed to convert to PodCliqueSet: %w", err)
 	}
 
