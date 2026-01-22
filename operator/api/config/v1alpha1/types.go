@@ -65,6 +65,8 @@ type OperatorConfiguration struct {
 	LogFormat               LogFormat                            `json:"logFormat"`
 	Authorizer              AuthorizerConfig                     `json:"authorizer"`
 	TopologyAwareScheduling TopologyAwareSchedulingConfiguration `json:"topologyAwareScheduling"`
+	// +optional
+	Network NetworkAcceleration `json:"network,omitempty"` // Network is the configuration for network acceleration features like MNNVL.
 }
 
 // LeaderElectionConfiguration defines the configuration for the leader election.
@@ -199,4 +201,14 @@ type TopologyAwareSchedulingConfiguration struct {
 	// Used to create/update the TopologyAwareScheduling CR at operator startup.
 	// +optional
 	Levels []corev1alpha1.TopologyLevel `json:"levels,omitempty"`
+}
+
+// NetworkAcceleration defines the configuration for network acceleration features.
+type NetworkAcceleration struct {
+	// AutoMNNVLEnabled indicates whether automatic MNNVL (Multi-Node NVLink) support is enabled.
+	// When enabled, the operator will automatically create and manage ComputeDomain resources
+	// for GPU workloads. If the cluster doesn't have the NVIDIA DRA driver installed,
+	// the operator will exit with a non-zero exit code.
+	// Default: false
+	AutoMNNVLEnabled bool `json:"autoMNNVLEnabled"`
 }

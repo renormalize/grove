@@ -55,6 +55,10 @@ config.yaml: |
       []
     {{- end }}
   {{- end }}
+  {{- if .Values.config.network }}
+  network:
+    autoMNNVLEnabled: {{ .Values.config.network.autoMNNVLEnabled | default false }}
+  {{- end }}
 
 {{- end -}}
 

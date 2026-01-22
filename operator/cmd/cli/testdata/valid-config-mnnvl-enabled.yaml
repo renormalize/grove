@@ -36,5 +36,5 @@ authorizer:
 clusterTopology:
   enabled: false
 network:
-  autoMNNVLEnabled: false
+  autoMNNVLEnabled: true
 

@@ -31,6 +31,7 @@ import (
 	grovectrl "github.com/ai-dynamo/grove/operator/internal/controller"
 	"github.com/ai-dynamo/grove/operator/internal/controller/cert"
 	grovelogger "github.com/ai-dynamo/grove/operator/internal/logger"
+	"github.com/ai-dynamo/grove/operator/internal/mnnvl"
 	groveversion "github.com/ai-dynamo/grove/operator/internal/version"
 
 	"github.com/spf13/pflag"
@@ -62,6 +63,12 @@ func main() {
 
 	logger.Info("Starting grove operator", "grove-info", groveInfo.Verbose())
 	printFlags()
+
+	// Run MNNVL preflight checks if the feature is enabled
+	if err := mnnvl.Preflight(operatorConfig); err != nil {
+		logger.Error(err, "MNNVL preflight check failed")
+		handleErrorAndExit(err, cli.ExitErrMNNVLPrerequisites)
+	}
 
 	mgr, err := grovectrl.CreateManager(operatorConfig)
 	if err != nil {
