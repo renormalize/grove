@@ -29,7 +29,7 @@ tidy:
 
 # Checks the entire codebase by linting and formatting the code base, and checking for uncommitted changes
 .PHONY: check
-check: generate add-license-headers format generate-api-docs lint
+check: generate add-license-headers format generate-api-docs lint verify-toc
 	@echo "> Checking for uncommitted changes"
 	@if [ -n "$$(git status --porcelain)" ]; then \
 		echo "ERROR: Git tree is dirty after running validation steps."; \
@@ -116,3 +116,13 @@ test-e2e:
 .PHONY: test
 test: test-unit test-envtest
 	@echo "> All tests passed"
+
+# Updates the docs/proposals table of contents
+.PHONY: update-toc
+update-toc: $(MDTOC)
+	@$(REPO_HACK_DIR)/update-toc.sh
+
+# Verifies that the docs/proposals table of contents is up to date
+.PHONY: verify-toc
+verify-toc: $(MDTOC)
+	@$(REPO_HACK_DIR)/verify-toc.sh
