@@ -19,16 +19,14 @@
 package utils
 
 import (
-	"fmt"
-
-	kaischedulingv2alpha2 "github.com/NVIDIA/KAI-scheduler/pkg/apis/scheduling/v2alpha2"
-
 	"context"
+	"fmt"
 	"time"
 
+	kaischedulingv2alpha2 "github.com/NVIDIA/KAI-scheduler/pkg/apis/scheduling/v2alpha2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"k8s.io/client-go/dynamic"
+	"k8s.io/utils/ptr"
 )
 
 // ExpectedSubGroup defines the expected structure of a KAI PodGroup SubGroup for verification
@@ -38,6 +36,43 @@ type ExpectedSubGroup struct {
 	Parent                 *string
 	RequiredTopologyLevel  string
 	PreferredTopologyLevel string
+}
+
+// CreateExpectedStandalonePCLQSubGroup creates an ExpectedSubGroup for a standalone PodClique (not in PCSG)
+// Name format: <pcs-name>-<pcs-replica>-<clique-name>
+func CreateExpectedStandalonePCLQSubGroup(pcsName string, pcsReplica int, cliqueName string, minMember int32, topologyLevel string) ExpectedSubGroup {
+	name := GetStandalonePCLQSubGroupName(pcsName, pcsReplica, cliqueName)
+	return ExpectedSubGroup{
+		Name:                  name,
+		MinMember:             minMember,
+		Parent:                nil,
+		RequiredTopologyLevel: topologyLevel,
+	}
+}
+
+// CreateExpectedPCSGParentSubGroup creates an ExpectedSubGroup for a PCSG parent (scaling group replica)
+// Name format: <pcs-name>-<pcs-replica>-<sg-name>-<sg-replica>
+func CreateExpectedPCSGParentSubGroup(pcsName string, pcsReplica int, sgName string, sgReplica int, topologyLevel string) ExpectedSubGroup {
+	name := GetPCSGParentSubGroupName(pcsName, pcsReplica, sgName, sgReplica)
+	return ExpectedSubGroup{
+		Name:                  name,
+		MinMember:             0,
+		Parent:                nil,
+		RequiredTopologyLevel: topologyLevel,
+	}
+}
+
+// CreateExpectedPCLQInPCSGSubGroup creates an ExpectedSubGroup for a PodClique within a PCSG
+// Name format: <pcs-name>-<pcs-replica>-<sg-name>-<sg-replica>-<clique-name>
+func CreateExpectedPCLQInPCSGSubGroup(pcsName string, pcsReplica int, sgName string, sgReplica int, cliqueName string, minMember int32, topologyLevel string) ExpectedSubGroup {
+	name := GetPCLQInPCSGSubGroupName(pcsName, pcsReplica, sgName, sgReplica, cliqueName)
+	parentName := GetPCSGParentSubGroupName(pcsName, pcsReplica, sgName, sgReplica)
+	return ExpectedSubGroup{
+		Name:                  name,
+		MinMember:             minMember,
+		Parent:                ptr.To(parentName),
+		RequiredTopologyLevel: topologyLevel,
+	}
 }
 
 // GetKAIPodGroupsForPCS retrieves all KAI PodGroups for a given PodCliqueSet by label selector
@@ -177,5 +212,50 @@ func VerifyKAIPodGroupSubGroups(podGroup *kaischedulingv2alpha2.PodGroup, expect
 	}
 
 	logger.Infof("KAI PodGroup %s verified with %d SubGroups", podGroup.Name, len(expectedSubGroups))
+	return nil
+}
+
+// GetPodGroupForBasePodGangReplica retrieves the KAI PodGroup of the corresponding PodGang
+// which is the base PodGang of specific PodGangSet replica.
+// For a PodGangSet workload "my-workload", replica 0's base PodGang is "my-workload-0".
+func GetPodGroupForBasePodGangReplica(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	namespace string,
+	workloadName string,
+	pgsReplica int,
+	timeout time.Duration,
+	interval time.Duration,
+	logger *Logger,
+) (*kaischedulingv2alpha2.PodGroup, error) {
+	podGroups, err := WaitForKAIPodGroups(ctx, dynamicClient, namespace, workloadName, timeout, interval, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get KAI PodGroups: %w", err)
+	}
+
+	basePodGangName := GetBasePodGangName(workloadName, pgsReplica)
+	basePodGroup, err := FilterPodGroupByOwner(podGroups, basePodGangName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find PodGroup for PodGang %s: %w", basePodGangName, err)
+	}
+
+	return basePodGroup, nil
+}
+
+// VerifyPodGroupTopology verifies both top-level topology constraint and SubGroups structure.
+func VerifyPodGroupTopology(
+	podGroup *kaischedulingv2alpha2.PodGroup,
+	requiredLevel, preferredLevel string,
+	expectedSubGroups []ExpectedSubGroup,
+	logger *Logger,
+) error {
+	if err := VerifyKAIPodGroupTopologyConstraint(podGroup, requiredLevel, preferredLevel, logger); err != nil {
+		return fmt.Errorf("top-level constraint verification failed: %w", err)
+	}
+
+	if err := VerifyKAIPodGroupSubGroups(podGroup, expectedSubGroups, logger); err != nil {
+		return fmt.Errorf("SubGroups verification failed: %w", err)
+	}
+
 	return nil
 }

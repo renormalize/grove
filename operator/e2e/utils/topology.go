@@ -182,3 +182,24 @@ func VerifyPodsInSameTopologyDomain(ctx context.Context, clientset kubernetes.In
 	logger.Infof("Verified %d pods are in same topology domain %s=%s", len(pods), topologyKey, expectedValue)
 	return nil
 }
+
+// VerifyLabeledPodsInTopologyDomain filters pods by label, verifies count, and checks topology domain.
+func VerifyLabeledPodsInTopologyDomain(
+	ctx context.Context,
+	clientset kubernetes.Interface,
+	allPods []v1.Pod,
+	labelKey, labelValue string,
+	expectedCount int,
+	topologyKey string,
+	logger *Logger,
+) error {
+	filteredPods := FilterPodsByLabel(allPods, labelKey, labelValue)
+	if len(filteredPods) != expectedCount {
+		return fmt.Errorf(
+			"expected %d pods with %s=%s, got %d",
+			expectedCount, labelKey, labelValue, len(filteredPods),
+		)
+	}
+
+	return VerifyPodsInSameTopologyDomain(ctx, clientset, filteredPods, topologyKey, logger)
+}

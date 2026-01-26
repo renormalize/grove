@@ -67,6 +67,10 @@ const (
 	defaultPollTimeout = 4 * time.Minute
 	// defaultPollInterval is the interval for most polling conditions
 	defaultPollInterval = 5 * time.Second
+
+	// Grove label keys
+	LabelPodClique             = "grove.io/podclique"
+	LabelPodCliqueScalingGroup = "grove.io/podcliquescalinggroup"
 )
 
 // TestContext holds common test parameters that are shared across many utility functions.
