@@ -27,6 +27,8 @@ import (
 	apiconstants "github.com/ai-dynamo/grove/operator/api/common/constants"
 	groveconfigv1alpha1 "github.com/ai-dynamo/grove/operator/api/config/v1alpha1"
 	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
+	"github.com/google/go-cmp/cmp"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/go-logr/logr"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -42,6 +44,7 @@ import (
 type Handler struct {
 	config                           groveconfigv1alpha1.AuthorizerConfig
 	client                           client.Client
+	mgr                              manager.Manager
 	decoder                          *requestDecoder
 	baseLogger                       logr.Logger
 	reconcilerServiceAccountUserName string
@@ -51,6 +54,7 @@ type Handler struct {
 func NewHandler(mgr manager.Manager, config groveconfigv1alpha1.AuthorizerConfig, reconcilerServiceAccountUserName string) *Handler {
 	return &Handler{
 		config:                           config,
+		mgr:                              mgr,
 		client:                           mgr.GetClient(),
 		decoder:                          newRequestDecoder(mgr),
 		baseLogger:                       mgr.GetLogger().WithName("authorizer-webhook").WithName(Name),
@@ -61,7 +65,7 @@ func NewHandler(mgr manager.Manager, config groveconfigv1alpha1.AuthorizerConfig
 // Handle handles requests and admits them if they are authorized.
 func (h *Handler) Handle(ctx context.Context, req admission.Request) admission.Response {
 	logger := h.baseLogger.WithValues("user", req.UserInfo.Username, "operation", req.Operation, "resource", req.Resource, "subresource", req.SubResource, "name", req.Name, "namespace", req.Namespace)
-	logger.Info("Authorizer webhook invoked")
+	logger.V(5).Info("Authorizer webhook invoked")
 
 	// always allow `CONNECT` operations, irrespective of the user.
 	if req.Operation == admissionv1.Connect {
@@ -112,8 +116,26 @@ func (h *Handler) handleCreateOrUpdate(req admission.Request, logger logr.Logger
 		return admission.Allowed(fmt.Sprintf("admission allowed, creation/updation of resource: %v is initiated by exempt serviceaccount: %v", resourceObjectKey, req.UserInfo.Username))
 	}
 
+	h.printDiff(req, logger)
 	logger.Info("admission denied for create/update operation", "objectKey", resourceObjectKey)
 	return admission.Denied(fmt.Sprintf("admission denied, creation/updation of resource: %v is not allowed", resourceObjectKey))
+}
+
+func (h *Handler) printDiff(req admission.Request, logger logr.Logger) {
+	var newObj, oldObj unstructured.Unstructured
+	decoder := admission.NewDecoder(h.mgr.GetScheme())
+	if err := decoder.Decode(req, &newObj); err != nil {
+		logger.Error(err, "failed to decode new object for diff")
+		return
+	}
+	if err := decoder.DecodeRaw(req.OldObject, &oldObj); err != nil {
+		logger.Error(err, "failed to decode old object for diff")
+		return
+	}
+	diff := cmp.Diff(oldObj.Object, newObj.Object)
+	if diff != "" {
+		logger.Info("[DEBUG]: object diff", "diff", diff)
+	}
 }
 
 // handleDelete allows deletion of managed resources only if the request is either from the service account used by the reconcilers
