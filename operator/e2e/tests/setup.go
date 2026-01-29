@@ -147,7 +147,7 @@ func waitForPodCountAndPhases(tc TestContext, expectedTotal, expectedRunning, ex
 // The cleanup function will fatally fail the test if workload cleanup fails.
 // On test failure, it automatically collects diagnostics before cleanup.
 // On cleanup failure, it also collects diagnostics to help debug why cleanup failed.
-func prepareTestCluster(ctx context.Context, t *testing.T, requiredWorkerNodes int) (adminClientSet *kubernetes.Clientset, adminRESTConfig *rest.Config, adminDynamicClient dynamic.Interface, operatorDynamicClient dynamic.Interface, cleanupFn func()) {
+func prepareTestCluster(ctx context.Context, t *testing.T, requiredWorkerNodes int) (adminClientset *kubernetes.Clientset, adminRESTConfig *rest.Config, adminDynamicClient dynamic.Interface, operatorDynamicClient dynamic.Interface, cleanupFn func()) {
 	t.Helper()
 
 	var err error
@@ -161,7 +161,7 @@ func prepareTestCluster(ctx context.Context, t *testing.T, requiredWorkerNodes i
 	}
 
 	// Get clients from shared cluster
-	adminClientSet, adminRESTConfig, adminDynamicClient = sharedCluster.GetClients()
+	adminClientset, adminRESTConfig, adminDynamicClient = sharedCluster.GetClients()
 
 	// Create operator dynamic client that leverages the operator's service account to operate on Grove managed resources.
 	// If authorizer webhook is enabled then this client will have permissions to manage Grove resources.
@@ -177,7 +177,7 @@ func prepareTestCluster(ctx context.Context, t *testing.T, requiredWorkerNodes i
 		diagnosticsTc := TestContext{
 			T:                     t,
 			Ctx:                   ctx,
-			Clientset:             adminClientSet,
+			Clientset:             adminClientset,
 			RestConfig:            adminRESTConfig,
 			AdminDynamicClient:    adminDynamicClient,
 			OperatorDynamicClient: operatorDynamicClient,

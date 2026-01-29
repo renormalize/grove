@@ -53,6 +53,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 )
 
@@ -61,6 +62,8 @@ const (
 	defaultPollTimeout = 5 * time.Minute
 	// defaultPollInterval is the interval for most polling conditions
 	defaultPollInterval = 5 * time.Second
+	// defaultOperatorSATokenExpirationSeconds is the expiration time for a bearer token generated using service account used by Grove operator.
+	defaultOperatorSATokenExpirationSeconds = int64(10800) // 3 hours - more than sufficient for e2e tests
 )
 
 // transientErrors contains error substrings that indicate a webhook is not ready yet
@@ -265,14 +268,14 @@ func CreateK3DClusterWithComponents(ctx context.Context, cfg ClusterConfig, skaf
 		return nil, cleanup, err
 	}
 
-	// Create clientSet for node monitoring
-	clientSet, err := kubernetes.NewForConfig(restConfig)
+	// Create clientset for node monitoring
+	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
-		return nil, cleanup, fmt.Errorf("could not create clientSet: %w", err)
+		return nil, cleanup, fmt.Errorf("could not create clientset: %w", err)
 	}
 
 	// Start node monitoring to handle not ready nodes (see StartNodeMonitoring for more details)
-	nodeMonitoringCleanup := StartNodeMonitoring(ctx, clientSet, logger)
+	nodeMonitoringCleanup := StartNodeMonitoring(ctx, clientset, logger)
 
 	// Create enhanced cleanup function that includes node monitoring
 	enhancedCleanup := func() {
@@ -375,7 +378,7 @@ func CreateK3DClusterWithComponents(ctx context.Context, cfg ClusterConfig, skaf
 
 	// Find any deployed images that are not in the prepull list
 	namespacesToCheck := []string{kaiConfig.Namespace /*gpuOperatorConfig.Namespace*/}
-	missingImages := findMissingImages(ctx, clientSet, namespacesToCheck, imagesToPrePull, logger)
+	missingImages := findMissingImages(ctx, clientset, namespacesToCheck, imagesToPrePull, logger)
 
 	// Warn about missing images to help keep the prepull list up to date
 	if len(missingImages) > 0 {
@@ -1147,10 +1150,9 @@ func getOperatorServiceAccountRestConfig(ctx context.Context, adminRestConfig *r
 
 	// Use TokenRequest API to create a token (3 hour expiration)
 	// This is the proper approach for Kubernetes 1.24+ where token secrets are no longer auto-created
-	expirationSeconds := int64(10800) // 3 hours - more than sufficient for e2e tests
 	tokenReq := &authenticationv1.TokenRequest{
 		Spec: authenticationv1.TokenRequestSpec{
-			ExpirationSeconds: &expirationSeconds,
+			ExpirationSeconds: ptr.To(defaultOperatorSATokenExpirationSeconds),
 		},
 	}
 	tokenReq, err = k8sClient.CoreV1().ServiceAccounts(OperatorNamespace).CreateToken(ctx, ServiceAccountName, tokenReq, metav1.CreateOptions{})
