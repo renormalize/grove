@@ -29,11 +29,9 @@ import (
 	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
 
 	"github.com/go-logr/logr"
-	"github.com/google/go-cmp/cmp"
 	admissionv1 "k8s.io/api/admission/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -116,26 +114,8 @@ func (h *Handler) handleCreateOrUpdate(req admission.Request, logger logr.Logger
 		return admission.Allowed(fmt.Sprintf("admission allowed, creation/updation of resource: %v is initiated by exempt serviceaccount: %v", resourceObjectKey, req.UserInfo.Username))
 	}
 
-	h.printDiff(req, logger)
 	logger.Info("admission denied for create/update operation", "objectKey", resourceObjectKey)
 	return admission.Denied(fmt.Sprintf("admission denied, creation/updation of resource: %v is not allowed", resourceObjectKey))
-}
-
-func (h *Handler) printDiff(req admission.Request, logger logr.Logger) {
-	var newObj, oldObj unstructured.Unstructured
-	decoder := admission.NewDecoder(h.mgr.GetScheme())
-	if err := decoder.Decode(req, &newObj); err != nil {
-		logger.Error(err, "failed to decode new object for diff")
-		return
-	}
-	if err := decoder.DecodeRaw(req.OldObject, &oldObj); err != nil {
-		logger.Error(err, "failed to decode old object for diff")
-		return
-	}
-	diff := cmp.Diff(oldObj.Object, newObj.Object)
-	if diff != "" {
-		logger.Info("[DEBUG]: object diff", "diff", diff)
-	}
 }
 
 // handleDelete allows deletion of managed resources only if the request is either from the service account used by the reconcilers
