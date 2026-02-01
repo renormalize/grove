@@ -43,6 +43,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/util/retry"
+
+	kubeutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
 )
 
 // AppliedResource holds information about an applied Kubernetes resource
@@ -102,7 +104,7 @@ func WaitForPods(ctx context.Context, restConfig *rest.Config, namespaces []stri
 
 			for _, pod := range pods.Items {
 				totalPods++
-				if isPodReady(&pod) {
+				if kubeutils.IsPodReady(&pod) {
 					readyPods++
 				} else {
 					allReady = false
@@ -308,21 +310,6 @@ func getGVRFromGVK(restMapper meta.RESTMapper, gvk schema.GroupVersionKind) (sch
 	return mapping.Resource, nil
 }
 
-// isPodReady checks if a pod is ready
-func isPodReady(pod *v1.Pod) bool {
-	// First check that the pod is in Running phase
-	if pod.Status.Phase != v1.PodRunning {
-		return false
-	}
-	// Then check that the Ready condition is true
-	for _, condition := range pod.Status.Conditions {
-		if condition.Type == v1.PodReady && condition.Status == v1.ConditionTrue {
-			return true
-		}
-	}
-	return false
-}
-
 // SetNodeSchedulable sets a Kubernetes node to be unschedulable (cordoned) or schedulable (uncordoned).
 // This function uses retry logic to handle optimistic concurrency conflicts that can occur
 // when multiple controllers or processes are updating node objects concurrently.
@@ -420,7 +407,7 @@ func CountPodsByPhase(pods *v1.PodList) PodPhaseCount {
 func CountReadyPods(pods *v1.PodList) int {
 	readyCount := 0
 	for _, pod := range pods.Items {
-		if isPodReady(&pod) {
+		if kubeutils.IsPodReady(&pod) {
 			readyCount++
 		}
 	}

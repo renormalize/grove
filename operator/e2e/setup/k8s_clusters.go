@@ -41,6 +41,7 @@ import (
 	k3dlogger "github.com/k3d-io/k3d/v5/pkg/logger"
 	"github.com/k3d-io/k3d/v5/pkg/runtimes"
 	k3d "github.com/k3d-io/k3d/v5/pkg/types"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -764,7 +765,7 @@ func checkAndReplaceNotReadyNodes(ctx context.Context, clientset *kubernetes.Cli
 	}
 
 	for _, node := range nodes.Items {
-		if !isNodeReady(&node) {
+		if !utils.IsNodeReady(&node) {
 			// Skip cordoned nodes because even if they're also not ready, we don't want to replace
 			// them with an uncordoned node as it'll break tests. When/if the node becomes uncordoned,
 			// the node monitoring will automatically replace it then as it's needed.
@@ -787,19 +788,10 @@ func checkAndReplaceNotReadyNodes(ctx context.Context, clientset *kubernetes.Cli
 	return nil
 }
 
-// isNodeReady checks if a node is in Ready state
-func isNodeReady(node *v1.Node) bool {
-	for _, condition := range node.Status.Conditions {
-		if condition.Type == v1.NodeReady {
-			return condition.Status == v1.ConditionTrue
-		}
-	}
-	return false // If no Ready condition is found, consider the node not ready
-}
-
 // replaceNotReadyNode handles the process of replacing a not ready node
 func replaceNotReadyNode(ctx context.Context, node *v1.Node, clientset *kubernetes.Clientset, logger *utils.Logger) error {
 	nodeName := node.Name
+	originalNodeLabels := node.Labels
 
 	// Step 1: Delete the node from Kubernetes
 	logger.Debugf("🗑️ Deleting node from Kubernetes: %s", nodeName)
@@ -811,6 +803,19 @@ func replaceNotReadyNode(ctx context.Context, node *v1.Node, clientset *kubernet
 	logger.Debugf("🔄 Restarting Docker container for node: %s", nodeName)
 	if err := restartNodeContainer(ctx, nodeName, logger); err != nil {
 		return fmt.Errorf("failed to restart container for node %s: %w", nodeName, err)
+	}
+
+	// Step 3: Wait for the node to become ready
+	logger.Debugf("⏳ Waiting for node to become ready: %s", nodeName)
+	readyNode, err := utils.WaitAndGetReadyNode(ctx, clientset, nodeName, defaultPollTimeout, logger)
+	if err != nil {
+		return fmt.Errorf("node %s did not become ready: %w", nodeName, err)
+	}
+
+	// Step 4: Reapply original labels to the replaced node
+	logger.Debugf("🏷️  Reapplying original labels to replaced node: %s", nodeName)
+	if err := reapplyNodeLabels(ctx, clientset, readyNode, originalNodeLabels, logger); err != nil {
+		return fmt.Errorf("failed to reapply labels to node %s: %w", nodeName, err)
 	}
 
 	return nil
@@ -1173,4 +1178,19 @@ func waitForWebhookReady(ctx context.Context, restConfig *rest.Config, logger *u
 		logger.Info("✅ Grove webhook is ready")
 		return true, nil
 	})
+}
+
+// reapplyNodeLabels reapplies the original labels to a replaced node
+func reapplyNodeLabels(ctx context.Context, clientset *kubernetes.Clientset, node *v1.Node, labels map[string]string, logger *utils.Logger) error {
+	// Merge original labels with current labels (preserving any new system labels)
+	node.Labels = lo.Assign(node.Labels, labels)
+
+	// Update the node with the merged labels
+	_, err := clientset.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update node %s with labels: %w", node.Name, err)
+	}
+
+	logger.Debugf("✅ Reapplied original labels to node %s", node.Name)
+	return nil
 }
