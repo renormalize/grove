@@ -53,6 +53,11 @@ type PodCliqueScalingGroupSpec struct {
 	// If not specified, it defaults to 1.
 	// +kubebuilder:default=1
 	Replicas int32 `json:"replicas"`
+	// UpdateStrategy defines the strategy for updating pods when the
+	// template changes. This applies to both standalone PodCliques and
+	// PodCliqueScalingGroups.
+	// +optional
+	UpdateStrategy *PodCliqueScalingGroupUpdateStrategy `json:"updateStrategy,omitempty"`
 	// MinAvailable specifies the minimum number of ready replicas required for a PodCliqueScalingGroup to be considered operational.
 	// A PodCliqueScalingGroup replica is considered "ready" when its associated PodCliques have sufficient ready or starting pods.
 	// If MinAvailable is breached, it will be used to signal that the PodCliqueScalingGroup is no longer operating with the desired availability.
@@ -100,6 +105,14 @@ type PodCliqueScalingGroupStatus struct {
 	CurrentPodCliqueSetGenerationHash *string `json:"currentPodCliqueSetGenerationHash,omitempty"`
 	// RollingUpdateProgress provides details about the ongoing rolling update of the PodCliqueScalingGroup.
 	RollingUpdateProgress *PodCliqueScalingGroupRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
+}
+
+// PodCliqueScalingGroupUpdateStrategy defines the update strategy for a PodCliqueScalingGroup.
+type PodCliqueScalingGroupUpdateStrategy struct {
+	// Type indicates the type of update strategy.
+	// Default is RollingRecreate.
+	// +kubebuilder:default=RollingRecreate
+	Type UpdateStrategyType `json:"type,omitempty"`
 }
 
 // PodCliqueScalingGroupRollingUpdateProgress provides details about the ongoing rolling update of the PodCliqueScalingGroup.

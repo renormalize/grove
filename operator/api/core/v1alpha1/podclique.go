@@ -58,6 +58,9 @@ type PodCliqueSpec struct {
 	PodSpec corev1.PodSpec `json:"podSpec"`
 	// Replicas is the number of replicas of the pods in the clique. It cannot be less than 1.
 	Replicas int32 `json:"replicas"`
+	// UpdateStrategy defines the strategy for updating pods when the template changes.
+	// +optional
+	UpdateStrategy *PodCliqueUpdateStrategy `json:"updateStrategy,omitempty"`
 	// MinAvailable serves two purposes:
 	// 1. It defines the minimum number of pods that are guaranteed to be gang scheduled.
 	// 2. It defines the minimum requirement of available pods in a PodClique. Violation of this threshold will result in termination of the PodGang that it belongs to.
@@ -76,6 +79,14 @@ type PodCliqueSpec struct {
 	// ScaleConfig is the horizontal pod autoscaler configuration for a PodClique.
 	// +optional
 	ScaleConfig *AutoScalingConfig `json:"autoScalingConfig,omitempty"`
+}
+
+// PodCliqueUpdateStrategy defines the update strategy for a PodClique.
+type PodCliqueUpdateStrategy struct {
+	// Type indicates the type of update strategy.
+	// Default is RollingRecreate.
+	// +kubebuilder:default=RollingRecreate
+	Type UpdateStrategyType `json:"type,omitempty"`
 }
 
 // AutoScalingConfig defines the configuration for the horizontal pod autoscaler.

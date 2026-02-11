@@ -8927,6 +8927,20 @@ spec:
                 items:
                   type: string
                 type: array
+              updateStrategy:
+                description: UpdateStrategy defines the strategy for updating pods
+                  when the template changes.
+                properties:
+                  type:
+                    default: RollingRecreate
+                    description: |-
+                      Type indicates the type of update strategy.
+                      Default is RollingRecreate.
+                    enum:
+                    - RollingRecreate
+                    - OnDelete
+                    type: string
+                type: object
             required:
             - podSpec
             - replicas

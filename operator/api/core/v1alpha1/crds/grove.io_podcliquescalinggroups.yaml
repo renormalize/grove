@@ -71,6 +71,22 @@ spec:
                   If not specified, it defaults to 1.
                 format: int32
                 type: integer
+              updateStrategy:
+                description: |-
+                  UpdateStrategy defines the strategy for updating pods when the
+                  template changes. This applies to both standalone PodCliques and
+                  PodCliqueScalingGroups.
+                properties:
+                  type:
+                    default: RollingRecreate
+                    description: |-
+                      Type indicates the type of update strategy.
+                      Default is RollingRecreate.
+                    enum:
+                    - RollingRecreate
+                    - OnDelete
+                    type: string
+                type: object
             required:
             - cliqueNames
             - replicas
