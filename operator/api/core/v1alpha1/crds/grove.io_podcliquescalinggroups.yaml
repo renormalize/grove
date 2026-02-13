@@ -199,9 +199,21 @@ spec:
                 description: Replicas is the observed number of replicas for the PodCliqueScalingGroup.
                 format: int32
                 type: integer
-              rollingUpdateProgress:
-                description: RollingUpdateProgress provides details about the ongoing
-                  rolling update of the PodCliqueScalingGroup.
+              scheduledReplicas:
+                default: 0
+                description: |-
+                  ScheduledReplicas is the number of replicas that are scheduled for the PodCliqueScalingGroup.
+                  A replica of PodCliqueScalingGroup is considered "scheduled" when at least MinAvailable number
+                  of pods in each constituent PodClique has been scheduled.
+                format: int32
+                type: integer
+              selector:
+                description: Selector is the selector used to identify the pods that
+                  belong to this scaling group.
+                type: string
+              updateProgress:
+                description: UpdateProgress provides details about the ongoing rolling
+                  update of the PodCliqueScalingGroup.
                 properties:
                   podCliqueSetGenerationHash:
                     description: |-
@@ -251,18 +263,6 @@ spec:
                 - podCliqueSetGenerationHash
                 - updateStartedAt
                 type: object
-              scheduledReplicas:
-                default: 0
-                description: |-
-                  ScheduledReplicas is the number of replicas that are scheduled for the PodCliqueScalingGroup.
-                  A replica of PodCliqueScalingGroup is considered "scheduled" when at least MinAvailable number
-                  of pods in each constituent PodClique has been scheduled.
-                format: int32
-                type: integer
-              selector:
-                description: Selector is the selector used to identify the pods that
-                  belong to this scaling group.
-                type: string
               updatedReplicas:
                 default: 0
                 description: UpdatedReplicas is the number of PodCliqueScalingGroup

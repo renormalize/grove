@@ -94,8 +94,8 @@ type PodCliqueSetStatus struct {
 	// Only if this value is not nil and the newly computed hash value is different from the persisted CurrentGenerationHash value
 	// then a rolling update needs to be triggerred.
 	CurrentGenerationHash *string `json:"currentGenerationHash,omitempty"`
-	// RollingUpdateProgress represents the progress of a rolling update.
-	RollingUpdateProgress *PodCliqueSetRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
+	// UpdateProgress represents the progress of a rolling update.
+	UpdateProgress *PodCliqueSetUpdateProgress `json:"updateProgress,omitempty"`
 }
 
 // PodCliqueSetUpdateStrategy defines the update strategy for a PodCliqueSet.
@@ -108,8 +108,8 @@ type PodCliqueSetUpdateStrategy struct {
 	Type UpdateStrategyType `json:"type,omitempty"`
 }
 
-// PodCliqueSetRollingUpdateProgress captures the progress of a rolling update of the PodCliqueSet.
-type PodCliqueSetRollingUpdateProgress struct {
+// PodCliqueSetUpdateProgress captures the progress of a rolling update of the PodCliqueSet.
+type PodCliqueSetUpdateProgress struct {
 	// UpdateStartedAt is the time at which the rolling update started for the PodCliqueSet.
 	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
 	// UpdateEndedAt is the time at which the rolling update ended for the PodCliqueSet.
@@ -120,6 +120,7 @@ type PodCliqueSetRollingUpdateProgress struct {
 	// UpdatedPodCliques is a list of PodClique names that have been updated to the desired PodCliqueSet generation hash.
 	UpdatedPodCliques []string `json:"updatedPodCliques,omitempty"`
 	// CurrentlyUpdating captures the progress of the PodCliqueSet replica that is currently being updated.
+	// This field is only set when the UpdateStrategy is not OnDelete.
 	// +optional
 	CurrentlyUpdating *PodCliqueSetReplicaRollingUpdateProgress `json:"currentlyUpdating,omitempty"`
 }

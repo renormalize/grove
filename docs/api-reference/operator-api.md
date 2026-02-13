@@ -308,6 +308,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `replicas` _integer_ | Replicas is the desired number of replicas for the PodCliqueScalingGroup.<br />If not specified, it defaults to 1. | 1 |  |
+| `updateStrategy` _[PodCliqueScalingGroupUpdateStrategy](#podcliquescalinggroupupdatestrategy)_ | UpdateStrategy defines the strategy for updating pods when the<br />template changes. This applies to both standalone PodCliques and<br />PodCliqueScalingGroups. |  |  |
 | `minAvailable` _integer_ | MinAvailable specifies the minimum number of ready replicas required for a PodCliqueScalingGroup to be considered operational.<br />A PodCliqueScalingGroup replica is considered "ready" when its associated PodCliques have sufficient ready or starting pods.<br />If MinAvailable is breached, it will be used to signal that the PodCliqueScalingGroup is no longer operating with the desired availability.<br />MinAvailable cannot be greater than Replicas. If ScaleConfig is defined then its MinAvailable should not be less than ScaleConfig.MinReplicas.<br />It serves two main purposes:<br />1. Gang Scheduling: MinAvailable defines the minimum number of replicas that are guaranteed to be gang scheduled.<br />2. Gang Termination: MinAvailable is used as a lower bound below which a PodGang becomes a candidate for Gang termination.<br />If not specified, it defaults to 1. | 1 |  |
 | `cliqueNames` _string array_ | CliqueNames is the list of PodClique names that are configured in the<br />matching PodCliqueScalingGroup in PodCliqueSet.Spec.Template.PodCliqueScalingGroupConfigs. |  |  |
 
@@ -335,6 +336,22 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#condition-v1-meta) array_ | Conditions represents the latest available observations of the PodCliqueScalingGroup by its controller. |  |  |
 | `currentPodCliqueSetGenerationHash` _string_ | CurrentPodCliqueSetGenerationHash establishes a correlation to PodCliqueSet generation hash indicating<br />that the spec of the PodCliqueSet at this generation is fully realized in the PodCliqueScalingGroup. |  |  |
 | `rollingUpdateProgress` _[PodCliqueScalingGroupRollingUpdateProgress](#podcliquescalinggrouprollingupdateprogress)_ | RollingUpdateProgress provides details about the ongoing rolling update of the PodCliqueScalingGroup. |  |  |
+
+
+#### PodCliqueScalingGroupUpdateStrategy
+
+
+
+PodCliqueScalingGroupUpdateStrategy defines the update strategy for a PodCliqueScalingGroup.
+
+
+
+_Appears in:_
+- [PodCliqueScalingGroupSpec](#podcliquescalinggroupspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `type` _[UpdateStrategyType](#updatestrategytype)_ | Type indicates the type of update strategy.<br />Default is RollingRecreate. | RollingRecreate | Enum: [RollingRecreate OnDelete] <br /> |
 
 
 #### PodCliqueSet
@@ -407,6 +424,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `replicas` _integer_ | Replicas is the number of desired replicas of the PodGang. | 0 |  |
+| `updateStrategy` _[PodCliqueSetUpdateStrategy](#podcliquesetupdatestrategy)_ | UpdateStrategy defines the strategy for updating replicas when<br />templates change. This applies to both standalone PodCliques and<br />PodCliqueScalingGroups. |  |  |
 | `template` _[PodCliqueSetTemplateSpec](#podcliquesettemplatespec)_ | Template describes the template spec for PodGangs that will be created in the PodCliqueSet. |  |  |
 
 
@@ -462,6 +480,22 @@ _Appears in:_
 | `podCliqueScalingGroups` _[PodCliqueScalingGroupConfig](#podcliquescalinggroupconfig) array_ | PodCliqueScalingGroupConfigs is a list of scaling groups for the PodCliqueSet. |  |  |
 
 
+#### PodCliqueSetUpdateStrategy
+
+
+
+PodCliqueSetUpdateStrategy defines the update strategy for a PodCliqueSet.
+
+
+
+_Appears in:_
+- [PodCliqueSetSpec](#podcliquesetspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `type` _[UpdateStrategyType](#updatestrategytype)_ | Type indicates the type of update strategy.<br />This strategy applies uniformly to both standalone PodCliques and<br />PodCliqueScalingGroups within the PodCliqueSet.<br />Default is RollingRecreate. | RollingRecreate | Enum: [RollingRecreate OnDelete] <br /> |
+
+
 #### PodCliqueSpec
 
 
@@ -479,6 +513,7 @@ _Appears in:_
 | `roleName` _string_ | RoleName is the name of the role that this PodClique will assume. |  |  |
 | `podSpec` _[PodSpec](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#podspec-v1-core)_ | Spec is the spec of the pods in the clique. |  |  |
 | `replicas` _integer_ | Replicas is the number of replicas of the pods in the clique. It cannot be less than 1. |  |  |
+| `updateStrategy` _[PodCliqueUpdateStrategy](#podcliqueupdatestrategy)_ | UpdateStrategy defines the strategy for updating pods when the template changes. |  |  |
 | `minAvailable` _integer_ | MinAvailable serves two purposes:<br />1. It defines the minimum number of pods that are guaranteed to be gang scheduled.<br />2. It defines the minimum requirement of available pods in a PodClique. Violation of this threshold will result in termination of the PodGang that it belongs to.<br />If MinAvailable is not set, then it will default to the template Replicas. |  |  |
 | `startsAfter` _string array_ | StartsAfter provides you a way to explicitly define the startup dependencies amongst cliques.<br />If CliqueStartupType in PodGang has been set to 'CliqueStartupTypeExplicit', then to create an ordered start amongst PodClique's StartsAfter can be used.<br />A forest of DAG's can be defined to model any start order dependencies. If there are more than one PodClique's defined and StartsAfter is not set for any of them,<br />then their startup order is random at best and must not be relied upon.<br />Validations:<br />1. If a StartsAfter has been defined and one or more cycles are detected in DAG's then it will be flagged as validation error.<br />2. If StartsAfter is defined and does not identify any PodClique then it will be flagged as a validation error. |  |  |
 | `autoScalingConfig` _[AutoScalingConfig](#autoscalingconfig)_ | ScaleConfig is the horizontal pod autoscaler configuration for a PodClique. |  |  |
@@ -529,6 +564,22 @@ _Appears in:_
 | `annotations` _object (keys:string, values:string)_ | Annotations is an unstructured key value map stored with a resource that may be<br />set by external tools to store and retrieve arbitrary metadata. They are not<br />queryable and should be preserved when modifying objects.<br />More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations |  |  |
 | `topologyConstraint` _[TopologyConstraint](#topologyconstraint)_ | TopologyConstraint defines topology placement requirements for PodClique.<br />Must be equal to or stricter than parent resource constraints. |  |  |
 | `spec` _[PodCliqueSpec](#podcliquespec)_ | Specification of the desired behavior of a PodClique.<br />More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status |  |  |
+
+
+#### PodCliqueUpdateStrategy
+
+
+
+PodCliqueUpdateStrategy defines the update strategy for a PodClique.
+
+
+
+_Appears in:_
+- [PodCliqueSpec](#podcliquespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `type` _[UpdateStrategyType](#updatestrategytype)_ | Type indicates the type of update strategy.<br />Default is RollingRecreate. | RollingRecreate | Enum: [RollingRecreate OnDelete] <br /> |
 
 
 #### PodGangPhase
@@ -646,6 +697,26 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `domain` _[TopologyDomain](#topologydomain)_ | Domain is a platform provider-agnostic level identifier.<br />Must be one of: region, zone, datacenter, block, rack, host, numa |  | Enum: [region zone datacenter block rack host numa] <br />Required: \{\} <br /> |
 | `key` _string_ | Key is the node label key that identifies this topology domain.<br />Must be a valid Kubernetes label key (qualified name).<br />Examples: "topology.kubernetes.io/zone", "kubernetes.io/hostname" |  | MaxLength: 63 <br />MinLength: 1 <br />Pattern: `^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]/)?([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]$` <br />Required: \{\} <br /> |
+
+
+#### UpdateStrategyType
+
+_Underlying type:_ _string_
+
+UpdateStrategyType defines the type of update strategy for PodCliqueSet.
+
+_Validation:_
+- Enum: [RollingRecreate OnDelete]
+
+_Appears in:_
+- [PodCliqueScalingGroupUpdateStrategy](#podcliquescalinggroupupdatestrategy)
+- [PodCliqueSetUpdateStrategy](#podcliquesetupdatestrategy)
+- [PodCliqueUpdateStrategy](#podcliqueupdatestrategy)
+
+| Field | Description |
+| --- | --- |
+| `RollingRecreate` | RollingRecreateStrategyType indicates that replicas will be progressively<br />deleted and recreated one at a time, when templates change. This applies to<br />both pods (for standalone PodCliques) and replicas of PodCliqueScalingGroups.<br />This is the default update strategy.<br /> |
+| `OnDelete` | OnDeleteStrategyType indicates that replicas will only be updated when<br />they are manually deleted. Changes to templates do not automatically<br />trigger replica deletions.<br /> |
 
 
 

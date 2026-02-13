@@ -103,8 +103,8 @@ type PodCliqueScalingGroupStatus struct {
 	// CurrentPodCliqueSetGenerationHash establishes a correlation to PodCliqueSet generation hash indicating
 	// that the spec of the PodCliqueSet at this generation is fully realized in the PodCliqueScalingGroup.
 	CurrentPodCliqueSetGenerationHash *string `json:"currentPodCliqueSetGenerationHash,omitempty"`
-	// RollingUpdateProgress provides details about the ongoing rolling update of the PodCliqueScalingGroup.
-	RollingUpdateProgress *PodCliqueScalingGroupRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
+	// UpdateProgress provides details about the ongoing rolling update of the PodCliqueScalingGroup.
+	UpdateProgress *PodCliqueScalingGroupUpdateProgress `json:"updateProgress,omitempty"`
 }
 
 // PodCliqueScalingGroupUpdateStrategy defines the update strategy for a PodCliqueScalingGroup.
@@ -115,8 +115,8 @@ type PodCliqueScalingGroupUpdateStrategy struct {
 	Type UpdateStrategyType `json:"type,omitempty"`
 }
 
-// PodCliqueScalingGroupRollingUpdateProgress provides details about the ongoing rolling update of the PodCliqueScalingGroup.
-type PodCliqueScalingGroupRollingUpdateProgress struct {
+// PodCliqueScalingGroupUpdateProgress provides details about the ongoing rolling update of the PodCliqueScalingGroup.
+type PodCliqueScalingGroupUpdateProgress struct {
 	//UpdateStartedAt is the time at which the rolling update started.
 	UpdateStartedAt metav1.Time `json:"updateStartedAt"`
 	// UpdateEndedAt is the time at which the rolling update ended.

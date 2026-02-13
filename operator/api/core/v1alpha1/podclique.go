@@ -143,12 +143,12 @@ type PodCliqueStatus struct {
 	// CurrentPodTemplateHash establishes a correlation to PodClique template hash indicating
 	// that the spec of the PodClique at this template hash is fully realized in the PodClique.
 	CurrentPodTemplateHash *string `json:"currentPodTemplateHash,omitempty"`
-	// RollingUpdateProgress provides details about the ongoing rolling update of the PodClique.
-	RollingUpdateProgress *PodCliqueRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
+	// UpdateProgress provides details about the ongoing rolling update of the PodClique.
+	UpdateProgress *PodCliqueUpdateProgress `json:"updateProgress,omitempty"`
 }
 
-// PodCliqueRollingUpdateProgress provides details about the ongoing rolling update of the PodClique.
-type PodCliqueRollingUpdateProgress struct {
+// PodCliqueUpdateProgress provides details about the ongoing rolling update of the PodClique.
+type PodCliqueUpdateProgress struct {
 	// UpdateStartedAt is the time at which the rolling update started.
 	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
 	// UpdateEndedAt is the time at which the rolling update ended.

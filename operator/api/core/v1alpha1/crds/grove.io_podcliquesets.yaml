@@ -10145,13 +10145,13 @@ spec:
                   created.
                 format: int32
                 type: integer
-              rollingUpdateProgress:
-                description: RollingUpdateProgress represents the progress of a rolling
-                  update.
+              updateProgress:
+                description: UpdateProgress represents the progress of a rolling update.
                 properties:
                   currentlyUpdating:
-                    description: CurrentlyUpdating captures the progress of the PodCliqueSet
-                      replica that is currently being updated.
+                    description: |-
+                      CurrentlyUpdating captures the progress of the PodCliqueSet replica that is currently being updated.
+                      This field is only set when the UpdateStrategy is not OnDelete.
                     properties:
                       replicaIndex:
                         description: ReplicaIndex is the replica index of the PodCliqueSet

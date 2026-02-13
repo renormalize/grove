@@ -9063,9 +9063,22 @@ spec:
                   by this PodClique.
                 format: int32
                 type: integer
-              rollingUpdateProgress:
-                description: RollingUpdateProgress provides details about the ongoing
-                  rolling update of the PodClique.
+              scheduleGatedReplicas:
+                default: 0
+                description: |-
+                  ScheduleGatedReplicas is the number of Pods that have been created with one or more scheduling gate(s) set.
+                  Sum of ReadyReplicas and ScheduleGatedReplicas will always be <= Replicas.
+                format: int32
+                type: integer
+              scheduledReplicas:
+                default: 0
+                description: ScheduledReplicas is the number of Pods that have been
+                  scheduled by the kube-scheduler.
+                format: int32
+                type: integer
+              updateProgress:
+                description: UpdateProgress provides details about the ongoing rolling
+                  update of the PodClique.
                 properties:
                   podCliqueSetGenerationHash:
                     description: |-
@@ -9112,19 +9125,6 @@ spec:
                 - podCliqueSetGenerationHash
                 - podTemplateHash
                 type: object
-              scheduleGatedReplicas:
-                default: 0
-                description: |-
-                  ScheduleGatedReplicas is the number of Pods that have been created with one or more scheduling gate(s) set.
-                  Sum of ReadyReplicas and ScheduleGatedReplicas will always be <= Replicas.
-                format: int32
-                type: integer
-              scheduledReplicas:
-                default: 0
-                description: ScheduledReplicas is the number of Pods that have been
-                  scheduled by the kube-scheduler.
-                format: int32
-                type: integer
               updatedReplicas:
                 default: 0
                 description: UpdatedReplicas is the number of Pods that have been
