@@ -94,17 +94,34 @@ func mapPCSToPCSG() handler.MapFunc {
 			return nil
 		}
 		requests := make([]reconcile.Request, 0, int(pcs.Spec.Replicas)*len(pcsgConfigs))
-		// We are only interested in PCS events during rolling update.
-		if pcs.Status.UpdateProgress != nil && pcs.Status.UpdateProgress.CurrentlyUpdating != nil {
-			pcsReplicaIndex := pcs.Status.UpdateProgress.CurrentlyUpdating.ReplicaIndex
-			for _, pcsgConfig := range pcsgConfigs {
-				pcsgName := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: int(pcsReplicaIndex)}, pcsgConfig.Name)
-				requests = append(requests, reconcile.Request{
-					NamespacedName: client.ObjectKey{
-						Name:      pcsgName,
-						Namespace: pcs.Namespace,
-					},
-				})
+
+		if pcs.Spec.UpdateStrategy == nil || pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.RollingRecreateStrategyType {
+			// We are only interested in PCS events during rolling update.
+			if pcs.Status.UpdateProgress != nil && pcs.Status.UpdateProgress.CurrentlyUpdating != nil {
+				pcsReplicaIndex := pcs.Status.UpdateProgress.CurrentlyUpdating.ReplicaIndex
+				for _, pcsgConfig := range pcsgConfigs {
+					pcsgName := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: int(pcsReplicaIndex)}, pcsgConfig.Name)
+					requests = append(requests, reconcile.Request{
+						NamespacedName: client.ObjectKey{
+							Name:      pcsgName,
+							Namespace: pcs.Namespace,
+						},
+					})
+				}
+			}
+		} else {
+			if pcs.Status.UpdateProgress != nil {
+				for pcsReplicaIndex := range pcs.Spec.Replicas {
+					for _, pcsgConfig := range pcsgConfigs {
+						pcsgName := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: int(pcsReplicaIndex)}, pcsgConfig.Name)
+						requests = append(requests, reconcile.Request{
+							NamespacedName: client.ObjectKey{
+								Name:      pcsgName,
+								Namespace: pcs.Namespace,
+							},
+						})
+					}
+				}
 			}
 		}
 		return requests
@@ -138,6 +155,9 @@ func shouldEnqueueOnPCSUpdate(event event.UpdateEvent) bool {
 				oldPCS.Status.UpdateProgress.CurrentlyUpdating.ReplicaIndex != newPCS.Status.UpdateProgress.CurrentlyUpdating.ReplicaIndex {
 			return true
 		}
+	}
+	if newPCS.Status.UpdateProgress != nil && newPCS.Spec.UpdateStrategy != nil && newPCS.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategyType {
+		return true
 	}
 	return false
 }

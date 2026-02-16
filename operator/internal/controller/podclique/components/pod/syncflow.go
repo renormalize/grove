@@ -151,7 +151,8 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) syncFlowResu
 		}
 	}
 
-	if componentutils.IsPCLQUpdateInProgress(sc.pclq) {
+	if componentutils.IsPCLQUpdateInProgress(sc.pclq) &&
+		(sc.pcs.Spec.UpdateStrategy == nil || sc.pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.RollingRecreateStrategyType) {
 		if err := r.processPendingUpdates(logger, sc); err != nil {
 			result.recordError(err)
 		}

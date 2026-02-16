@@ -81,7 +81,7 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcs *grovecorev
 		}
 	}
 
-	if isRollingUpdateInProgress(pcs) {
+	if isUpdateInProgress(pcs) && pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.RollingRecreateStrategyType {
 		minAvailableBreachedPCSReplicaIndices := slices.Collect(maps.Keys(delWork.minAvailableBreachedConstituents))
 		if err := r.orchestrateRollingUpdate(ctx, logger, pcs, delWork.pcsIndicesToTerminate, minAvailableBreachedPCSReplicaIndices); err != nil {
 			return err

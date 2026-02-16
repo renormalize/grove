@@ -29,7 +29,9 @@ import (
 	ctrlutils "github.com/ai-dynamo/grove/operator/internal/controller/utils"
 
 	"github.com/go-logr/logr"
+	"k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllogger "sigs.k8s.io/controller-runtime/pkg/log"
@@ -83,6 +85,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 // reconcileDelete handles PodCliqueSet deletion when a deletion timestamp is set.
 func (r *Reconciler) reconcileDelete(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet) ctrlcommon.ReconcileStepResult {
 	if !pcs.DeletionTimestamp.IsZero() {
+		pcsObjectKey := client.ObjectKeyFromObject(pcs)
+		pcsObjectName := cache.NamespacedNameAsObjectName(pcsObjectKey).String()
+		defer r.pcsGenerationHashExpectations.Delete(pcsObjectName)
 		if !controllerutil.ContainsFinalizer(pcs, constants.FinalizerPodCliqueSet) {
 			return ctrlcommon.DoNotRequeue()
 		}
