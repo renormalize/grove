@@ -232,8 +232,12 @@ func selectExcessPodsToDelete(sc *syncContext, logger logr.Logger) []*corev1.Pod
 	var candidatePodsToDelete []*corev1.Pod
 	if diff := len(sc.existingPCLQPods) - int(sc.pclq.Spec.Replicas); diff > 0 {
 		logger.Info("found excess pods for PodClique", "numExcessPods", diff)
-		sort.Sort(DeletionSorter(sc.existingPCLQPods))
-		candidatePodsToDelete = append(candidatePodsToDelete, sc.existingPCLQPods[:diff]...)
+		sorter := DeletionSorter{
+			Pods:           sc.existingPCLQPods,
+			DesiredPodSpec: &sc.pclq.Spec.PodSpec,
+		}
+		sort.Sort(sorter)
+		candidatePodsToDelete = append(candidatePodsToDelete, sorter.Pods[:diff]...)
 	}
 	return candidatePodsToDelete
 }

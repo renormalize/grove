@@ -21,16 +21,20 @@ import (
 )
 
 // DeletionSorter enables sorting of a slice of Pods according to preference for deletion
-type DeletionSorter []*corev1.Pod
+type DeletionSorter struct {
+	Pods []*corev1.Pod
+	// DesiredPodSpec is the PodClique's desired pod specification used for image comparison
+	DesiredPodSpec *corev1.PodSpec
+}
 
 // Len returns the length of the DeletionSorter
 func (s DeletionSorter) Len() int {
-	return len(s)
+	return len(s.Pods)
 }
 
 // Swap swaps two elements in a DeletionSorter
 func (s DeletionSorter) Swap(i, j int) {
-	s[i], s[j] = s[j], s[i]
+	s.Pods[i], s.Pods[j] = s.Pods[j], s.Pods[i]
 }
 
 // podPhaseToOrdinal maps pod phases to deletion priority order (lower values are deleted first)
@@ -42,26 +46,36 @@ var podPhaseToOrdinal = map[corev1.PodPhase]int{corev1.PodPending: 0, corev1.Pod
 func (s DeletionSorter) Less(i, j int) bool {
 	// 1. Unassigned < assigned
 	// If only one of the pods is unassigned, the unassigned one is smaller
-	if s[i].Spec.NodeName != s[j].Spec.NodeName && (len(s[i].Spec.NodeName) == 0 || len(s[j].Spec.NodeName) == 0) {
-		return len(s[i].Spec.NodeName) == 0
+	if s.Pods[i].Spec.NodeName != s.Pods[j].Spec.NodeName && (len(s.Pods[i].Spec.NodeName) == 0 || len(s.Pods[j].Spec.NodeName) == 0) {
+		return len(s.Pods[i].Spec.NodeName) == 0
 	}
 
 	// 2. PodPending < PodUnknown < PodRunning
-	if s[i].Status.Phase != s[j].Status.Phase {
-		return podPhaseToOrdinal[s[i].Status.Phase] < podPhaseToOrdinal[s[j].Status.Phase]
+	if s.Pods[i].Status.Phase != s.Pods[j].Status.Phase {
+		return podPhaseToOrdinal[s.Pods[i].Status.Phase] < podPhaseToOrdinal[s.Pods[j].Status.Phase]
 	}
 
 	// 3. Not ready < ready
 	// If only one of the pods is not ready, the not ready one is smaller
-	if isPodReady(s[i]) != isPodReady(s[j]) {
-		return !isPodReady(s[i])
+	if isPodReady(s.Pods[i]) != isPodReady(s.Pods[j]) {
+		return !isPodReady(s.Pods[i])
 	}
 
-	// 4. Empty creation time pods < newer pods < older pods
-	if s[i].CreationTimestamp.IsZero() || s[j].CreationTimestamp.IsZero() {
-		return s[i].CreationTimestamp.IsZero()
+	// 4. Pods with older images < Pods with current images
+	// If the DesiredPodSpec is provided, prefer deleting pods with images that don't match the desired images
+	if s.DesiredPodSpec != nil {
+		podIHasOldImages := s.hasOldImages(s.Pods[i])
+		podJHasOldImages := s.hasOldImages(s.Pods[j])
+		if podIHasOldImages != podJHasOldImages {
+			return podIHasOldImages
+		}
 	}
-	return s[i].CreationTimestamp.After(s[j].CreationTimestamp.Time)
+
+	// 5. Empty creation time pods < newer pods < older pods
+	if s.Pods[i].CreationTimestamp.IsZero() || s.Pods[j].CreationTimestamp.IsZero() {
+		return s.Pods[i].CreationTimestamp.IsZero()
+	}
+	return s.Pods[i].CreationTimestamp.After(s.Pods[j].CreationTimestamp.Time)
 }
 
 // isPodReady checks if a pod is ready by looking for the PodReady condition with status True
@@ -71,5 +85,34 @@ func isPodReady(pod *corev1.Pod) bool {
 			return true
 		}
 	}
+	return false
+}
+
+// hasOldImages checks if any of the pod's container images differ from the desired pod spec images
+func (s DeletionSorter) hasOldImages(pod *corev1.Pod) bool {
+	if s.DesiredPodSpec == nil {
+		return false
+	}
+
+	desiredImages := make(map[string]bool)
+	for _, container := range s.DesiredPodSpec.Containers {
+		desiredImages[container.Image] = true
+	}
+	for _, container := range s.DesiredPodSpec.InitContainers {
+		desiredImages[container.Image] = true
+	}
+
+	// Check if any of the pod's container images are not in the desired set
+	for _, container := range pod.Spec.Containers {
+		if !desiredImages[container.Image] {
+			return true
+		}
+	}
+	for _, container := range pod.Spec.InitContainers {
+		if !desiredImages[container.Image] {
+			return true
+		}
+	}
+
 	return false
 }
