@@ -94,7 +94,7 @@ func mapPCSToPCSG() handler.MapFunc {
 			return nil
 		}
 		var pcsReplicaIndices []int32
-		if (pcs.Spec.UpdateStrategy == nil || pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.RollingRecreateStrategyType) &&
+		if (pcs.Spec.UpdateStrategy == nil || pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.RollingRecreateStrategy) &&
 			pcs.Status.UpdateProgress.CurrentlyUpdating != nil {
 			// Rolling recreate needs to have a CurrentlyUpdating which is used to generate an event for the corresponding PCSG
 			pcsReplicaIndices = lo.RangeFrom(pcs.Status.UpdateProgress.CurrentlyUpdating.ReplicaIndex, 1)
@@ -155,7 +155,7 @@ func shouldEnqueueOnPCSUpdate(event event.UpdateEvent) bool {
 		}
 	}
 	// TODO: @renormalize this can be modified to requeue only when PCS.CurrentGenerationHash does not match PCSG.CurrentPodCliqueSetGenerationHash
-	if newPCS.Status.UpdateProgress != nil && newPCS.Spec.UpdateStrategy != nil && newPCS.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategyType {
+	if newPCS.Status.UpdateProgress != nil && newPCS.Spec.UpdateStrategy != nil && newPCS.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategy {
 		return true
 	}
 	return false

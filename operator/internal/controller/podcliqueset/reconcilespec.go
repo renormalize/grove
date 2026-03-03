@@ -138,7 +138,7 @@ func (r *Reconciler) initUpdateProgress(ctx context.Context, pcs *grovecorev1alp
 		UpdateStartedAt: metav1.Now(),
 	}
 	// OnDelete strategy sets UpdateEndedAt too, since we do not know when all the pods will manually be deleted, and gang termination is diabled when an update is in progress
-	if pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategyType {
+	if pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategy {
 		pcs.Status.UpdateProgress.UpdateEndedAt = ptr.To(metav1.Now())
 	}
 	pcs.Status.UpdatedReplicas = 0
