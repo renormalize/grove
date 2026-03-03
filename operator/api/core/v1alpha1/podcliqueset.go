@@ -291,15 +291,15 @@ type HeadlessServiceConfig struct {
 type UpdateStrategyType string
 
 const (
-	// RollingRecreateStrategyType indicates that replicas will be progressively
+	// RollingRecreateStrategy indicates that replicas will be progressively
 	// deleted and recreated one at a time, when templates change. This applies to
 	// both pods (for standalone PodCliques) and replicas of PodCliqueScalingGroups.
 	// This is the default update strategy.
-	RollingRecreateStrategyType UpdateStrategyType = "RollingRecreate"
-	// OnDeleteStrategyType indicates that replicas will only be updated when
+	RollingRecreateStrategy UpdateStrategyType = "RollingRecreate"
+	// OnDeleteStrategy indicates that replicas will only be updated when
 	// they are manually deleted. Changes to templates do not automatically
 	// trigger replica deletions.
-	OnDeleteStrategyType UpdateStrategyType = "OnDelete"
+	OnDeleteStrategy UpdateStrategyType = "OnDelete"
 )
 
 // CliqueStartupType defines the order in which each PodClique is started.

@@ -236,7 +236,7 @@ func TestInitOrResetUpdate(t *testing.T) {
 					WithReplicas(2).
 					WithPodCliqueParameters("worker", 1, nil).
 					WithUpdateStrategy(&grovecorev1alpha1.PodCliqueSetUpdateStrategy{
-						Type: grovecorev1alpha1.RollingRecreateStrategyType,
+						Type: grovecorev1alpha1.RollingRecreateStrategy,
 					}).
 					WithPodCliqueSetGenerationHash(ptr.To("current-hash")).
 					Build()
@@ -271,7 +271,7 @@ func TestInitOrResetUpdate(t *testing.T) {
 					WithReplicas(2).
 					WithPodCliqueParameters("worker", 1, nil).
 					WithUpdateStrategy(&grovecorev1alpha1.PodCliqueSetUpdateStrategy{
-						Type: grovecorev1alpha1.OnDeleteStrategyType,
+						Type: grovecorev1alpha1.OnDeleteStrategy,
 					}).
 					WithPodCliqueSetGenerationHash(ptr.To("current-hash")).
 					Build()
@@ -290,7 +290,7 @@ func TestInitOrResetUpdate(t *testing.T) {
 					WithReplicas(3).
 					WithPodCliqueParameters("worker", 1, nil).
 					WithUpdateStrategy(&grovecorev1alpha1.PodCliqueSetUpdateStrategy{
-						Type: grovecorev1alpha1.RollingRecreateStrategyType,
+						Type: grovecorev1alpha1.RollingRecreateStrategy,
 					}).
 					WithPodCliqueSetGenerationHash(ptr.To("new-hash")).
 					Build()
@@ -317,7 +317,7 @@ func TestInitOrResetUpdate(t *testing.T) {
 					WithReplicas(3).
 					WithPodCliqueParameters("worker", 1, nil).
 					WithUpdateStrategy(&grovecorev1alpha1.PodCliqueSetUpdateStrategy{
-						Type: grovecorev1alpha1.OnDeleteStrategyType,
+						Type: grovecorev1alpha1.OnDeleteStrategy,
 					}).
 					WithPodCliqueSetGenerationHash(ptr.To("new-hash")).
 					Build()

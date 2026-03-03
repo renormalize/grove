@@ -97,7 +97,7 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) error {
 	// Create or update the expected PodCliques as per the PodCliqueScalingGroup configurations defined in the PodCliqueSet.
 	// For OnDelete update strategy, use createOrUpdatePCLQs which performs in-place updates.
 	// For RollingRecreate (default) update strategy, use createExpectedPCLQs which only creates missing PodCliques.
-	if sc.pcs.Spec.UpdateStrategy != nil && sc.pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategyType {
+	if sc.pcs.Spec.UpdateStrategy != nil && sc.pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategy {
 		if err := r.createOrUpdatePCLQs(logger, sc); err != nil {
 			return err
 		}
@@ -118,7 +118,7 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) error {
 			return err
 		}
 	} else {
-		if sc.pcs.Spec.UpdateStrategy == nil || sc.pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.RollingRecreateStrategyType {
+		if sc.pcs.Spec.UpdateStrategy == nil || sc.pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.RollingRecreateStrategy {
 			if err := r.processPendingUpdates(logger, sc); err != nil {
 				return err
 			}
