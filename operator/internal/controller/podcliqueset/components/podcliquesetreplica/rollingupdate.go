@@ -43,7 +43,7 @@ func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Log
 		return err
 	}
 
-	if pcs.Status.UpdateProgress.CurrentlyUpdating != nil && updateWork.currentlyUpdatingReplicaInfo != nil {
+	if len(pcs.Status.UpdateProgress.CurrentlyUpdating) > 0 && updateWork.currentlyUpdatingReplicaInfo != nil {
 		if err = r.updatePCSWithReplicaUpdateProgress(ctx, logger, pcs, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
 			return err
 		}
@@ -83,8 +83,8 @@ func (r _resource) computePendingUpdateWork(ctx context.Context, pcs *grovecorev
 	for _, replicaInfo := range replicaInfos {
 		replicaInfo.computeUpdateProgress(pcs)
 
-		if pcs.Status.UpdateProgress.CurrentlyUpdating != nil &&
-			pcs.Status.UpdateProgress.CurrentlyUpdating.ReplicaIndex == int32(replicaInfo.replicaIndex) {
+		if len(pcs.Status.UpdateProgress.CurrentlyUpdating) > 0 &&
+			pcs.Status.UpdateProgress.CurrentlyUpdating[0].ReplicaIndex == int32(replicaInfo.replicaIndex) {
 			pendingWork.currentlyUpdatingReplicaInfo = &replicaInfo
 			continue
 		}
@@ -156,7 +156,7 @@ func (r _resource) updatePCSWithReplicaUpdateProgress(ctx context.Context, logge
 
 	logger.Info("Updating PodCliqueSet status with newly updated PodCliques and PodClique")
 	if err := r.updateRollingUpdateProgressStatus(ctx, logger, pcs); err != nil {
-		logger.Error(err, "failed to update rolling update progress", "replicaIndex", pcs.Status.UpdateProgress.CurrentlyUpdating.ReplicaIndex)
+		logger.Error(err, "failed to update rolling update progress", "replicaIndex", pcs.Status.UpdateProgress.CurrentlyUpdating[0].ReplicaIndex)
 		return err
 	}
 	return nil
@@ -170,9 +170,11 @@ func (r _resource) updatePCSWithNextSelectedReplica(ctx context.Context, logger 
 		pcs.Status.UpdateProgress.CurrentlyUpdating = nil
 	} else {
 		logger.Info("Initiating rolling update for next replica index", "nextReplicaIndex", *nextPCSReplicaToUpdate)
-		pcs.Status.UpdateProgress.CurrentlyUpdating = &grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress{
-			ReplicaIndex:    int32(*nextPCSReplicaToUpdate),
-			UpdateStartedAt: metav1.Now(),
+		pcs.Status.UpdateProgress.CurrentlyUpdating = []grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress{
+			{
+				ReplicaIndex:    int32(*nextPCSReplicaToUpdate),
+				UpdateStartedAt: metav1.Now(),
+			},
 		}
 	}
 	return r.updateRollingUpdateProgressStatus(ctx, logger, pcs)

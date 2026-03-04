@@ -210,9 +210,11 @@ func TestInitUpdateProgress(t *testing.T) {
 						UpdateStartedAt:               updateStartedAt,
 						UpdatedPodCliqueScalingGroups: []string{"pcsg-1", "pcsg-2"},
 						UpdatedPodCliques:             []string{"pclq-1", "pclq-2", "pclq-3"},
-						CurrentlyUpdating: &grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress{
-							ReplicaIndex:    1,
-							UpdateStartedAt: replicaUpdateStartedAt,
+						CurrentlyUpdating: []grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress{
+							{
+								ReplicaIndex:    1,
+								UpdateStartedAt: replicaUpdateStartedAt,
+							},
 						},
 					}).
 					Build()

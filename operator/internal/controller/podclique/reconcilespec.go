@@ -109,7 +109,7 @@ func (r *Reconciler) processUpdate(ctx context.Context, logger logr.Logger, pclq
 
 // pcsHasNoActiveRollingUpdate checks if the PodCliqueSet has no active rolling update in progress
 func pcsHasNoActiveRollingUpdate(pcs *grovecorev1alpha1.PodCliqueSet) bool {
-	return pcs.Status.CurrentGenerationHash == nil || pcs.Status.UpdateProgress == nil || pcs.Status.UpdateProgress.CurrentlyUpdating == nil
+	return pcs.Status.CurrentGenerationHash == nil || pcs.Status.UpdateProgress == nil || len(pcs.Status.UpdateProgress.CurrentlyUpdating) == 0
 }
 
 // shouldCheckPendingUpdatesForPCLQ determines if this PodClique should be evaluated for updates based on its owner, and the currently updating PodCliqueSet replica index
@@ -122,7 +122,7 @@ func shouldCheckPendingUpdatesForPCLQ(logger logr.Logger, pcs *grovecorev1alpha1
 	}
 
 	// check if this PCLQ belongs to PCS index that is currently getting updated.
-	pcsReplicaInUpdating := pcs.Status.UpdateProgress.CurrentlyUpdating.ReplicaIndex
+	pcsReplicaInUpdating := pcs.Status.UpdateProgress.CurrentlyUpdating[0].ReplicaIndex
 	pcsReplicaIndexStr, ok := pclq.Labels[apicommon.LabelPodCliqueSetReplicaIndex]
 	if !ok {
 		return false, fmt.Errorf("could not determine PodCliqueSet index for this PodClique %v. Required label %s is missing", client.ObjectKeyFromObject(pclq), apicommon.LabelPodCliqueSetReplicaIndex)

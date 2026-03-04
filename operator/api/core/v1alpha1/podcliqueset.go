@@ -148,9 +148,10 @@ type PodCliqueSetUpdateProgress struct {
 	UpdatedPodCliqueScalingGroups []string `json:"updatedPodCliqueScalingGroups,omitempty"`
 	// UpdatedPodCliques is a list of PodClique names that have been updated to the desired PodCliqueSet generation hash.
 	UpdatedPodCliques []string `json:"updatedPodCliques,omitempty"`
-	// CurrentlyUpdating captures the progress of the PodCliqueSet replica that is currently being updated.
+	// CurrentlyUpdating captures the progress of the PodCliqueSet replicas that are currently being updated.
+	// Currently, only a single replica update is supported at a time, so only the first element is used.
 	// +optional
-	CurrentlyUpdating *PodCliqueSetReplicaUpdateProgress `json:"currentlyUpdating,omitempty"`
+	CurrentlyUpdating []PodCliqueSetReplicaUpdateProgress `json:"currentlyUpdating,omitempty"`
 }
 
 // PodCliqueSetReplicaUpdateProgress captures the progress of an update for a specific PodCliqueSet replica.

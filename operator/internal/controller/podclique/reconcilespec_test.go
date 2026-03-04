@@ -66,7 +66,7 @@ func TestPcsHasNoActiveRollingUpdate(t *testing.T) {
 			expected: true,
 		},
 		{
-			// Tests when CurrentlyUpdating is nil
+			// Tests when CurrentlyUpdating is empty
 			name: "currently_updating_nil",
 			pcs: &grovecorev1alpha1.PodCliqueSet{
 				Status: grovecorev1alpha1.PodCliqueSetStatus{
@@ -85,8 +85,10 @@ func TestPcsHasNoActiveRollingUpdate(t *testing.T) {
 				Status: grovecorev1alpha1.PodCliqueSetStatus{
 					CurrentGenerationHash: ptr.To("hash123"),
 					UpdateProgress: &grovecorev1alpha1.PodCliqueSetUpdateProgress{
-						CurrentlyUpdating: &grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress{
-							ReplicaIndex: 0,
+						CurrentlyUpdating: []grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress{
+							{
+								ReplicaIndex: 0,
+							},
 						},
 					},
 				},
