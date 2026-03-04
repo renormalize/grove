@@ -17,14 +17,16 @@
 package pod
 
 import (
+	apicommon "github.com/ai-dynamo/grove/operator/api/common"
+
 	corev1 "k8s.io/api/core/v1"
 )
 
 // DeletionSorter enables sorting of a slice of Pods according to preference for deletion
 type DeletionSorter struct {
 	Pods []*corev1.Pod
-	// DesiredPodSpec is the PodClique's desired pod specification used for image comparison
-	DesiredPodSpec *corev1.PodSpec
+	// ExpectedPodTemplateHash is the hash that is expected as a label on the updated pods
+	ExpectedPodTemplateHash string
 }
 
 // Len returns the length of the DeletionSorter
@@ -61,14 +63,9 @@ func (s DeletionSorter) Less(i, j int) bool {
 		return !isPodReady(s.Pods[i])
 	}
 
-	// 4. Pods with older images < Pods with current images
-	// If the DesiredPodSpec is provided, prefer deleting pods with images that don't match the desired images
-	if s.DesiredPodSpec != nil {
-		podIHasOldImages := s.hasOldImages(s.Pods[i])
-		podJHasOldImages := s.hasOldImages(s.Pods[j])
-		if podIHasOldImages != podJHasOldImages {
-			return podIHasOldImages
-		}
+	// 4. Pods with older hashes < Pods with newer hashes
+	if s.Pods[i].Labels[apicommon.LabelPodTemplateHash] != s.Pods[j].Labels[apicommon.LabelPodTemplateHash] {
+		return s.Pods[i].Labels[apicommon.LabelPodTemplateHash] != s.ExpectedPodTemplateHash
 	}
 
 	// 5. Empty creation time pods < newer pods < older pods
@@ -85,34 +82,5 @@ func isPodReady(pod *corev1.Pod) bool {
 			return true
 		}
 	}
-	return false
-}
-
-// hasOldImages checks if any of the pod's container images differ from the desired pod spec images
-func (s DeletionSorter) hasOldImages(pod *corev1.Pod) bool {
-	if s.DesiredPodSpec == nil {
-		return false
-	}
-
-	desiredImages := make(map[string]bool)
-	for _, container := range s.DesiredPodSpec.Containers {
-		desiredImages[container.Image] = true
-	}
-	for _, container := range s.DesiredPodSpec.InitContainers {
-		desiredImages[container.Image] = true
-	}
-
-	// Check if any of the pod's container images are not in the desired set
-	for _, container := range pod.Spec.Containers {
-		if !desiredImages[container.Image] {
-			return true
-		}
-	}
-	for _, container := range pod.Spec.InitContainers {
-		if !desiredImages[container.Image] {
-			return true
-		}
-	}
-
 	return false
 }
