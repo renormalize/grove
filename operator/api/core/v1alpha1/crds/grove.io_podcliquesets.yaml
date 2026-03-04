@@ -10181,22 +10181,27 @@ spec:
                 description: UpdateProgress represents the progress of an update.
                 properties:
                   currentlyUpdating:
-                    description: CurrentlyUpdating captures the progress of the PodCliqueSet
-                      replica that is currently being updated.
-                    properties:
-                      replicaIndex:
-                        description: ReplicaIndex is the replica index of the PodCliqueSet
-                          that is being updated.
-                        format: int32
-                        type: integer
-                      updateStartedAt:
-                        description: UpdateStartedAt is the time at which the update
-                          started for this PodCliqueSet replica index.
-                        format: date-time
-                        type: string
-                    required:
-                    - replicaIndex
-                    type: object
+                    description: |-
+                      CurrentlyUpdating captures the progress of the PodCliqueSet replicas that are currently being updated.
+                      Currently, only a single replica update is supported at a time, so only the first element is used.
+                    items:
+                      description: PodCliqueSetReplicaUpdateProgress captures the
+                        progress of an update for a specific PodCliqueSet replica.
+                      properties:
+                        replicaIndex:
+                          description: ReplicaIndex is the replica index of the PodCliqueSet
+                            that is being updated.
+                          format: int32
+                          type: integer
+                        updateStartedAt:
+                          description: UpdateStartedAt is the time at which the update
+                            started for this PodCliqueSet replica index.
+                          format: date-time
+                          type: string
+                      required:
+                      - replicaIndex
+                      type: object
+                    type: array
                   updateEndedAt:
                     description: UpdateEndedAt is the time at which the update ended
                       for the PodCliqueSet.

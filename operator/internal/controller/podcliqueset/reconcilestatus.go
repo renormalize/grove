@@ -286,10 +286,10 @@ func mirrorUpdateProgressToRollingUpdateProgress(pcs *grovecorev1alpha1.PodCliqu
 		UpdatedPodCliques:             pcs.Status.UpdateProgress.UpdatedPodCliques,
 	}
 
-	if pcs.Status.UpdateProgress.CurrentlyUpdating != nil {
+	if len(pcs.Status.UpdateProgress.CurrentlyUpdating) > 0 {
 		pcs.Status.RollingUpdateProgress.CurrentlyUpdating = &grovecorev1alpha1.PodCliqueSetReplicaRollingUpdateProgress{
-			ReplicaIndex:    pcs.Status.UpdateProgress.CurrentlyUpdating.ReplicaIndex,
-			UpdateStartedAt: pcs.Status.UpdateProgress.CurrentlyUpdating.UpdateStartedAt,
+			ReplicaIndex:    pcs.Status.UpdateProgress.CurrentlyUpdating[0].ReplicaIndex,
+			UpdateStartedAt: pcs.Status.UpdateProgress.CurrentlyUpdating[0].UpdateStartedAt,
 		}
 	}
 }

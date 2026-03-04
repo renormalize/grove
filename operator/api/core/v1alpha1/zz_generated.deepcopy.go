@@ -849,8 +849,10 @@ func (in *PodCliqueSetUpdateProgress) DeepCopyInto(out *PodCliqueSetUpdateProgre
 	}
 	if in.CurrentlyUpdating != nil {
 		in, out := &in.CurrentlyUpdating, &out.CurrentlyUpdating
-		*out = new(PodCliqueSetReplicaUpdateProgress)
-		(*in).DeepCopyInto(*out)
+		*out = make([]PodCliqueSetReplicaUpdateProgress, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 	return
 }

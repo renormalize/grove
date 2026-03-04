@@ -84,11 +84,11 @@ func (r *Reconciler) processUpdate(ctx context.Context, logger logr.Logger, pcsg
 		return ctrlcommon.ContinueReconcile()
 	}
 
-	if pcs.Status.UpdateProgress == nil || pcs.Status.UpdateProgress.CurrentlyUpdating == nil {
+	if pcs.Status.UpdateProgress == nil || len(pcs.Status.UpdateProgress.CurrentlyUpdating) == 0 {
 		// No update has yet been triggered for the PodCliqueSet. Nothing to do here.
 		return ctrlcommon.ContinueReconcile()
 	}
-	pcsReplicaInUpdating := pcs.Status.UpdateProgress.CurrentlyUpdating.ReplicaIndex
+	pcsReplicaInUpdating := pcs.Status.UpdateProgress.CurrentlyUpdating[0].ReplicaIndex
 	pcsReplicaIndexStr, ok := pcsg.Labels[apicommon.LabelPodCliqueSetReplicaIndex]
 	if !ok {
 		logger.Info("PodCliqueSet is currently under rolling update. Cannot process pending updates for this PodCliqueScalingGroup as no PodCliqueSet index label is found")

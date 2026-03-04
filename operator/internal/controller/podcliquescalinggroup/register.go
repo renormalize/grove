@@ -95,9 +95,9 @@ func mapPCSToPCSG() handler.MapFunc {
 		}
 		var pcsReplicaIndices []int32
 		if (pcs.Spec.UpdateStrategy == nil || pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.RollingRecreateStrategy) &&
-			pcs.Status.UpdateProgress.CurrentlyUpdating != nil {
+			len(pcs.Status.UpdateProgress.CurrentlyUpdating) > 0 {
 			// Rolling recreate needs to have a CurrentlyUpdating which is used to generate an event for the corresponding PCSG
-			pcsReplicaIndices = lo.RangeFrom(pcs.Status.UpdateProgress.CurrentlyUpdating.ReplicaIndex, 1)
+			pcsReplicaIndices = lo.RangeFrom(pcs.Status.UpdateProgress.CurrentlyUpdating[0].ReplicaIndex, 1)
 		} else {
 			// OnDelete will not have a specific CurrentlyUpdating, so PCSG resources of all PCS replicas are reconciled
 			pcsReplicaIndices = lo.RangeFrom(int32(0), int(pcs.Spec.Replicas))
@@ -147,10 +147,10 @@ func shouldEnqueueOnPCSUpdate(event event.UpdateEvent) bool {
 	}
 
 	if oldPCS.Status.UpdateProgress != nil && newPCS.Status.UpdateProgress != nil {
-		if utils.OnlyOneIsNil(oldPCS.Status.UpdateProgress.CurrentlyUpdating, newPCS.Status.UpdateProgress.CurrentlyUpdating) ||
-			oldPCS.Status.UpdateProgress.CurrentlyUpdating != nil &&
-				newPCS.Status.UpdateProgress.CurrentlyUpdating != nil &&
-				oldPCS.Status.UpdateProgress.CurrentlyUpdating.ReplicaIndex != newPCS.Status.UpdateProgress.CurrentlyUpdating.ReplicaIndex {
+		if utils.OnlyOneIsEmpty(oldPCS.Status.UpdateProgress.CurrentlyUpdating, newPCS.Status.UpdateProgress.CurrentlyUpdating) ||
+			len(oldPCS.Status.UpdateProgress.CurrentlyUpdating) > 0 &&
+				len(newPCS.Status.UpdateProgress.CurrentlyUpdating) > 0 &&
+				oldPCS.Status.UpdateProgress.CurrentlyUpdating[0].ReplicaIndex != newPCS.Status.UpdateProgress.CurrentlyUpdating[0].ReplicaIndex {
 			return true
 		}
 	}
