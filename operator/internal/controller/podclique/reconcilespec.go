@@ -143,7 +143,12 @@ func shouldResetOrTriggerUpdate(pcs *grovecorev1alpha1.PodCliqueSet, pclq *grove
 		return true
 	}
 
-	// PCLQ is undergoing a update for a different PCS generation hash
+	// Wait for the first reconciliation of the PodCliqueSet
+	if pcs.Status.CurrentGenerationHash == nil {
+		return false
+	}
+
+	// PCLQ is undergoing an update for a different PCS generation hash
 	// Irrespective of whether the pod template hash has changed or not, the in-progress update is stale and needs to be
 	// reset in order to set the correct updateProgress.PodCliqueSetGenerationHash
 	inProgressPCLQUpdateNotStale := componentutils.IsPCLQUpdateInProgress(pclq) && pclq.Status.UpdateProgress.PodCliqueSetGenerationHash == *pcs.Status.CurrentGenerationHash
@@ -169,7 +174,7 @@ func (r *Reconciler) initOrResetUpdate(ctx context.Context, pcs *grovecorev1alph
 		PodCliqueSetGenerationHash: *pcs.Status.CurrentGenerationHash,
 		PodTemplateHash:            podTemplateHash,
 	}
-	// OnDelete strategy sets UpdateEndedAt too, since we do not know when all the pods will manually be deleted, and gang termination is diabled when an update is in progress
+	// OnDelete strategy sets UpdateEndedAt too, since we do not know when all the pods will manually be deleted, and gang termination is disabled when an update is in progress
 	if pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategy {
 		pclq.Status.UpdateProgress.UpdateEndedAt = ptr.To(metav1.Now())
 	}

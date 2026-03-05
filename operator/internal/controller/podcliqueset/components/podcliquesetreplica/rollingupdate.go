@@ -146,7 +146,7 @@ func (r _resource) updatePCSWithReplicaUpdateProgress(ctx context.Context, logge
 	// Set the updatedPodCliqueScalingGroups
 	updatedPCSGFQNs := lo.Uniq(append(pcs.Status.UpdateProgress.UpdatedPodCliqueScalingGroups, currentReplicaUpdateProgress.updatedPCSGFQNs...))
 	// There is a possibility that the replica that is currently getting updated has been deleted due to scale-in.
-	// We need to clean up the already recorded pcsg.Status.UpdateProgress.UpdatedPodCliques.
+	// We need to clean up the already recorded pcsg.Status.UpdateProgress.UpdatedPodCliqueScalingGroups.
 	expectedPCSGFQNs := componentutils.GetExpectedPCSGFQNsForPCS(pcs)
 	updatedPCSGFQNs = slices.DeleteFunc(updatedPCSGFQNs, func(pcsgFQN string) bool {
 		return !slices.Contains(expectedPCSGFQNs, pcsgFQN)

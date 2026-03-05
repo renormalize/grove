@@ -235,7 +235,8 @@ func selectExcessPodsToDelete(sc *syncContext, logger logr.Logger) []*corev1.Pod
 		sorter := DeletionSorter{
 			Pods: sc.existingPCLQPods,
 		}
-		if sc.pclq.Status.UpdateProgress != nil && sc.pclq.Status.UpdateProgress.PodCliqueSetGenerationHash == *sc.pcs.Status.CurrentGenerationHash {
+		if sc.pclq.Status.UpdateProgress != nil && sc.pcs.Status.CurrentGenerationHash != nil &&
+			sc.pclq.Status.UpdateProgress.PodCliqueSetGenerationHash == *sc.pcs.Status.CurrentGenerationHash {
 			sorter.ExpectedPodTemplateHash = sc.pclq.Status.UpdateProgress.PodTemplateHash
 		} else {
 			sorter.ExpectedPodTemplateHash = sc.pclq.Labels[apicommon.LabelPodTemplateHash]
