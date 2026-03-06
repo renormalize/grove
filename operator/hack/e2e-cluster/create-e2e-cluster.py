@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run
 # /*
 # Copyright 2026 The Grove Authors.
 #
@@ -18,8 +18,8 @@
 """
 create-e2e-cluster.py - k3d cluster setup for local E2E testing
 
-Python Dependencies: See requirements.txt
-Minimum Python version: 3.8+
+Python Dependencies: declared in operator/pyproject.toml (run `uv sync` from operator/)
+Minimum Python version: 3.12+ (pinned via operator/.python-version)
 
 Environment Variables:
     All cluster configuration can be overridden via E2E_* environment variables:
@@ -110,7 +110,7 @@ class ClusterConfig(BaseSettings):
         config = ClusterConfig()
 
         # Override via environment
-        E2E_WORKER_NODES=50 E2E_KAI_VERSION=v0.14.0 python create-e2e-cluster.py
+        E2E_WORKER_NODES=50 E2E_KAI_VERSION=v0.14.0 ./create-e2e-cluster.py
 
         # In shell
         export E2E_CLUSTER_NAME=my-test-cluster
