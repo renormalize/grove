@@ -141,7 +141,9 @@ type PodCliqueSetReplicaRollingUpdateProgress struct {
 type PodCliqueSetUpdateProgress struct {
 	// UpdateStartedAt is the time at which the update started for the PodCliqueSet.
 	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
-	// UpdateEndedAt is the time at which the update ended for the PodCliqueSet.
+	// UpdateEndedAt is the time at which Grove does not have any work pending to manifest the update according to the configured update strategy.
+	// For auto update strategies where Grove handles the orchestration, while the update is still in progress it will be nil, and will be set once the update finishes where all child resources are updated by Grove with the latest specification.
+	// For the OnDelete strategy, it is set to the same time as UpdateStartedAt, which implies that there is no work pending on Grove.
 	// +optional
 	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
 	// UpdatedPodCliqueScalingGroups is a list of PodCliqueScalingGroup names that have been updated to the desired PodCliqueSet generation hash.
@@ -149,7 +151,7 @@ type PodCliqueSetUpdateProgress struct {
 	// UpdatedPodCliques is a list of PodClique names that have been updated to the desired PodCliqueSet generation hash.
 	UpdatedPodCliques []string `json:"updatedPodCliques,omitempty"`
 	// CurrentlyUpdating captures the progress of the PodCliqueSet replicas that are currently being updated.
-	// Currently, only a single replica update is supported at a time, so only the first element is used.
+	// This field is only set for auto update strategies where Grove handles the orchestration. It is not set for the OnDelete update strategy.
 	// +optional
 	CurrentlyUpdating []PodCliqueSetReplicaUpdateProgress `json:"currentlyUpdating,omitempty"`
 }
@@ -160,6 +162,10 @@ type PodCliqueSetReplicaUpdateProgress struct {
 	ReplicaIndex int32 `json:"replicaIndex"`
 	// UpdateStartedAt is the time at which the update started for this PodCliqueSet replica index.
 	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
+	// UpdateEndedAt is the time at which the update ended for this PodCliqueSet replica index.
+	// The update ends when all child resources have been updated with the latest specification, when all Pods are running the latest specification.
+	// +optional
+	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
 }
 
 // PodCliqueSetTemplateSpec defines a template spec for a PodGang.
@@ -295,6 +301,8 @@ const (
 	// RollingRecreateStrategy indicates that replicas will be progressively
 	// deleted and recreated one at a time, when templates change. This applies to
 	// both pods (for standalone PodCliques) and replicas of PodCliqueScalingGroups.
+	// RollingRecreateStrategy qualifies as an auto update strategy in Grove since
+	// it handles the orchestration entirely by itself.
 	// This is the default update strategy.
 	RollingRecreateStrategy UpdateStrategyType = "RollingRecreate"
 	// OnDeleteStrategy indicates that replicas will only be updated when

@@ -22,6 +22,7 @@ import (
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	"github.com/ai-dynamo/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	ctrlutils "github.com/ai-dynamo/grove/operator/internal/controller/utils"
 	"github.com/ai-dynamo/grove/operator/internal/utils"
 
@@ -89,12 +90,11 @@ func mapPCSToPCSG() handler.MapFunc {
 		if !ok {
 			return nil
 		}
-		// We are only interested in PCS events during updates.
 		if pcs.Status.UpdateProgress == nil {
 			return nil
 		}
 		var pcsReplicaIndices []int32
-		if (pcs.Spec.UpdateStrategy == nil || pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.RollingRecreateStrategy) &&
+		if componentutils.IsAutoUpdateStrategy(pcs) &&
 			len(pcs.Status.UpdateProgress.CurrentlyUpdating) > 0 {
 			// Rolling recreate needs to have a CurrentlyUpdating which is used to generate an event for the corresponding PCSG
 			pcsReplicaIndices = lo.RangeFrom(pcs.Status.UpdateProgress.CurrentlyUpdating[0].ReplicaIndex, 1)
@@ -154,8 +154,8 @@ func shouldEnqueueOnPCSUpdate(event event.UpdateEvent) bool {
 			return true
 		}
 	}
-	// TODO: @renormalize this can be modified to requeue only when PCS.CurrentGenerationHash does not match PCSG.CurrentPodCliqueSetGenerationHash
-	if newPCS.Status.UpdateProgress != nil && newPCS.Spec.UpdateStrategy != nil && newPCS.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategy {
+	// Enqueue while using OnDelete since there is no CurrentlyUpdating
+	if newPCS.Status.UpdateProgress != nil && !componentutils.IsAutoUpdateStrategy(newPCS) {
 		return true
 	}
 	return false

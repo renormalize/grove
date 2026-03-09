@@ -642,6 +642,10 @@ func (in *PodCliqueSetReplicaRollingUpdateProgress) DeepCopy() *PodCliqueSetRepl
 func (in *PodCliqueSetReplicaUpdateProgress) DeepCopyInto(out *PodCliqueSetReplicaUpdateProgress) {
 	*out = *in
 	in.UpdateStartedAt.DeepCopyInto(&out.UpdateStartedAt)
+	if in.UpdateEndedAt != nil {
+		in, out := &in.UpdateEndedAt, &out.UpdateEndedAt
+		*out = (*in).DeepCopy()
+	}
 	return
 }
 

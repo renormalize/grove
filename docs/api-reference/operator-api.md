@@ -372,10 +372,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `updateStartedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateStartedAt is the time at which the update started. |  |  |
-| `updateEndedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateEndedAt is the time at which the update ended. |  |  |
-| `podCliqueSetGenerationHash` _string_ | PodCliqueSetGenerationHash is the PodCliqueSet generation hash corresponding to the PodCliqueSet spec that is being rolled out.<br />While the update is in progress PodCliqueScalingGroupStatus.CurrentPodCliqueSetGenerationHash will not match this hash. Once the update is complete the<br />value of this field will be copied to PodCliqueScalingGroupStatus.CurrentPodCliqueSetGenerationHash. |  |  |
-| `updatedPodCliques` _string array_ | UpdatedPodCliques is the list of PodClique names that have been updated to the latest PodCliqueSet spec. |  |  |
-| `readyReplicaIndicesSelectedToUpdate` _[PodCliqueScalingGroupReplicaUpdateProgress](#podcliquescalinggroupreplicaupdateprogress)_ | ReadyReplicaIndicesSelectedToUpdate provides the update progress of ready replicas of PodCliqueScalingGroup that have been selected for update.<br />PodCliqueScalingGroup replicas that are either pending or unhealthy will be force updated and the update will not wait for these replicas to become ready.<br />For all ready replicas, one replica is chosen at a time to update, once it is updated and becomes ready, the next ready replica is chosen for update. |  |  |
+| `updateEndedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateEndedAt is the time at which Grove does not have any work pending to manifest the update according to the configured update strategy.<br />For auto update strategies where Grove handles the orchestration, while the update is still in progress it will be nil, and will be set once the update finishes where all PodCliques are replaced by Grove with the latest specification.<br />For the OnDelete strategy, it is set to the same time as UpdateStartedAt, which implies that there is no work pending on Grove. |  |  |
+| `podCliqueSetGenerationHash` _string_ | PodCliqueSetGenerationHash is the generation hash corresponding to the latest PodCliqueSet spec that this PodCliqueScalingGroup should converge to.<br />PodCliqueScalingGroupStatus.CurrentPodCliqueSetGenerationHash is set to this hash once UpdateEndedAt is set, which marks the end of the update. |  |  |
+| `updatedPodCliques` _string array_ | UpdatedPodCliques is the list of PodClique names that have been updated to the latest PodCliqueSet spec.<br />For auto update strategies, this list is updated as and when a PodClique has been fully updated.<br />For the OnDelete strategy this list is populated as PodCliques are updated after user-driven Pod deletions and the Pods are running with the latest specification. |  |  |
+| `readyReplicaIndicesSelectedToUpdate` _[PodCliqueScalingGroupReplicaUpdateProgress](#podcliquescalinggroupreplicaupdateprogress)_ | ReadyReplicaIndicesSelectedToUpdate provides the update progress of ready replicas of PodCliqueScalingGroup that have been selected for update.<br />PodCliqueScalingGroup replicas that are either pending or unhealthy will be force updated and the update will not wait for these replicas to become ready.<br />For all ready replicas, one replica is chosen at a time to update, once it is updated and becomes ready, the next ready replica is chosen for update.<br />This field is only set for auto update strategies where Grove orchestrates Pod deletions.<br />For OnDelete strategy this field is not set, because Pod replacement is initiated by user-driven Pod deletions. |  |  |
 
 
 #### PodCliqueSet
@@ -430,6 +430,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `replicaIndex` _integer_ | ReplicaIndex is the replica index of the PodCliqueSet that is being updated. |  |  |
 | `updateStartedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateStartedAt is the time at which the update started for this PodCliqueSet replica index. |  |  |
+| `updateEndedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateEndedAt is the time at which the update ended for this PodCliqueSet replica index.<br />The update ends when all child resources have been updated with the latest specification, when all Pods are running the latest specification. |  |  |
 
 
 #### PodCliqueSetRollingUpdateProgress
@@ -538,10 +539,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `updateStartedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateStartedAt is the time at which the update started for the PodCliqueSet. |  |  |
-| `updateEndedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateEndedAt is the time at which the update ended for the PodCliqueSet. |  |  |
+| `updateEndedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateEndedAt is the time at which Grove does not have any work pending to manifest the update according to the configured update strategy.<br />For auto update strategies where Grove handles the orchestration, while the update is still in progress it will be nil, and will be set once the update finishes where all child resources are updated by Grove with the latest specification.<br />For the OnDelete strategy, it is set to the same time as UpdateStartedAt, which implies that there is no work pending on Grove. |  |  |
 | `updatedPodCliqueScalingGroups` _string array_ | UpdatedPodCliqueScalingGroups is a list of PodCliqueScalingGroup names that have been updated to the desired PodCliqueSet generation hash. |  |  |
 | `updatedPodCliques` _string array_ | UpdatedPodCliques is a list of PodClique names that have been updated to the desired PodCliqueSet generation hash. |  |  |
-| `currentlyUpdating` _[PodCliqueSetReplicaUpdateProgress](#podcliquesetreplicaupdateprogress) array_ | CurrentlyUpdating captures the progress of the PodCliqueSet replicas that are currently being updated.<br />Currently, only a single replica update is supported at a time, so only the first element is used. |  |  |
+| `currentlyUpdating` _[PodCliqueSetReplicaUpdateProgress](#podcliquesetreplicaupdateprogress) array_ | CurrentlyUpdating captures the progress of the PodCliqueSet replicas that are currently being updated.<br />This field is only set for auto update strategies where Grove handles the orchestration. It is not set for the OnDelete update strategy. |  |  |
 
 
 #### PodCliqueSetUpdateStrategy
@@ -644,10 +645,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `updateStartedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateStartedAt is the time at which the update started. |  |  |
-| `updateEndedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateEndedAt is the time at which the update ended.<br />It will be set to nil if the update is still in progress. |  |  |
-| `podCliqueSetGenerationHash` _string_ | PodCliqueSetGenerationHash is the PodCliqueSet generation hash corresponding to the PodCliqueSet spec that is being rolled out.<br />While the update is in progress PodCliqueStatus.CurrentPodCliqueSetGenerationHash will not match this hash. Once the update is complete the<br />value of this field will be copied to PodCliqueStatus.CurrentPodCliqueSetGenerationHash. |  |  |
-| `podTemplateHash` _string_ | PodTemplateHash is the PodClique template hash corresponding to the PodClique spec that is being rolled out.<br />While the update is in progress PodCliqueStatus.CurrentPodTemplateHash will not match this hash. Once the update is complete the<br />value of this field will be copied to PodCliqueStatus.CurrentPodTemplateHash. |  |  |
-| `readyPodsSelectedToUpdate` _[PodsSelectedToUpdate](#podsselectedtoupdate)_ | ReadyPodsSelectedToUpdate captures the pod names of ready Pods that are either currently being updated or have been previously updated. |  |  |
+| `updateEndedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateEndedAt is the time at which Grove does not have any work pending to manifest the update according to the configured update strategy.<br />For auto update strategies where Grove handles the orchestration, while the update is still in progress it will be nil, and will be set once the update finishes where all Pods are replaced by Grove with the latest specification.<br />For the OnDelete strategy, it is set to the same time as UpdateStartedAt, which implies that there is no work pending on Grove.<br />As can be observed with the OnDelete strategy, UpdateEndedAt being set does not necessarily mean that all Pods are running with the latest specifications. |  |  |
+| `podCliqueSetGenerationHash` _string_ | PodCliqueSetGenerationHash is the generation hash corresponding to the latest PodCliqueSet spec that this PodClique should converge to.<br />PodCliqueStatus.CurrentPodCliqueSetGenerationHash is set to this hash once UpdateEndedAt is set, which marks the end of the update. |  |  |
+| `podTemplateHash` _string_ | PodTemplateHash is the template hash of the PodClique that the Pods of this PodClique should converge to.<br />This hash is used to segregate Pods which are up to date with the specification, and ones which are outdated for preferential deletions in auto update strategies, and in all strategies for scale-ins.<br />PodCliqueStatus.PodTemplateHash is set to this hash once UpdateEndedAt is set, which marks the end of the update. |  |  |
+| `readyPodsSelectedToUpdate` _[PodsSelectedToUpdate](#podsselectedtoupdate)_ | ReadyPodsSelectedToUpdate captures the pod names of ready Pods that are either currently being updated or have been previously updated.<br />This field is only set for auto update strategies where Grove orchestrates Pod deletions.<br />For the OnDelete strategy this field is not set, because Pod replacement is initiated by user-driven Pod deletions. |  |  |
 
 
 #### PodGangPhase
@@ -782,7 +783,7 @@ _Appears in:_
 
 | Field | Description |
 | --- | --- |
-| `RollingRecreate` | RollingRecreateStrategy indicates that replicas will be progressively<br />deleted and recreated one at a time, when templates change. This applies to<br />both pods (for standalone PodCliques) and replicas of PodCliqueScalingGroups.<br />This is the default update strategy.<br /> |
+| `RollingRecreate` | RollingRecreateStrategy indicates that replicas will be progressively<br />deleted and recreated one at a time, when templates change. This applies to<br />both pods (for standalone PodCliques) and replicas of PodCliqueScalingGroups.<br />RollingRecreateStrategy qualifies as an auto update strategy in Grove since<br />it handles the orchestration entirely by itself.<br />This is the default update strategy.<br /> |
 | `OnDelete` | OnDeleteStrategy indicates that replicas will only be updated when<br />they are manually deleted. Changes to templates do not automatically<br />trigger replica deletions.<br /> |
 
 

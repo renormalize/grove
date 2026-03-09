@@ -44,6 +44,9 @@ func (r _resource) orchestrateRollingUpdate(ctx context.Context, logger logr.Log
 	}
 
 	if len(pcs.Status.UpdateProgress.CurrentlyUpdating) > 0 && updateWork.currentlyUpdatingReplicaInfo != nil {
+		if updateWork.currentlyUpdatingReplicaInfo.updateProgress.done {
+			pcs.Status.UpdateProgress.CurrentlyUpdating[0].UpdateEndedAt = ptr.To(metav1.Now())
+		}
 		if err = r.updatePCSWithReplicaUpdateProgress(ctx, logger, pcs, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
 			return err
 		}
@@ -296,7 +299,7 @@ func isPCLQUpdateComplete(pclq *grovecorev1alpha1.PodClique, currentPCSGeneratio
 	return false
 }
 
-// isUpdateInProgress checks if an update is currently in progress.
-func isUpdateInProgress(pcs *grovecorev1alpha1.PodCliqueSet) bool {
-	return pcs.Status.UpdateProgress != nil && pcs.Status.UpdateProgress.UpdateEndedAt == nil
+// isAutoUpdateInProgress checks if an update is currently in progress.
+func isAutoUpdateInProgress(pcs *grovecorev1alpha1.PodCliqueSet) bool {
+	return (pcs.Spec.UpdateStrategy == nil || pcs.Spec.UpdateStrategy.Type != grovecorev1alpha1.OnDeleteStrategy) && pcs.Status.UpdateProgress != nil && pcs.Status.UpdateProgress.UpdateEndedAt == nil
 }

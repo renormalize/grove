@@ -61,7 +61,6 @@ const (
 	errCodeParsePodCliqueScalingGroupReplicaIndex        grovecorev1alpha1.ErrorCode = "ERR_PARSE_PODCLIQUESCALINGGROUP_REPLICA_INDEX"
 	errCodeUpdateStatus                                  grovecorev1alpha1.ErrorCode = "ERR_UPDATE_STATUS"
 	errCodeComputePendingPodCliqueScalingGroupUpdateWork grovecorev1alpha1.ErrorCode = "ERR_COMPUTE_PENDINGUPDATE_WORK"
-	errCodeCreateOrUpdatePodClique                       grovecorev1alpha1.ErrorCode = "ERR_CREATE_OR_UPDATE_PODCLIQUE"
 	errCodeCreateOrUpdatePodCliques                      grovecorev1alpha1.ErrorCode = "ERR_CREATE_OR_UPDATE_PODCLIQUES"
 )
 
@@ -269,7 +268,7 @@ func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pcs
 	if err != nil {
 		r.eventRecorder.Eventf(pcsg, corev1.EventTypeWarning, constants.ReasonPodCliqueCreateOrUpdateFailed, "PodClique %v creation or update failed: %v", pclqObjectKey, err)
 		return groveerr.WrapError(err,
-			errCodeCreateOrUpdatePodClique,
+			errCodeCreateOrUpdatePodCliques,
 			component.OperationSync,
 			fmt.Sprintf("Error creating or updating PodClique: %v for PodCliqueScalingGroup: %v", pclqObjectKey, pcsgObjKey),
 		)

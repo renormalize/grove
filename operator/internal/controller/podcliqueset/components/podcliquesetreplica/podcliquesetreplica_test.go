@@ -215,7 +215,7 @@ func TestIsRollingUpdateInProgress(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := isUpdateInProgress(tc.pcs)
+			result := isAutoUpdateInProgress(tc.pcs)
 			assert.Equal(t, tc.expected, result)
 		})
 	}

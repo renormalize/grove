@@ -151,7 +151,7 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) syncFlowResu
 		}
 	}
 
-	if (sc.pcs.Spec.UpdateStrategy == nil || sc.pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.RollingRecreateStrategy) && componentutils.IsPCLQUpdateInProgress(sc.pclq) {
+	if componentutils.IsAutoUpdateStrategy(sc.pcs) && componentutils.IsPCLQAutoUpdateInProgress(sc.pclq) {
 		if err := r.processPendingUpdates(logger, sc); err != nil {
 			result.recordError(err)
 		}
@@ -235,16 +235,20 @@ func selectExcessPodsToDelete(sc *syncContext, logger logr.Logger) []*corev1.Pod
 		sorter := DeletionSorter{
 			Pods: sc.existingPCLQPods,
 		}
-		if sc.pclq.Status.UpdateProgress != nil && sc.pcs.Status.CurrentGenerationHash != nil &&
-			sc.pclq.Status.UpdateProgress.PodCliqueSetGenerationHash == *sc.pcs.Status.CurrentGenerationHash {
-			sorter.ExpectedPodTemplateHash = sc.pclq.Status.UpdateProgress.PodTemplateHash
-		} else {
-			sorter.ExpectedPodTemplateHash = sc.pclq.Labels[apicommon.LabelPodTemplateHash]
-		}
+		sorter.ExpectedPodTemplateHash = sc.getExpectedPodTemplateHash()
 		sort.Sort(sorter)
 		candidatePodsToDelete = append(candidatePodsToDelete, sorter.Pods[:diff]...)
 	}
 	return candidatePodsToDelete
+}
+
+func (sc *syncContext) getExpectedPodTemplateHash() string {
+	if sc.pclq.Status.UpdateProgress != nil &&
+		sc.pcs.Status.CurrentGenerationHash != nil &&
+		sc.pclq.Status.UpdateProgress.PodCliqueSetGenerationHash == *sc.pcs.Status.CurrentGenerationHash {
+		return sc.pclq.Status.UpdateProgress.PodTemplateHash
+	}
+	return sc.pclq.Labels[apicommon.LabelPodTemplateHash]
 }
 
 // checkAndRemovePodSchedulingGates removes scheduling gates from pods when their dependencies are satisfied

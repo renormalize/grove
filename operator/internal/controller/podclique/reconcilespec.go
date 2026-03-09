@@ -77,7 +77,7 @@ func (r *Reconciler) processUpdate(ctx context.Context, logger logr.Logger, pclq
 	}
 
 	// Handle OnDelete strategy first
-	if pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategy {
+	if !componentutils.IsAutoUpdateStrategy(pcs) {
 		if shouldResetOrTriggerUpdate(pcs, pclq) {
 			if err = r.initOrResetUpdate(ctx, pcs, pclq); err != nil {
 				return ctrlcommon.ReconcileWithErrors("could not initialize update for OnDelete", err)
@@ -98,7 +98,7 @@ func (r *Reconciler) processUpdate(ctx context.Context, logger logr.Logger, pclq
 	}
 
 	if shouldResetOrTriggerUpdate(pcs, pclq) {
-		logger.Info("PodCliqueSet has a new generation hash. Initializing or resetting update for PodClique", "PodCliqueSetGenerationHash", *pcs.Status.CurrentGenerationHash, "CurrentPodCliqueSetGenerationHash", pclq.Status.CurrentPodCliqueSetGenerationHash, "isPCLQUpdateInProgress", componentutils.IsPCLQUpdateInProgress(pclq), "isLastPCLQUpdateCompleted", componentutils.IsLastPCLQUpdateCompleted(pclq))
+		logger.Info("PodCliqueSet has a new generation hash. Initializing or resetting update for PodClique", "PodCliqueSetGenerationHash", *pcs.Status.CurrentGenerationHash, "CurrentPodCliqueSetGenerationHash", pclq.Status.CurrentPodCliqueSetGenerationHash, "isPCLQAutoUpdateInProgress", componentutils.IsPCLQAutoUpdateInProgress(pclq), "isLastPCLQUpdateCompleted", componentutils.IsLastPCLQUpdateCompleted(pclq))
 		if err = r.initOrResetUpdate(ctx, pcs, pclq); err != nil {
 			return ctrlcommon.ReconcileWithErrors("could not initialize RollingRecreate update", err)
 		}
@@ -151,7 +151,7 @@ func shouldResetOrTriggerUpdate(pcs *grovecorev1alpha1.PodCliqueSet, pclq *grove
 	// PCLQ is undergoing an update for a different PCS generation hash
 	// Irrespective of whether the pod template hash has changed or not, the in-progress update is stale and needs to be
 	// reset in order to set the correct updateProgress.PodCliqueSetGenerationHash
-	inProgressPCLQUpdateNotStale := componentutils.IsPCLQUpdateInProgress(pclq) && pclq.Status.UpdateProgress.PodCliqueSetGenerationHash == *pcs.Status.CurrentGenerationHash
+	inProgressPCLQUpdateNotStale := componentutils.IsPCLQAutoUpdateInProgress(pclq) && pclq.Status.UpdateProgress.PodCliqueSetGenerationHash == *pcs.Status.CurrentGenerationHash
 	// PCLQ had an update in the past but that was for an older PCS generation hash.
 	lastCompletedUpdateIsNotStale := componentutils.IsLastPCLQUpdateCompleted(pclq) && pclq.Status.UpdateProgress.PodCliqueSetGenerationHash == *pcs.Status.CurrentGenerationHash
 	if inProgressPCLQUpdateNotStale || lastCompletedUpdateIsNotStale {
@@ -175,7 +175,7 @@ func (r *Reconciler) initOrResetUpdate(ctx context.Context, pcs *grovecorev1alph
 		PodTemplateHash:            podTemplateHash,
 	}
 	// OnDelete strategy sets UpdateEndedAt too, since we do not know when all the pods will manually be deleted, and gang termination is disabled when an update is in progress
-	if pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategy {
+	if !componentutils.IsAutoUpdateStrategy(pcs) {
 		pclq.Status.UpdateProgress.UpdateEndedAt = ptr.To(metav1.Now())
 	}
 	// reset the updated replicas count to 0 so that the update can start afresh.
