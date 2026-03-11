@@ -83,7 +83,8 @@ type PodCliqueSetStatus struct {
 	// +kubebuilder:default=0
 	AvailableReplicas int32 `json:"availableReplicas"`
 	// Selector is the label selector that determines which pods are part of the PodGang.
-	// PodGang is a unit of scale and this selector is used by HPA to scale the PodGang based on metrics captured for the pods that match this selector.
+	// PodGang is a unit of scale and this selector is used by HPA to scale the PodGang based on metrics captured for
+	// the pods that match this selector.
 	Selector *string `json:"hpaPodSelector,omitempty"`
 	// PodGangStatuses captures the status for all the PodGang's that are part of the PodCliqueSet.
 	PodGangStatutes []PodGangStatus `json:"podGangStatuses,omitempty"`
@@ -95,7 +96,8 @@ type PodCliqueSetStatus struct {
 	// then an update needs to be triggered.
 	CurrentGenerationHash *string `json:"currentGenerationHash,omitempty"`
 	// RollingUpdateProgress represents the progress of a rolling update.
-	// Deprecated: Use UpdateProgress instead. This field is maintained for backward compatibility and will be removed in a future release.
+	// Deprecated: Use UpdateProgress instead. This field is maintained for backward compatibility and will be
+	// removed in a future release.
 	RollingUpdateProgress *PodCliqueSetRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
 	// UpdateProgress represents the progress of an update.
 	UpdateProgress *PodCliqueSetUpdateProgress `json:"updateProgress,omitempty"`
@@ -141,17 +143,23 @@ type PodCliqueSetReplicaRollingUpdateProgress struct {
 type PodCliqueSetUpdateProgress struct {
 	// UpdateStartedAt is the time at which the update started for the PodCliqueSet.
 	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
-	// UpdateEndedAt is the time at which Grove does not have any work pending to manifest the update according to the configured update strategy.
-	// For auto update strategies where Grove handles the orchestration, while the update is still in progress it will be nil, and will be set once the update finishes where all child resources are updated by Grove with the latest specification.
-	// For the OnDelete strategy, it is set to the same time as UpdateStartedAt, which implies that there is no work pending on Grove.
+	// UpdateEndedAt is the time at which Grove does not have any work pending to manifest the update according to the
+	// configured update strategy.
+	// For auto update strategies where Grove handles the orchestration, while the update is still in progress it will be
+	// nil, and will be set once the update finishes where all child resources are updated by Grove with the latest
+	// specification.
+	// For the OnDelete strategy, it is set to the same time as UpdateStartedAt, which implies that there is no work
+	// pending on Grove.
 	// +optional
 	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
-	// UpdatedPodCliqueScalingGroups is a list of PodCliqueScalingGroup names that have been updated to the desired PodCliqueSet generation hash.
+	// UpdatedPodCliqueScalingGroups is a list of PodCliqueScalingGroup names that have been updated to the desired
+	// PodCliqueSet generation hash.
 	UpdatedPodCliqueScalingGroups []string `json:"updatedPodCliqueScalingGroups,omitempty"`
 	// UpdatedPodCliques is a list of PodClique names that have been updated to the desired PodCliqueSet generation hash.
 	UpdatedPodCliques []string `json:"updatedPodCliques,omitempty"`
 	// CurrentlyUpdating captures the progress of the PodCliqueSet replicas that are currently being updated.
-	// This field is only set for auto update strategies where Grove handles the orchestration. It is not set for the OnDelete update strategy.
+	// This field is only set for auto update strategies where Grove handles the orchestration. It is not set for the
+	// OnDelete update strategy.
 	// +optional
 	CurrentlyUpdating []PodCliqueSetReplicaUpdateProgress `json:"currentlyUpdating,omitempty"`
 }
@@ -163,7 +171,8 @@ type PodCliqueSetReplicaUpdateProgress struct {
 	// UpdateStartedAt is the time at which the update started for this PodCliqueSet replica index.
 	UpdateStartedAt metav1.Time `json:"updateStartedAt,omitempty"`
 	// UpdateEndedAt is the time at which the update ended for this PodCliqueSet replica index.
-	// The update ends when all child resources have been updated with the latest specification, when all Pods are running the latest specification.
+	// The update ends when all child resources have been updated with the latest specification, when all Pods are
+	// running the latest specification.
 	// +optional
 	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
 }
