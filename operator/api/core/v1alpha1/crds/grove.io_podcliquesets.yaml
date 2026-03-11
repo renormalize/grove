@@ -610,8 +610,9 @@ spec:
                               description: |-
                                 MinAvailable serves two purposes:
                                 1. It defines the minimum number of pods that are guaranteed to be gang scheduled.
-                                2. It defines the minimum requirement of available pods in a PodClique. Violation of this threshold will result in termination of the PodGang that it belongs to.
-                                If MinAvailable is not set, then it will default to the template Replicas.
+                                2. It defines the minimum requirement of available pods in a PodClique. Violation of this threshold will result
+                                in termination of the PodGang that it belongs to. If MinAvailable is not set, then it will default to the template
+                                Replicas.
                               format: int32
                               type: integer
                             podSpec:
@@ -9228,9 +9229,10 @@ spec:
                             startsAfter:
                               description: |-
                                 StartsAfter provides you a way to explicitly define the startup dependencies amongst cliques.
-                                If CliqueStartupType in PodGang has been set to 'CliqueStartupTypeExplicit', then to create an ordered start amongst PodClique's StartsAfter can be used.
-                                A forest of DAG's can be defined to model any start order dependencies. If there are more than one PodClique's defined and StartsAfter is not set for any of them,
-                                then their startup order is random at best and must not be relied upon.
+                                If CliqueStartupType in PodGang has been set to 'CliqueStartupTypeExplicit', then to create an ordered start
+                                amongst PodClique's StartsAfter can be used. A forest of DAG's can be defined to model any start order dependencies.
+                                If there are more than one PodClique's defined and StartsAfter is not set for any of them, then their startup order
+                                is random at best and must not be relied upon.
                                 Validations:
                                 1. If a StartsAfter has been defined and one or more cycles are detected in DAG's then it will be flagged as validation error.
                                 2. If StartsAfter is defined and does not identify any PodClique then it will be flagged as a validation error.
@@ -10012,7 +10014,8 @@ spec:
               hpaPodSelector:
                 description: |-
                   Selector is the label selector that determines which pods are part of the PodGang.
-                  PodGang is a unit of scale and this selector is used by HPA to scale the PodGang based on metrics captured for the pods that match this selector.
+                  PodGang is a unit of scale and this selector is used by HPA to scale the PodGang based on metrics captured for
+                  the pods that match this selector.
                 type: string
               lastErrors:
                 description: LastErrors captures the last errors observed by the controller
@@ -10134,7 +10137,8 @@ spec:
               rollingUpdateProgress:
                 description: |-
                   RollingUpdateProgress represents the progress of a rolling update.
-                  Deprecated: Use UpdateProgress instead. This field is maintained for backward compatibility and will be removed in a future release.
+                  Deprecated: Use UpdateProgress instead. This field is maintained for backward compatibility and will be
+                  removed in a future release.
                 properties:
                   currentlyUpdating:
                     description: CurrentlyUpdating captures the progress of the PodCliqueSet
@@ -10183,7 +10187,8 @@ spec:
                   currentlyUpdating:
                     description: |-
                       CurrentlyUpdating captures the progress of the PodCliqueSet replicas that are currently being updated.
-                      This field is only set for auto update strategies where Grove handles the orchestration. It is not set for the OnDelete update strategy.
+                      This field is only set for auto update strategies where Grove handles the orchestration. It is not set for the
+                      OnDelete update strategy.
                     items:
                       description: PodCliqueSetReplicaUpdateProgress captures the
                         progress of an update for a specific PodCliqueSet replica.
@@ -10196,7 +10201,8 @@ spec:
                         updateEndedAt:
                           description: |-
                             UpdateEndedAt is the time at which the update ended for this PodCliqueSet replica index.
-                            The update ends when all child resources have been updated with the latest specification, when all Pods are running the latest specification.
+                            The update ends when all child resources have been updated with the latest specification, when all Pods are
+                            running the latest specification.
                           format: date-time
                           type: string
                         updateStartedAt:
@@ -10210,9 +10216,13 @@ spec:
                     type: array
                   updateEndedAt:
                     description: |-
-                      UpdateEndedAt is the time at which Grove does not have any work pending to manifest the update according to the configured update strategy.
-                      For auto update strategies where Grove handles the orchestration, while the update is still in progress it will be nil, and will be set once the update finishes where all child resources are updated by Grove with the latest specification.
-                      For the OnDelete strategy, it is set to the same time as UpdateStartedAt, which implies that there is no work pending on Grove.
+                      UpdateEndedAt is the time at which Grove does not have any work pending to manifest the update according to the
+                      configured update strategy.
+                      For auto update strategies where Grove handles the orchestration, while the update is still in progress it will be
+                      nil, and will be set once the update finishes where all child resources are updated by Grove with the latest
+                      specification.
+                      For the OnDelete strategy, it is set to the same time as UpdateStartedAt, which implies that there is no work
+                      pending on Grove.
                     format: date-time
                     type: string
                   updateStartedAt:
@@ -10221,9 +10231,9 @@ spec:
                     format: date-time
                     type: string
                   updatedPodCliqueScalingGroups:
-                    description: UpdatedPodCliqueScalingGroups is a list of PodCliqueScalingGroup
-                      names that have been updated to the desired PodCliqueSet generation
-                      hash.
+                    description: |-
+                      UpdatedPodCliqueScalingGroups is a list of PodCliqueScalingGroup names that have been updated to the desired
+                      PodCliqueSet generation hash.
                     items:
                       type: string
                     type: array
