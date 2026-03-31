@@ -493,6 +493,7 @@ def deploy_grove_operator(config: ClusterConfig, operator_dir: Path):
         "--default-repo=",
         "--images", f"grove-operator={images['grove-operator']}",
         "--images", f"grove-initc={images['grove-initc']}",
+        "--images", f"grove-install-crds={images['grove-install-crds']}",
         _cwd=str(operator_dir)
     )
 
@@ -645,14 +646,6 @@ def main(
         for cmd in ["skaffold", "jq"]:
             require_command(cmd)
     console.print("[green]✅ All required tools are available[/green]")
-
-    # Prepare charts
-    if not skip_grove:
-        console.print(Panel.fit("Preparing Helm charts", style="bold blue"))
-        prepare_charts = operator_dir / "hack/prepare-charts.sh"
-        if prepare_charts.exists():
-            sh.bash(str(prepare_charts))
-            console.print("[green]✅ Charts prepared[/green]")
 
     # Create cluster
     if not create_cluster(config):

@@ -15,6 +15,9 @@ RUN VERSION=${VERSION} make --directory=operator build-initc-${TARGETOS}-${TARGE
 # Build the operator
 RUN VERSION=${VERSION} make --directory=operator build-operator-${TARGETOS}-${TARGETARCH}
 
+# Build the CRD installer
+RUN VERSION=${VERSION} make --directory=operator build-install-crds-${TARGETOS}-${TARGETARCH}
+
 # All image label keys are as per the OCI recommendations.
 # Reference: https://github.com/opencontainers/image-spec/blob/main/annotations.md#pre-defined-annotation-keys
 
@@ -45,3 +48,17 @@ LABEL org.opencontainers.image.version=${VERSION}
 WORKDIR /
 COPY --from=builder /go/src/github.com/ai-dynamo/grove/operator/bin/grove-operator /grove-operator
 ENTRYPOINT ["/grove-operator"]
+
+# grove-install-crds
+FROM gcr.io/distroless/static-debian11:nonroot AS grove-install-crds
+# Version should be passed as a build argument.
+ARG VERSION
+
+LABEL org.opencontainers.image.title="Grove CRD Installer"
+LABEL org.opencontainers.image.description="Init container that installs and upgrades Grove CRDs via server-side apply"
+LABEL org.opencontainers.image.source="https://github.com/ai-dynamo/grove/tree/main/operator/cmd/install-crds"
+LABEL org.opencontainers.image.version=${VERSION}
+
+WORKDIR /
+COPY --from=builder /go/src/github.com/ai-dynamo/grove/operator/bin/grove-install-crds /grove-install-crds
+ENTRYPOINT ["/grove-install-crds"]
