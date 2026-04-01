@@ -50,7 +50,7 @@ var groveCRDNames = []string{
 // established in the cluster after the operator has been deployed.
 func Test_CRD_Installer_AllCRDsExist(t *testing.T) {
 	ctx := context.Background()
-	sharedCluster := setup.SharedCluster(logger)
+	sharedCluster := setup.SharedCluster(Logger)
 	_, _, dynamicClient := sharedCluster.GetClients()
 
 	for _, crdName := range groveCRDNames {
@@ -86,7 +86,7 @@ func Test_CRD_Installer_AllCRDsExist(t *testing.T) {
 // in the operator Pod ran to successful completion (exit code 0).
 func Test_CRD_Installer_InitContainerCompleted(t *testing.T) {
 	ctx := context.Background()
-	sharedCluster := setup.SharedCluster(logger)
+	sharedCluster := setup.SharedCluster(Logger)
 	clientset, _, _ := sharedCluster.GetClients()
 
 	pods, err := clientset.CoreV1().Pods(setup.OperatorNamespace).List(ctx, metav1.ListOptions{
@@ -126,7 +126,7 @@ func Test_CRD_Installer_InitContainerCompleted(t *testing.T) {
 // the crd-installer init container) does not corrupt or remove existing CRDs.
 func Test_CRD_Installer_Idempotent(t *testing.T) {
 	ctx := context.Background()
-	sharedCluster := setup.SharedCluster(logger)
+	sharedCluster := setup.SharedCluster(Logger)
 	clientset, restConfig, dynamicClient := sharedCluster.GetClients()
 
 	// Get the current operator pod name.
@@ -142,10 +142,10 @@ func Test_CRD_Installer_Idempotent(t *testing.T) {
 	if err := clientset.CoreV1().Pods(setup.OperatorNamespace).Delete(ctx, podName, metav1.DeleteOptions{}); err != nil {
 		t.Fatalf("failed to delete operator pod %s: %v", podName, err)
 	}
-	logger.Infof("deleted operator pod %s, waiting for replacement to be ready", podName)
+	Logger.Infof("deleted operator pod %s, waiting for replacement to be ready", podName)
 
 	// Wait for a new, ready operator pod to appear.
-	if err := utils.WaitForPodsInNamespace(ctx, setup.OperatorNamespace, restConfig, 1, 3*time.Minute, 5*time.Second, logger); err != nil {
+	if err := utils.WaitForPodsInNamespace(ctx, setup.OperatorNamespace, restConfig, 1, 3*time.Minute, 5*time.Second, Logger); err != nil {
 		t.Fatalf("operator pod did not become ready after restart: %v", err)
 	}
 
