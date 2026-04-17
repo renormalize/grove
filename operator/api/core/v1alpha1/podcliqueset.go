@@ -59,6 +59,13 @@ type PodCliqueSetSpec struct {
 	// PodCliqueScalingGroups.
 	// +optional
 	UpdateStrategy *PodCliqueSetUpdateStrategy `json:"updateStrategy,omitempty"`
+	// RevisionHistoryLimit specifies the number of old PCS revisions to retain in RevisionHistory
+	// in addition to the current revision, to allow rollback. `PodCliqueTemplateSpecRevision` resources
+	// are garbage-collected only when they are no longer referenced by any remaining history entry.
+	// Defaults to 5.
+	// +optional
+	// +kubebuilder:default=5
+	RevisionHistoryLimit *int32 `json:"revisionHistoryLimit,omitempty"`
 	// Template describes the template spec for PodGangs that will be created in the PodCliqueSet.
 	Template PodCliqueSetTemplateSpec `json:"template"`
 }
@@ -102,6 +109,35 @@ type PodCliqueSetStatus struct {
 	RollingUpdateProgress *PodCliqueSetRollingUpdateProgress `json:"rollingUpdateProgress,omitempty"`
 	// UpdateProgress represents the progress of an update.
 	UpdateProgress *PodCliqueSetUpdateProgress `json:"updateProgress,omitempty"`
+	// CurrentRevision is the PCS revision at which all PCLQs are currently active.
+	// After a fresh update this equals MaxRevision. After a rollback it is less than MaxRevision.
+	// +optional
+	CurrentRevision *int32 `json:"currentRevision,omitempty"`
+	// MinRevision is the lowest revision number still retained in RevisionHistory.
+	// It is the lower bound for rollback operations. As historical revisions beyond
+	// RevisionHistoryLimit are evicted, MinRevision advances accordingly.
+	// +optional
+	MinRevision *int32 `json:"minRevision,omitempty"`
+	// MaxRevision is the highest revision number assigned across all PodCliqueTemplateSpecRevision
+	// resources owned by this PCS. It is the upper bound for roll-forward operations.
+	// +optional
+	MaxRevision *int32 `json:"maxRevision,omitempty"`
+	// RevisionHistory is a map from PCS revision number to a revision map for that
+	// PCS revision. Each revision map maps a PodClique name to the
+	// PodCliqueTemplateSpecRevision revision number that was active for that PodClique at the
+	// given PCS revision. This enables reconstruction of any prior compatible set of specs
+	// without relying on a fixed ordering of PodCliques in the PodCliqueSetTemplateSpec.
+	// The total number of historical entries (excluding the current revision) is bounded by
+	// RevisionHistoryLimit on the PCS spec.
+	//
+	// Example: given PCLQs a, b, c:
+	//   {"1": {"a":1, "b":1, "c":1}, "2": {"a":2, "b":1, "c":1}, "3": {"a":2, "b":2, "c":1}}
+	// means:
+	//   PCS revision 1: a@1, b@1, c@1
+	//   PCS revision 2: a@2, b@1, c@1
+	//   PCS revision 3: a@2, b@2, c@1
+	// +optional
+	RevisionHistory map[string]map[string]int32 `json:"revisionHistory,omitempty"`
 }
 
 // PodCliqueSetUpdateStrategy defines the update strategy for a PodCliqueSet.
@@ -419,7 +455,7 @@ type HeadlessServiceConfig struct {
 }
 
 // UpdateStrategyType defines the type of update strategy for PodCliqueSet.
-// +kubebuilder:validation:Enum={RollingRecreate,OnDelete}
+// +kubebuilder:validation:Enum={RollingRecreate,Coherent,OnDelete}
 type UpdateStrategyType string
 
 const (
@@ -430,6 +466,11 @@ const (
 	// it handles the orchestration entirely by itself.
 	// This is the default update strategy.
 	RollingRecreateStrategy UpdateStrategyType = "RollingRecreate"
+	// CoherentUpdateStrategy indicates that the PodCliqueSet will be progressively
+	// updated at the granularity of `MinimalViableUnit`s. A MinimalViableUnit
+	// indicates the smallest set of components that must be updated in lockstep to
+	// maintain compatibility and availability.
+	CoherentUpdateStrategy UpdateStrategyType = "Coherent"
 	// OnDeleteStrategy indicates that replicas will only be updated when
 	// they are manually deleted. Changes to templates do not automatically
 	// trigger replica deletions.
