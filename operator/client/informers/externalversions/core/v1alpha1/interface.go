@@ -32,6 +32,8 @@ type Interface interface {
 	PodCliqueScalingGroups() PodCliqueScalingGroupInformer
 	// PodCliqueSets returns a PodCliqueSetInformer.
 	PodCliqueSets() PodCliqueSetInformer
+	// PodCliqueTemplateSpecRevisions returns a PodCliqueTemplateSpecRevisionInformer.
+	PodCliqueTemplateSpecRevisions() PodCliqueTemplateSpecRevisionInformer
 }
 
 type version struct {
@@ -63,4 +65,9 @@ func (v *version) PodCliqueScalingGroups() PodCliqueScalingGroupInformer {
 // PodCliqueSets returns a PodCliqueSetInformer.
 func (v *version) PodCliqueSets() PodCliqueSetInformer {
 	return &podCliqueSetInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// PodCliqueTemplateSpecRevisions returns a PodCliqueTemplateSpecRevisionInformer.
+func (v *version) PodCliqueTemplateSpecRevisions() PodCliqueTemplateSpecRevisionInformer {
+	return &podCliqueTemplateSpecRevisionInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

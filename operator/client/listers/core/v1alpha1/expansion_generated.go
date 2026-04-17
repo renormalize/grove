@@ -45,3 +45,11 @@ type PodCliqueSetListerExpansion interface{}
 // PodCliqueSetNamespaceListerExpansion allows custom methods to be added to
 // PodCliqueSetNamespaceLister.
 type PodCliqueSetNamespaceListerExpansion interface{}
+
+// PodCliqueTemplateSpecRevisionListerExpansion allows custom methods to be added to
+// PodCliqueTemplateSpecRevisionLister.
+type PodCliqueTemplateSpecRevisionListerExpansion interface{}
+
+// PodCliqueTemplateSpecRevisionNamespaceListerExpansion allows custom methods to be added to
+// PodCliqueTemplateSpecRevisionNamespaceLister.
+type PodCliqueTemplateSpecRevisionNamespaceListerExpansion interface{}
