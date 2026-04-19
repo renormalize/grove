@@ -82,6 +82,9 @@ func NewDiagCollector(clients *clients.Clients, namespace, mode, dir string, log
 	if mode == "" {
 		mode = ModeFile
 	}
+	if logger == nil {
+		logger = log.NewTestLogger(log.InfoLevel)
+	}
 	return &DiagCollector{
 		clients:   clients,
 		namespace: namespace,

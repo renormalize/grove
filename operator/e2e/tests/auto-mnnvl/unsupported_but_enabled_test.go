@@ -20,15 +20,12 @@ package automnnvl
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/ai-dynamo/grove/operator/e2e/k8s"
 	"github.com/ai-dynamo/grove/operator/e2e/testctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Test_AutoMNNVL_UnsupportedButEnabled is the test suite for when Auto-MNNVL feature is enabled
@@ -64,7 +61,7 @@ func Test_AutoMNNVL_UnsupportedButEnabled(t *testing.T) {
 // testOperatorExitsWithoutCDCRD verifies that the operator fails preflight
 // when MNNVL is enabled but the ComputeDomain CRD is missing.
 func testOperatorExitsWithoutCDCRD(t *testing.T, tc *testctx.TestContext) {
-	pod, err := waitForFailedOperatorPod(tc)
+	pod, err := tc.WaitForFailedPod(groveOperatorNamespace, "app.kubernetes.io/name=grove-operator")
 	require.NoError(t, err, "Failed to find grove-operator pod")
 
 	hasTerminated := false
@@ -80,64 +77,8 @@ func testOperatorExitsWithoutCDCRD(t *testing.T, tc *testctx.TestContext) {
 	// Check both current and previous container logs because the operator
 	// crashes on preflight failure and the error message may only appear
 	// in the previous (terminated) container's logs.
-	err = k8s.PollForCondition(tc.Ctx, defaultPollTimeout, defaultPollInterval, func() (bool, error) {
-		for _, previous := range []bool{false, true} {
-			logs, logErr := tc.Clients.Clientset.CoreV1().Pods(groveOperatorNamespace).GetLogs(pod.Name, &corev1.PodLogOptions{
-				Previous: previous,
-			}).DoRaw(tc.Ctx)
-			if logErr != nil {
-				continue
-			}
-			logText := string(logs)
-			if strings.Contains(logText, "MNNVL preflight check failed") &&
-				strings.Contains(logText, "ComputeDomain CRD") {
-				return true, nil
-			}
-		}
-		return false, nil
-	})
+	err = k8s.WaitForPodLogContains(tc.Ctx, tc.Clients.Clientset, groveOperatorNamespace, pod.Name,
+		defaultPollTimeout, defaultPollInterval,
+		"MNNVL preflight check failed", "ComputeDomain CRD")
 	assert.NoError(t, err, "Operator logs should show preflight failure due to missing CRD")
-}
-
-// waitForFailedOperatorPod polls until it finds an operator pod that is NOT
-// Ready and has terminated or restarted. During a rolling deployment
-// (maxUnavailable=0) both the old healthy pod and the new crashing pod coexist.
-// The old pod may have RestartCount > 0 from cert-refresh restarts, so we
-// filter by !Ready to ensure we return the actually-crashing pod whose logs
-// contain the preflight failure.
-func waitForFailedOperatorPod(tc *testctx.TestContext) (*corev1.Pod, error) {
-	var operatorPod *corev1.Pod
-	err := k8s.PollForCondition(tc.Ctx, defaultPollTimeout, defaultPollInterval, func() (bool, error) {
-		pods, listErr := tc.Clients.Clientset.CoreV1().Pods(groveOperatorNamespace).List(tc.Ctx, metav1.ListOptions{
-			LabelSelector: "app.kubernetes.io/name=grove-operator",
-		})
-		if listErr != nil || len(pods.Items) == 0 {
-			return false, nil
-		}
-		for i := range pods.Items {
-			pod := &pods.Items[i]
-			if isPodReady(pod) {
-				continue
-			}
-			for _, status := range pod.Status.ContainerStatuses {
-				if status.State.Terminated != nil ||
-					status.LastTerminationState.Terminated != nil ||
-					status.RestartCount > 0 {
-					operatorPod = pod
-					return true, nil
-				}
-			}
-		}
-		return false, nil
-	})
-	return operatorPod, err
-}
-
-func isPodReady(pod *corev1.Pod) bool {
-	for _, cond := range pod.Status.Conditions {
-		if cond.Type == corev1.PodReady {
-			return cond.Status == corev1.ConditionTrue
-		}
-	}
-	return false
 }
