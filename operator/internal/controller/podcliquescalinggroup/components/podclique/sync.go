@@ -110,6 +110,10 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) error {
 	if err := r.triggerDeletionOfExcessPCSGReplicas(logger, sc); err != nil {
 		return err
 	}
+
+	// check if pcs.Status.Update.Ended == nil
+	// do not create additional PCSG replicas
+
 	// Create or update the expected PodCliques as per the PodCliqueScalingGroup configurations defined in the PodCliqueSet.
 	// For OnDelete update strategy, use createOrUpdatePCLQs which performs in-place updates.
 	// For RollingRecreate (default) update strategy, use createExpectedPCLQs which only creates missing PodCliques.
@@ -158,6 +162,10 @@ func (r _resource) triggerDeletionOfExcessPCSGReplicas(logger logr.Logger, sc *s
 	// Check if the number of existing PodCliques is greater than expected, if so, we need to delete the extra ones.
 	diff := existingPCSGReplicas - int(sc.pcsg.Spec.Replicas)
 	if diff > 0 {
+		// TODO: @renormalize
+		// if sc.pcs.Spec.UpdateStrategy.Type == CRU && sc.pcs.Status.UpdateProgress.UpdateEndedAt == nil {
+		// 	return nil
+		// }
 		pcsgObjectKey := client.ObjectKeyFromObject(sc.pcsg)
 		logger.Info("Found more PodCliques than expected, triggering deletion of excess PodCliques", "expected", int(sc.pcsg.Spec.Replicas), "existing", existingPCSGReplicas, "diff", diff)
 		reason := "Delete excess PodCliqueScalingGroup replicas"

@@ -35,6 +35,8 @@ const (
 	// LabelBasePodGang is a key for a label that sets the base PodGang name for scaled PodGangs.
 	// This label is present on scaled PodGangs (beyond MinAvailable) and points to their base PodGang.
 	LabelBasePodGang = "grove.io/base-podgang"
+	// LabelMVUPodGang is a label on PodGang that indicates it was created as part of a coherent rolling update (MVU).
+	LabelMVUPodGang = "grove.io/mvu-podgang"
 	// LabelPodCliqueSetReplicaIndex is a key for a label that sets the replica index of a PodCliqueSet.
 	LabelPodCliqueSetReplicaIndex = "grove.io/podcliqueset-replica-index"
 	// LabelPodCliqueScalingGroup is a key for a label that sets the PodCliqueScalingGroup name.

@@ -34,17 +34,17 @@ func GetExpectedPCSGFQNsForPCS(pcs *grovecorev1alpha1.PodCliqueSet) []string {
 	return lo.Flatten(lo.Values(pcsgFQNsPerPCSReplica))
 }
 
-// GetPodCliqueFQNsForPCSNotInPCSG computes the FQNs for all PodCliques for all PCS replicas which are not part of any PCSG.
-func GetPodCliqueFQNsForPCSNotInPCSG(pcs *grovecorev1alpha1.PodCliqueSet) []string {
+// GetStandalonePCLQFQNsForPCS computes the FQNs for all PodCliques for all PCS replicas which are not part of any PCSG.
+func GetStandalonePCLQFQNsForPCS(pcs *grovecorev1alpha1.PodCliqueSet) []string {
 	pclqFQNs := make([]string, 0, int(pcs.Spec.Replicas)*len(pcs.Spec.Template.Cliques))
 	for pcsReplicaIndex := range int(pcs.Spec.Replicas) {
-		pclqFQNs = append(pclqFQNs, GetPodCliqueFQNsForPCSReplicaNotInPCSG(pcs, pcsReplicaIndex)...)
+		pclqFQNs = append(pclqFQNs, GetStandalonePCLQFQNsForPCSReplica(pcs, pcsReplicaIndex)...)
 	}
 	return pclqFQNs
 }
 
-// GetPodCliqueFQNsForPCSReplicaNotInPCSG computes the FQNs for all PodCliques for a PCS replica which are not part of any PCSG.
-func GetPodCliqueFQNsForPCSReplicaNotInPCSG(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex int) []string {
+// GetStandalonePCLQFQNsForPCSReplica computes the FQNs for all PodCliques for a PCS replica which are not part of any PCSG.
+func GetStandalonePCLQFQNsForPCSReplica(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex int) []string {
 	pclqNames := make([]string, 0, len(pcs.Spec.Template.Cliques))
 	for _, pclqTemplateSpec := range pcs.Spec.Template.Cliques {
 		if isStandalonePCLQ(pcs, pclqTemplateSpec.Name) {
@@ -150,7 +150,11 @@ func GetExpectedPCSGFQNsPerPCSReplica(pcs *grovecorev1alpha1.PodCliqueSet) map[i
 func GetExpectedStandAlonePCLQFQNsPerPCSReplica(pcs *grovecorev1alpha1.PodCliqueSet) map[int][]string {
 	pclqFQNsByPCSReplica := make(map[int][]string)
 	for pcsReplicaIndex := range int(pcs.Spec.Replicas) {
-		pclqFQNsByPCSReplica[pcsReplicaIndex] = GetPodCliqueFQNsForPCSReplicaNotInPCSG(pcs, pcsReplicaIndex)
+		pclqFQNsByPCSReplica[pcsReplicaIndex] = GetStandalonePCLQFQNsForPCSReplica(pcs, pcsReplicaIndex)
 	}
 	return pclqFQNsByPCSReplica
+}
+
+func IsPCSUpdateInProgress(pcs *grovecorev1alpha1.PodCliqueSet) bool {
+	return pcs.Status.UpdateProgress != nil && pcs.Status.UpdateProgress.UpdateEndedAt == nil
 }

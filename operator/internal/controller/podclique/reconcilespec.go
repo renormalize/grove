@@ -117,7 +117,7 @@ func shouldCheckPendingUpdatesForPCLQ(logger logr.Logger, pcs *grovecorev1alpha1
 	// Only if PCLQ does not belong to any PCSG should an update be triggered for the PCLQ. For PCLQs that belong to
 	// a PCSG, the PCSG controller will handle the updates by deleting the PCLQ resources instead of updating PCLQ pods
 	// individually.
-	if !slices.Contains(componentutils.GetPodCliqueFQNsForPCSNotInPCSG(pcs), pclq.Name) {
+	if !slices.Contains(componentutils.GetStandalonePCLQFQNsForPCS(pcs), pclq.Name) {
 		return false, nil
 	}
 
