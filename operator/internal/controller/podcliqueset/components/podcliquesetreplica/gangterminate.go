@@ -81,7 +81,7 @@ func (r _resource) getPCSReplicaDeletionWork(ctx context.Context, logger logr.Lo
 		if err != nil {
 			return nil, err
 		}
-		breachedPCLQNames, minPCLQWaitFor, skipPCSReplicaIndex, err := r.getMinAvailableBreachedPCLQsNotInPCSG(ctx, pcs, pcsReplicaIndex, now)
+		breachedStandalonePCLQNames, minPCLQWaitFor, skipPCSReplicaIndex, err := r.getMinAvailableBreachedStandalonePCLQs(ctx, pcs, pcsReplicaIndex, now)
 		if err != nil {
 			return nil, err
 		}
@@ -89,14 +89,14 @@ func (r _resource) getPCSReplicaDeletionWork(ctx context.Context, logger logr.Lo
 			continue
 		}
 		if (len(breachedPCSGNames) > 0 && minPCSGWaitFor <= 0) ||
-			(len(breachedPCLQNames) > 0 && minPCLQWaitFor <= 0) {
+			(len(breachedStandalonePCLQNames) > 0 && minPCLQWaitFor <= 0) {
 			// terminate all PodCliques for this PCS replica index
 			reason := fmt.Sprintf("Delete all PodCliques for PodCliqueSet %v with replicaIndex :%d due to MinAvailable breached longer than TerminationDelay: %s", pcsObjectKey, pcsReplicaIndex, terminationDelay)
 			pclqGangTerminationTask := r.createPCSReplicaDeleteTask(logger, pcs, pcsReplicaIndex, reason)
 			deletionTasks = append(deletionTasks, pclqGangTerminationTask)
 			work.pcsIndicesToTerminate = append(work.pcsIndicesToTerminate, pcsReplicaIndex)
-		} else if len(breachedPCSGNames) > 0 || len(breachedPCLQNames) > 0 {
-			work.minAvailableBreachedConstituents[pcsReplicaIndex] = append(work.minAvailableBreachedConstituents[pcsReplicaIndex], breachedPCLQNames...)
+		} else if len(breachedPCSGNames) > 0 || len(breachedStandalonePCLQNames) > 0 {
+			work.minAvailableBreachedConstituents[pcsReplicaIndex] = append(work.minAvailableBreachedConstituents[pcsReplicaIndex], breachedStandalonePCLQNames...)
 			work.minAvailableBreachedConstituents[pcsReplicaIndex] = append(work.minAvailableBreachedConstituents[pcsReplicaIndex], breachedPCSGNames...)
 		}
 	}
@@ -123,19 +123,19 @@ func (r _resource) getMinAvailableBreachedPCSGs(ctx context.Context, pcsObjKey c
 	return breachedPCSGNames, minWaitFor, nil
 }
 
-// getMinAvailableBreachedPCLQsNotInPCSG retrieves standalone PCLQs that have breached MinAvailable.
-func (r _resource) getMinAvailableBreachedPCLQsNotInPCSG(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex int, since time.Time) (breachedPCLQNames []string, minWaitFor time.Duration, skipPCSReplica bool, err error) {
-	pclqFQNsNotInPCSG := make([]string, 0, len(pcs.Spec.Template.Cliques))
+// getMinAvailableBreachedStandalonePCLQs retrieves standalone PCLQs that have breached MinAvailable.
+func (r _resource) getMinAvailableBreachedStandalonePCLQs(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex int, since time.Time) (breachedPCLQNames []string, minWaitFor time.Duration, skipPCSReplica bool, err error) {
+	standalonePCLQFQNs := make([]string, 0, len(pcs.Spec.Template.Cliques))
 	for _, pclqTemplateSpec := range pcs.Spec.Template.Cliques {
 		if !isPCLQInPCSG(pclqTemplateSpec.Name, pcs.Spec.Template.PodCliqueScalingGroupConfigs) {
-			pclqFQNsNotInPCSG = append(pclqFQNsNotInPCSG, apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: pcsReplicaIndex}, pclqTemplateSpec.Name))
+			standalonePCLQFQNs = append(standalonePCLQFQNs, apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: pcsReplicaIndex}, pclqTemplateSpec.Name))
 		}
 	}
 	var (
 		pclqs            []grovecorev1alpha1.PodClique
 		notFoundPCLQFQNs []string
 	)
-	pclqs, notFoundPCLQFQNs, err = r.getExistingPCLQsByNames(ctx, pcs.Namespace, pclqFQNsNotInPCSG)
+	pclqs, notFoundPCLQFQNs, err = r.getExistingPCLQsByNames(ctx, pcs.Namespace, standalonePCLQFQNs)
 	if err != nil {
 		return
 	}

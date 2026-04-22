@@ -24,6 +24,7 @@ import (
 
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
+	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 	"github.com/ai-dynamo/grove/operator/internal/utils"
 
@@ -71,7 +72,8 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcs *grovecorev
 			fmt.Sprintf("Could not compute pending replica deletion delWork for PCS: %v", pcsObjectKey))
 	}
 
-	if delWork.hasPendingPCSReplicaDeletion() {
+	// Ensure that replica deletion is not triggered when an auto update is triggered, but the MinAvailableBreached is not yet set to `Unknown`
+	if delWork.hasPendingPCSReplicaDeletion() && !componentutils.IsPCSUpdateInProgress(pcs) {
 		if runResult := utils.RunConcurrently(ctx, logger, delWork.deletionTasks); runResult.HasErrors() {
 			return groveerr.WrapError(runResult.GetAggregatedError(),
 				errCodeDeletePCSReplica,
@@ -81,11 +83,17 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcs *grovecorev
 		}
 	}
 
-	// Orchestrate the rolling recreate when the strategy is RollingRecreate and the update is currently in progress
+	// Orchestrate the rolling updates when the strategy is RollingRecreate or Coherent and the update is currently in progress
 	if isAutoUpdateInProgress(pcs) {
 		minAvailableBreachedPCSReplicaIndices := slices.Collect(maps.Keys(delWork.minAvailableBreachedConstituents))
-		if err := r.orchestrateRollingUpdate(ctx, logger, pcs, delWork.pcsIndicesToTerminate, minAvailableBreachedPCSReplicaIndices); err != nil {
-			return err
+		if pcs.Spec.UpdateStrategy == nil || pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.RollingRecreateStrategy {
+			if err := r.orchestrateRollingRecreateUpdate(ctx, logger, pcs, delWork.pcsIndicesToTerminate, minAvailableBreachedPCSReplicaIndices); err != nil {
+				return err
+			}
+		} else if pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.CoherentUpdateStrategy {
+			if err := r.orchestrateCoherentUpdate(ctx, logger, pcs, delWork.pcsIndicesToTerminate, minAvailableBreachedPCSReplicaIndices); err != nil {
+				return err
+			}
 		}
 	}
 

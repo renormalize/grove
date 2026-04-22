@@ -11094,6 +11094,18 @@ spec:
               updateProgress:
                 description: UpdateProgress represents the progress of an update.
                 properties:
+                  coherentUpdate:
+                    description: |-
+                      CoherentUpdate captures coherent-update-specific progress.
+                      This field is only set when the update strategy is Coherent.
+                    properties:
+                      latestMPGName:
+                        description: |-
+                          LatestMPGName is the name of the latest MPG (Minimal Pod Gang) PodGang resource being waited on
+                          for the currently-updating replica. The MPG follows the naming convention
+                          <pcs-name>-<pcs-replica-index>-<pcs-revision>-<iteration-index>.
+                        type: string
+                    type: object
                   currentlyUpdating:
                     description: |-
                       CurrentlyUpdating captures the progress of the PodCliqueSet replicas that are currently being updated.

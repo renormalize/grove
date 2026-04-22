@@ -109,7 +109,7 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcs *grovecorev
 
 // triggerDeletionOfExcessPCLQs deletes PodCliques that exceed the desired replica count.
 func (r _resource) triggerDeletionOfExcessPCLQs(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, existingPCLQFQNs []string) error {
-	expectedPCLQFQNs := componentutils.GetPodCliqueFQNsForPCSNotInPCSG(pcs)
+	expectedPCLQFQNs := componentutils.GetStandalonePCLQFQNsForPCS(pcs)
 	// Check if the number of existing PodCliques is greater than expected, if so, we need to delete the extra ones.
 	diff := len(existingPCLQFQNs) - len(expectedPCLQFQNs)
 	if diff > 0 {

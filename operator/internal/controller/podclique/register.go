@@ -200,7 +200,7 @@ func mapPodCliqueSetToPCLQs() handler.MapFunc {
 		if !ok {
 			return nil
 		}
-		return lo.Map(componentutils.GetPodCliqueFQNsForPCSNotInPCSG(pcs), func(pclqFQN string, _ int) reconcile.Request {
+		return lo.Map(componentutils.GetStandalonePCLQFQNsForPCS(pcs), func(pclqFQN string, _ int) reconcile.Request {
 			return reconcile.Request{NamespacedName: types.NamespacedName{
 				Namespace: pcs.Namespace,
 				Name:      pclqFQN,

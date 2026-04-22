@@ -146,6 +146,8 @@ func shouldEnqueueOnPCSUpdate(event event.UpdateEvent) bool {
 		return false
 	}
 
+	// TODO: @renormalize modify the predicate so that the CoherentUpdate type is checked, and if it is, skip the event
+
 	if oldPCS.Status.UpdateProgress != nil && newPCS.Status.UpdateProgress != nil {
 		if utils.OnlyOneIsEmpty(oldPCS.Status.UpdateProgress.CurrentlyUpdating, newPCS.Status.UpdateProgress.CurrentlyUpdating) ||
 			len(oldPCS.Status.UpdateProgress.CurrentlyUpdating) > 0 &&

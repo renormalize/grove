@@ -118,8 +118,8 @@ func TestGetExpectedPCSGFQNsForPCS(t *testing.T) {
 	}
 }
 
-// TestGetPodCliqueFQNsForPCSNotInPCSG tests the GetPodCliqueFQNsForPCSNotInPCSG function
-func TestGetPodCliqueFQNsForPCSNotInPCSG(t *testing.T) {
+// TestGetStandalonePCLQFQNsForPCS tests the GetStandalonePCLQFQNsForPCS function
+func TestGetStandalonePCLQFQNsForPCS(t *testing.T) {
 	tests := []struct {
 		// Test case description
 		name string
@@ -210,7 +210,7 @@ func TestGetPodCliqueFQNsForPCSNotInPCSG(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := GetPodCliqueFQNsForPCSNotInPCSG(tc.pcs)
+			result := GetStandalonePCLQFQNsForPCS(tc.pcs)
 			assert.ElementsMatch(t, tc.expected, result)
 		})
 	}

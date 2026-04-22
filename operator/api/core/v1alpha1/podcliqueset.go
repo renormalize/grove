@@ -199,6 +199,10 @@ type PodCliqueSetUpdateProgress struct {
 	// OnDelete update strategy.
 	// +optional
 	CurrentlyUpdating []PodCliqueSetReplicaUpdateProgress `json:"currentlyUpdating,omitempty"`
+	// CoherentUpdate captures coherent-update-specific progress.
+	// This field is only set when the update strategy is Coherent.
+	// +optional
+	CoherentUpdate *CoherentUpdateProgress `json:"coherentUpdate,omitempty"`
 }
 
 // PodCliqueSetReplicaUpdateProgress captures the progress of an update for a specific PodCliqueSet replica.
@@ -212,6 +216,15 @@ type PodCliqueSetReplicaUpdateProgress struct {
 	// running the latest specification.
 	// +optional
 	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
+}
+
+// CoherentUpdateProgress captures the progress of a coherent update.
+type CoherentUpdateProgress struct {
+	// LatestMPGName is the name of the latest MPG (Minimal Pod Gang) PodGang resource being waited on
+	// for the currently-updating replica. The MPG follows the naming convention
+	// <pcs-name>-<pcs-replica-index>-<pcs-revision>-<iteration-index>.
+	// +optional
+	LatestMPGName *string `json:"latestMPGName,omitempty"`
 }
 
 // PodCliqueSetTemplateSpec defines a template spec for a PodGang.

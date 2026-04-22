@@ -190,3 +190,19 @@ func FindPodCliqueTemplateSpecByName(pcs *grovecorev1alpha1.PodCliqueSet, pclqNa
 	}
 	return matchingPCLQTemplateSpec
 }
+
+// GetExistingPCLQsForPCS fetches all existing PodCliques managed by the PodCliqueSet.
+func GetExistingPCLQsForPCS(ctx context.Context, cl client.Client, pcs *grovecorev1alpha1.PodCliqueSet) ([]grovecorev1alpha1.PodClique, error) {
+	pclqList := &grovecorev1alpha1.PodCliqueList{}
+	if err := cl.List(ctx, pclqList,
+		client.InNamespace(pcs.Namespace),
+		client.MatchingLabels(apicommon.GetDefaultLabelsForPodCliqueSetManagedResources(pcs.Name))); err != nil {
+		return nil, err
+	}
+
+	// Return all PodCliques with matching labels. PodCliques can be owned either:
+	// 1. Directly by PCS (standalone pclqs)
+	// 2. By PCSG (scaling group member pclqs) - PCSG itself is owned by PCS
+	// Label matching ensures they belong to this PCS, no ownership filter needed.
+	return pclqList.Items, nil
+}
