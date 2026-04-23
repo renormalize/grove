@@ -23,6 +23,7 @@ import (
 	"fmt"
 
 	configv1alpha1 "github.com/ai-dynamo/grove/operator/api/config/v1alpha1"
+	"github.com/ai-dynamo/grove/operator/e2e/setup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -30,8 +31,8 @@ import (
 )
 
 const (
-	operatorNamespace        = "grove-system"
-	operatorDeploymentName   = "grove-operator"
+	operatorNamespace        = setup.OperatorNamespace
+	operatorDeploymentName   = setup.OperatorDeploymentName
 	operatorConfigVolume     = "operator-config"
 	operatorConfigDataKey    = "config.yaml"
 	operatorManagerContainer = "manager"

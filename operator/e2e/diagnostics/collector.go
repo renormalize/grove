@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ai-dynamo/grove/operator/e2e/grove/gvk"
 	"github.com/ai-dynamo/grove/operator/e2e/k8s/k8sclient"
 	"github.com/ai-dynamo/grove/operator/e2e/log"
 	"github.com/ai-dynamo/grove/operator/e2e/setup"
@@ -63,10 +64,10 @@ type groveResourceType struct {
 }
 
 var groveResourceTypes = []groveResourceType{
-	{"PodCliqueSets", schema.GroupVersionKind{Group: "grove.io", Version: "v1alpha1", Kind: "PodCliqueSetList"}, "PODCLIQUESET"},
-	{"PodCliques", schema.GroupVersionKind{Group: "grove.io", Version: "v1alpha1", Kind: "PodCliqueList"}, "PODCLIQUE"},
-	{"PodCliqueScalingGroups", schema.GroupVersionKind{Group: "grove.io", Version: "v1alpha1", Kind: "PodCliqueScalingGroupList"}, "PODCLIQUESCALINGGROUP"},
-	{"PodGangs", schema.GroupVersionKind{Group: "scheduler.grove.io", Version: "v1alpha1", Kind: "PodGangList"}, "PODGANG"},
+	{"PodCliqueSets", gvk.PodCliqueSet.GroupVersion().WithKind(gvk.PodCliqueSet.Kind + "List"), "PODCLIQUESET"},
+	{"PodCliques", gvk.PodClique.GroupVersion().WithKind(gvk.PodClique.Kind + "List"), "PODCLIQUE"},
+	{"PodCliqueScalingGroups", gvk.PodCliqueScalingGroup.GroupVersion().WithKind(gvk.PodCliqueScalingGroup.Kind + "List"), "PODCLIQUESCALINGGROUP"},
+	{"PodGangs", gvk.PodGang.GroupVersion().WithKind(gvk.PodGang.Kind + "List"), "PODGANG"},
 }
 
 // DiagCollector collects diagnostics from a Kubernetes cluster on test failure.

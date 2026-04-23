@@ -25,6 +25,7 @@ import (
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	"github.com/ai-dynamo/grove/operator/e2e/grove/gvk"
 	"github.com/ai-dynamo/grove/operator/e2e/testctx"
 	"github.com/ai-dynamo/grove/operator/internal/mnnvl"
 	"github.com/stretchr/testify/assert"
@@ -145,7 +146,7 @@ func testComputeDomainCreatedPerReplica(t *testing.T, tc *testctx.TestContext) {
 	// The finalizer should prevent deletion until the PCS replica is no longer using it.
 	cdName := fmt.Sprintf("%s-0", pcsName)
 	cdObj := &unstructured.Unstructured{}
-	cdObj.SetGroupVersionKind(computeDomainGVK)
+	cdObj.SetGroupVersionKind(gvk.ComputeDomain)
 	cdObj.SetName(cdName)
 	cdObj.SetNamespace(tc.Namespace)
 	err = tc.Client.Delete(tc.Ctx, cdObj)
@@ -484,7 +485,7 @@ func requireNoContainerMNNVLClaim(t *testing.T, container *corev1.Container) {
 // getComputeDomain attempts to get a ComputeDomain by name. Returns error if not found.
 func getComputeDomain(tc *testctx.TestContext, name string) error {
 	cd := &unstructured.Unstructured{}
-	cd.SetGroupVersionKind(computeDomainGVK)
+	cd.SetGroupVersionKind(gvk.ComputeDomain)
 	return tc.Client.Get(tc.Ctx, types.NamespacedName{Namespace: tc.Namespace, Name: name}, cd)
 }
 
@@ -494,7 +495,7 @@ func verifyComputeDomainContent(t *testing.T, tc *testctx.TestContext, pcsName s
 
 	cdName := fmt.Sprintf("%s-%d", pcsName, replicaIndex)
 	cd := &unstructured.Unstructured{}
-	cd.SetGroupVersionKind(computeDomainGVK)
+	cd.SetGroupVersionKind(gvk.ComputeDomain)
 	err := tc.Client.Get(tc.Ctx, types.NamespacedName{Namespace: tc.Namespace, Name: cdName}, cd)
 	require.NoError(t, err, "ComputeDomain %s should exist", cdName)
 
@@ -512,8 +513,8 @@ func verifyComputeDomainContent(t *testing.T, tc *testctx.TestContext, pcsName s
 
 	// Verify labels
 	labels := cd.GetLabels()
-	assert.Equal(t, pcsName, labels["app.kubernetes.io/part-of"])
-	assert.Equal(t, fmt.Sprintf("%d", replicaIndex), labels["grove.io/podcliqueset-replica-index"])
+	assert.Equal(t, pcsName, labels[apicommon.LabelPartOfKey])
+	assert.Equal(t, fmt.Sprintf("%d", replicaIndex), labels[apicommon.LabelPodCliqueSetReplicaIndex])
 
 	// Verify numNodes is 0 (elastic mode)
 	numNodes, found, err := unstructured.NestedInt64(cd.Object, "spec", "numNodes")

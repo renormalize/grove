@@ -24,27 +24,13 @@ import (
 	"time"
 
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	"github.com/ai-dynamo/grove/operator/e2e/grove/gvk"
 	"github.com/ai-dynamo/grove/operator/e2e/k8s/k8sclient"
 	"github.com/ai-dynamo/grove/operator/e2e/k8s/resources"
 	"github.com/ai-dynamo/grove/operator/e2e/log"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-)
-
-var (
-	podCliqueSetGVK = schema.GroupVersionKind{
-		Group:   "grove.io",
-		Version: "v1alpha1",
-		Kind:    "PodCliqueSet",
-	}
-
-	podCliqueScalingGroupGVK = schema.GroupVersionKind{
-		Group:   "grove.io",
-		Version: "v1alpha1",
-		Kind:    "PodCliqueScalingGroup",
-	}
 )
 
 // WorkloadManager provides Grove workload operations using a controller-runtime client.
@@ -67,7 +53,7 @@ func NewWorkloadManager(k8s *k8sclient.Client, logger *log.Logger) *WorkloadMana
 
 // ScalePCS scales a PodCliqueSet to the specified replica count.
 func (wm *WorkloadManager) ScalePCS(ctx context.Context, namespace, name string, replicas int) error {
-	return wm.resources.ScaleCRD(ctx, podCliqueSetGVK, namespace, name, replicas)
+	return wm.resources.ScaleCRD(ctx, gvk.PodCliqueSet, namespace, name, replicas)
 }
 
 // ScalePCSG scales a PodCliqueScalingGroup to the specified replica count.
@@ -78,7 +64,7 @@ func (wm *WorkloadManager) ScalePCSG(ctx context.Context, namespace, name string
 		return fmt.Errorf("failed to find PodCliqueScalingGroup %s: %w", name, err)
 	}
 
-	return wm.resources.ScaleCRD(ctx, podCliqueScalingGroupGVK, namespace, name, replicas)
+	return wm.resources.ScaleCRD(ctx, gvk.PodCliqueScalingGroup, namespace, name, replicas)
 }
 
 // DeletePCS deletes a PodCliqueSet by name. NotFound errors are ignored.

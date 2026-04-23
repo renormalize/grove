@@ -33,6 +33,7 @@ import (
 	"testing"
 	"time"
 
+
 	configv1alpha1 "github.com/ai-dynamo/grove/operator/api/config/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/e2e/grove/workload"
 	"github.com/ai-dynamo/grove/operator/e2e/k8s/k8sclient"
@@ -45,7 +46,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/portforward"
@@ -299,8 +299,8 @@ func waitForSecretManagedByCertManager(t *testing.T, ctx context.Context, k8sCli
 }
 
 func deleteCertManagerResources(ctx context.Context, k8sClient *k8sclient.Client) {
-	certGVK := schema.GroupVersionKind{Group: "cert-manager.io", Version: "v1", Kind: "Certificate"}
-	issuerGVK := schema.GroupVersionKind{Group: "cert-manager.io", Version: "v1", Kind: "ClusterIssuer"}
+	certGVK := certManagerCertificate
+	issuerGVK := certManagerClusterIssuer
 
 	// Delete Certificate first (cert-manager resource)
 	certObj := &unstructured.Unstructured{}
@@ -356,11 +356,7 @@ func installCertManager(t *testing.T, ctx context.Context, tc *testctx.TestConte
 func waitForClusterIssuer(t *testing.T, ctx context.Context, k8sClient *k8sclient.Client, name string) {
 	t.Helper()
 
-	issuerGVK := schema.GroupVersionKind{
-		Group:   "cert-manager.io",
-		Version: "v1",
-		Kind:    "ClusterIssuer",
-	}
+	issuerGVK := certManagerClusterIssuer
 
 	fetchIssuer := waiter.FetchFunc[*unstructured.Unstructured](func(ctx context.Context) (*unstructured.Unstructured, error) {
 		obj := &unstructured.Unstructured{}
@@ -615,7 +611,7 @@ func getCertificateFromSecret(ctx context.Context, k8sClient *k8sclient.Client) 
 func getServedCertificate(ctx context.Context, k8sClient *k8sclient.Client) (*x509.Certificate, error) {
 	// Find the grove-operator pod
 	var podList corev1.PodList
-	if err := k8sClient.List(ctx, &podList, client.InNamespace(groveNamespace), client.MatchingLabels{"app.kubernetes.io/name": "grove-operator"}); err != nil {
+	if err := k8sClient.List(ctx, &podList, client.InNamespace(groveNamespace), setup.OperatorPodLabels); err != nil {
 		return nil, fmt.Errorf("failed to list operator pods: %w", err)
 	}
 	if len(podList.Items) == 0 {

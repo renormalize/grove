@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ai-dynamo/grove/operator/api/common"
 	"github.com/ai-dynamo/grove/operator/e2e/diagnostics"
 	"github.com/ai-dynamo/grove/operator/e2e/grove/workload"
 	"github.com/ai-dynamo/grove/operator/e2e/k8s/k8sclient"
@@ -57,7 +58,7 @@ type WorkloadConfig struct {
 // GetLabelSelector returns the label selector calculated from the workload name.
 // The label selector follows the pattern: "app.kubernetes.io/part-of=<name>"
 func (w WorkloadConfig) GetLabelSelector() string {
-	return fmt.Sprintf("app.kubernetes.io/part-of=%s", w.Name)
+	return fmt.Sprintf("%s=%s", common.LabelPartOfKey, w.Name)
 }
 
 // TestContext is the primary per-test helper struct.

@@ -30,7 +30,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -88,7 +87,7 @@ func Test_CRD_Installer_AllCRDsExist(t *testing.T) {
 
 	for _, crdName := range groveCRDNames {
 		crd := &unstructured.Unstructured{}
-		crd.SetGroupVersionKind(schema.GroupVersionKind{Group: "apiextensions.k8s.io", Version: "v1", Kind: "CustomResourceDefinition"})
+		crd.SetGroupVersionKind(customResourceDefinition)
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: crdName}, crd); err != nil {
 			t.Errorf("CRD %q not found: %v", crdName, err)
 			continue
@@ -128,7 +127,7 @@ func Test_CRD_Installer_InitContainerCompleted(t *testing.T) {
 	defer disableCRDInstaller()
 
 	var podList v1.PodList
-	if err := k8sClient.List(ctx, &podList, client.InNamespace(setup.OperatorNamespace), client.MatchingLabels{"app.kubernetes.io/name": "grove-operator"}); err != nil {
+	if err := k8sClient.List(ctx, &podList, client.InNamespace(setup.OperatorNamespace), setup.OperatorPodLabels); err != nil {
 		t.Fatalf("failed to list operator pods: %v", err)
 	}
 	if len(podList.Items) == 0 {
@@ -173,7 +172,7 @@ func Test_CRD_Installer_Idempotent(t *testing.T) {
 
 	// Get the current operator pod name.
 	var podList v1.PodList
-	if err := k8sClient.List(ctx, &podList, client.InNamespace(setup.OperatorNamespace), client.MatchingLabels{"app.kubernetes.io/name": "grove-operator"}); err != nil || len(podList.Items) == 0 {
+	if err := k8sClient.List(ctx, &podList, client.InNamespace(setup.OperatorNamespace), setup.OperatorPodLabels); err != nil || len(podList.Items) == 0 {
 		t.Fatalf("failed to get operator pod: %v (count: %d)", err, len(podList.Items))
 	}
 	podName := podList.Items[0].Name
@@ -192,7 +191,7 @@ func Test_CRD_Installer_Idempotent(t *testing.T) {
 	// All 5 CRDs must still exist and be Established after the restart.
 	for _, crdName := range groveCRDNames {
 		crd := &unstructured.Unstructured{}
-		crd.SetGroupVersionKind(schema.GroupVersionKind{Group: "apiextensions.k8s.io", Version: "v1", Kind: "CustomResourceDefinition"})
+		crd.SetGroupVersionKind(customResourceDefinition)
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: crdName}, crd); err != nil {
 			t.Errorf("CRD %q missing after operator pod restart: %v", crdName, err)
 		}

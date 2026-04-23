@@ -168,12 +168,12 @@ func Test_TAS2_MultipleCliquesWithDifferentConstraints(t *testing.T) {
 	}
 
 	Logger.Info("3. Verify worker-rack pods (3) are in the same rack")
-	if err := topologyVerifier.VerifyLabeledPodsInTopologyDomain(tc.Ctx, allPods, LabelPodClique, "tas-indep-clq-0-worker-rack", 3, setup.TopologyLabelRack); err != nil {
+	if err := topologyVerifier.VerifyLabeledPodsInTopologyDomain(tc.Ctx, allPods, nameutils.LabelPodClique, "tas-indep-clq-0-worker-rack", 3, setup.TopologyLabelRack); err != nil {
 		t.Fatalf("Failed to verify worker-rack pods in same rack: %v", err)
 	}
 
 	Logger.Info("4. Verify worker-block pods (4) are in the same block")
-	if err := topologyVerifier.VerifyLabeledPodsInTopologyDomain(tc.Ctx, allPods, LabelPodClique, "tas-indep-clq-0-worker-block", 4, setup.TopologyLabelBlock); err != nil {
+	if err := topologyVerifier.VerifyLabeledPodsInTopologyDomain(tc.Ctx, allPods, nameutils.LabelPodClique, "tas-indep-clq-0-worker-block", 4, setup.TopologyLabelBlock); err != nil {
 		t.Fatalf("Failed to verify worker-block pods in same block: %v", err)
 	}
 
@@ -279,7 +279,7 @@ func Test_TAS4_PCSGOnlyConstraint(t *testing.T) {
 	}
 
 	Logger.Info("3. Verify PCSG worker pods (2 total, 1 per replica) in same rack")
-	if err := topologyVerifier.VerifyLabeledPodsInTopologyDomain(tc.Ctx, allPods, LabelPodCliqueScalingGroup, "tas-sl-pcsg-only-0-workers", 2, setup.TopologyLabelRack); err != nil {
+	if err := topologyVerifier.VerifyLabeledPodsInTopologyDomain(tc.Ctx, allPods, nameutils.LabelPodCliqueScalingGroup, "tas-sl-pcsg-only-0-workers", 2, setup.TopologyLabelRack); err != nil {
 		t.Fatalf("Failed to verify worker pods in same rack: %v", err)
 	}
 
@@ -495,7 +495,7 @@ func Test_TAS8_FullHierarchyWithCascadingConstraints(t *testing.T) {
 	cliqueTypes := []string{"prefill", "decode"}
 	for pcsgReplica := 0; pcsgReplica < 2; pcsgReplica++ {
 		for _, cliqueType := range cliqueTypes {
-			cliquePods := topology.FilterPodsByLabel(allPods, LabelPodClique,
+			cliquePods := topology.FilterPodsByLabel(allPods, nameutils.LabelPodClique,
 				fmt.Sprintf("tas-hierarchy-0-inference-group-%d-%s", pcsgReplica, cliqueType))
 			if len(cliquePods) != 2 {
 				t.Fatalf("Expected 2 %s pods for PCSG replica %d, got %d", cliqueType, pcsgReplica, len(cliquePods))
@@ -906,7 +906,7 @@ func Test_TAS14_MultiReplicaWithRackConstraint(t *testing.T) {
 
 	Logger.Info("3. Verify each PCS replica's pods (2) are in same rack")
 	for pcsReplica := 0; pcsReplica < 2; pcsReplica++ {
-		replicaPods := topology.FilterPodsByLabel(allPods, "grove.io/podcliqueset-replica-index", fmt.Sprintf("%d", pcsReplica))
+		replicaPods := topology.FilterPodsByLabel(allPods, nameutils.LabelPodCliqueSetReplicaIndex, fmt.Sprintf("%d", pcsReplica))
 		if len(replicaPods) != 2 {
 			t.Fatalf("Expected 2 replica-%d pods, got %d", pcsReplica, len(replicaPods))
 		}
@@ -983,7 +983,7 @@ func Test_TAS15_DisaggregatedInferenceMultiplePCSGs(t *testing.T) {
 	}
 
 	Logger.Info("5. Verify router pods (2 standalone, no PCSG label)")
-	routerPods := topology.FilterPodsByLabel(allPods, LabelPodClique, routerPCLQ)
+	routerPods := topology.FilterPodsByLabel(allPods, nameutils.LabelPodClique, routerPCLQ)
 	if len(routerPods) != 2 {
 		t.Fatalf("Expected 2 router pods, got %d", len(routerPods))
 	}
@@ -1077,7 +1077,7 @@ func Test_TAS16_MultiReplicaPCSWithThreeLevelHierarchy(t *testing.T) {
 	// Verify for each PCS replica
 	for pcsReplica := 0; pcsReplica < 2; pcsReplica++ {
 		replicaLabel := fmt.Sprintf("%d", pcsReplica)
-		replicaPods := topology.FilterPodsByLabel(allPods, "grove.io/podcliqueset-replica-index", replicaLabel)
+		replicaPods := topology.FilterPodsByLabel(allPods, nameutils.LabelPodCliqueSetReplicaIndex, replicaLabel)
 		if len(replicaPods) != 10 {
 			t.Fatalf("Expected 10 pods for PCS replica %d, got %d", pcsReplica, len(replicaPods))
 		}
@@ -1115,7 +1115,7 @@ func Test_TAS16_MultiReplicaPCSWithThreeLevelHierarchy(t *testing.T) {
 
 		// Verify router pods (2 standalone)
 		Logger.Infof("4.%d. Verify router pods (2 standalone)", pcsReplica+1)
-		routerPods := topology.FilterPodsByLabel(replicaPods, LabelPodClique, routerPCLQ)
+		routerPods := topology.FilterPodsByLabel(replicaPods, nameutils.LabelPodClique, routerPCLQ)
 		if len(routerPods) != 2 {
 			t.Fatalf("Expected 2 router pods for PCS replica %d, got %d", pcsReplica, len(routerPods))
 		}

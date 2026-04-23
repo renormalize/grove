@@ -134,7 +134,7 @@ func (pv *PodGroupVerifier) GetKAIPodGroupsForPCS(ctx context.Context, namespace
 	var podGroupList kaischedulingv2alpha2.PodGroupList
 	if err := pv.cl.List(ctx, &podGroupList,
 		client.InNamespace(namespace),
-		client.MatchingLabels{"app.kubernetes.io/part-of": pcsName},
+		client.MatchingLabels{nameutils.LabelPartOfKey: pcsName},
 	); err != nil {
 		return nil, fmt.Errorf("failed to list KAI PodGroups with label app.kubernetes.io/part-of=%s in namespace %s: %w", pcsName, namespace, err)
 	}

@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	common "github.com/ai-dynamo/grove/operator/api/common"
 	grovev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/e2e/grove/workload"
 	"github.com/ai-dynamo/grove/operator/e2e/k8s/k8sclient"
@@ -127,7 +128,7 @@ func getPodsForClique(tc *testctx.TestContext, cliqueName string) ([]string, err
 		if pod.Labels == nil {
 			continue
 		}
-		if pclq, ok := pod.Labels["grove.io/podclique"]; ok && strings.HasSuffix(pclq, "-"+cliqueName) {
+		if pclq, ok := pod.Labels[common.LabelPodClique]; ok && strings.HasSuffix(pclq, "-"+cliqueName) {
 			cliquePods = append(cliquePods, pod.Name)
 		}
 	}
@@ -593,7 +594,7 @@ func verifyOnePodDeletedAtATime(tc *testctx.TestContext, events []podEvent) {
 	for i, event := range events {
 		podclique := ""
 		if event.pod.Labels != nil {
-			podclique = event.pod.Labels["grove.io/podclique"]
+			podclique = event.pod.Labels[common.LabelPodClique]
 		}
 		tests.Logger.Debugf("Event[%d]: Type=%s PodName=%s Hostname=%s PodClique=%s Timestamp=%v",
 			i, event.eventType, event.pod.Name, event.pod.Spec.Hostname, podclique, event.timestamp.Format("15:04:05.000"))
@@ -705,7 +706,7 @@ func verifyOnePodDeletedAtATimePerPodclique(tc *testctx.TestContext, events []po
 			tc.T.Fatalf("Pod %s has no labels, which indicates a bug in pod creation", event.pod.Name)
 		}
 
-		podcliqueName, ok := event.pod.Labels["grove.io/podclique"]
+		podcliqueName, ok := event.pod.Labels[common.LabelPodClique]
 		if !ok {
 			tc.T.Fatalf("Pod %s does not have grove.io/podclique label", event.pod.Name)
 		}
@@ -795,12 +796,12 @@ func verifySinglePCSReplicaUpdatedFirst(tc *testctx.TestContext, events []podEve
 	// Log all events for debugging
 	for i, event := range events {
 		replicaIdx := 0
-		if val, ok := event.pod.Labels["grove.io/podcliqueset-replica-index"]; ok {
+		if val, ok := event.pod.Labels[common.LabelPodCliqueSetReplicaIndex]; ok {
 			replicaIdx, _ = strconv.Atoi(val)
 		}
 		podclique := ""
 		if event.pod.Labels != nil {
-			podclique = event.pod.Labels["grove.io/podclique"]
+			podclique = event.pod.Labels[common.LabelPodClique]
 		}
 		tests.Logger.Debugf("Event[%d]: Type=%s PodName=%s Hostname=%s Replica=%d PodClique=%s Timestamp=%v",
 			i, event.eventType, event.pod.Name, event.pod.Spec.Hostname, replicaIdx, podclique, event.timestamp.Format("15:04:05.000"))
@@ -818,12 +819,12 @@ func verifySinglePCSReplicaUpdatedFirst(tc *testctx.TestContext, events []podEve
 	for i, event := range events {
 		// Extract replica index from pod labels (defaults to 0 if not present)
 		replicaIdx := 0
-		if val, ok := event.pod.Labels["grove.io/podcliqueset-replica-index"]; ok {
+		if val, ok := event.pod.Labels[common.LabelPodCliqueSetReplicaIndex]; ok {
 			replicaIdx, _ = strconv.Atoi(val)
 		}
 
 		// Extract PodClique name - skip pods without this label
-		_, ok := event.pod.Labels["grove.io/podclique"]
+		_, ok := event.pod.Labels[common.LabelPodClique]
 		if !ok {
 			continue
 		}
@@ -939,12 +940,12 @@ func verifyOnePCSGReplicaDeletedAtATime(tc *testctx.TestContext, events []podEve
 		if event.pod.Labels == nil {
 			continue
 		}
-		replicaID, hasReplicaLabel := event.pod.Labels["grove.io/podcliquescalinggroup-replica-index"]
+		replicaID, hasReplicaLabel := event.pod.Labels[common.LabelPodCliqueScalingGroupReplicaIndex]
 		if !hasReplicaLabel {
 			continue
 		}
-		pcsgName := event.pod.Labels["grove.io/podcliquescalinggroup"]
-		podclique := event.pod.Labels["grove.io/podclique"]
+		pcsgName := event.pod.Labels[common.LabelPodCliqueScalingGroup]
+		podclique := event.pod.Labels[common.LabelPodClique]
 		tests.Logger.Debugf("Event[%d]: Type=%s PodName=%s PCSG=%s ReplicaID=%s PodClique=%s Timestamp=%v",
 			i, event.eventType, event.pod.Name, pcsgName, replicaID, podclique, event.timestamp.Format("15:04:05.000"))
 	}
@@ -964,12 +965,12 @@ func verifyOnePCSGReplicaDeletedAtATime(tc *testctx.TestContext, events []podEve
 		}
 
 		// Only process pods that belong to a PCSG (not all pods have this label)
-		replicaID, hasReplicaLabel := event.pod.Labels["grove.io/podcliquescalinggroup-replica-index"]
+		replicaID, hasReplicaLabel := event.pod.Labels[common.LabelPodCliqueScalingGroupReplicaIndex]
 		if !hasReplicaLabel {
 			continue
 		}
 
-		pcsgName, ok := event.pod.Labels["grove.io/podcliquescalinggroup"]
+		pcsgName, ok := event.pod.Labels[common.LabelPodCliqueScalingGroup]
 		if !ok {
 			tc.T.Fatalf("Pod %s has PCSG replica index but no PCSG name label", event.pod.Name)
 		}
@@ -1059,12 +1060,12 @@ func verifyOnePCSGReplicaDeletedAtATimePerPCSG(tc *testctx.TestContext, events [
 		}
 
 		// Only process pods that belong to a PCSG (not all pods have this label)
-		replicaID, hasReplicaLabel := event.pod.Labels["grove.io/podcliquescalinggroup-replica-index"]
+		replicaID, hasReplicaLabel := event.pod.Labels[common.LabelPodCliqueScalingGroupReplicaIndex]
 		if !hasReplicaLabel {
 			continue
 		}
 
-		pcsgName, ok := event.pod.Labels["grove.io/podcliquescalinggroup"]
+		pcsgName, ok := event.pod.Labels[common.LabelPodCliqueScalingGroup]
 		if !ok {
 			tc.T.Fatalf("Pod %s has PCSG replica index but no PCSG name label", event.pod.Name)
 		}

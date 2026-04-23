@@ -26,7 +26,9 @@ import (
 	"strings"
 	"testing"
 
+	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	"github.com/ai-dynamo/grove/operator/e2e/grove/gvk"
 	"github.com/ai-dynamo/grove/operator/e2e/grove/workload"
 	k8sutils "github.com/ai-dynamo/grove/operator/e2e/k8s"
 	"github.com/ai-dynamo/grove/operator/e2e/k8s/pods"
@@ -36,7 +38,6 @@ import (
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -46,11 +47,6 @@ const (
 	rsNamespace    = "default"
 )
 
-var podCliqueGVK = schema.GroupVersionKind{
-	Group:   "grove.io",
-	Version: "v1alpha1",
-	Kind:    "PodClique",
-}
 
 // --- RC name inventories ---
 //
@@ -330,8 +326,8 @@ func Test_RS1_HierarchicalResourceSharing(t *testing.T) {
 	defer cleanup()
 
 	crClient := tc.Client
-	rcLabelSelector := fmt.Sprintf("app.kubernetes.io/managed-by=grove-operator,app.kubernetes.io/part-of=%s,app.kubernetes.io/component=resource-claim", rsWorkloadName)
-	podSelector := fmt.Sprintf("app.kubernetes.io/part-of=%s", rsWorkloadName)
+	rcLabelSelector := fmt.Sprintf("%s=%s,%s=%s,%s=resource-claim", apicommon.LabelManagedByKey, apicommon.LabelManagedByValue, apicommon.LabelPartOfKey, rsWorkloadName, apicommon.LabelComponentKey)
+	podSelector := fmt.Sprintf("%s=%s", apicommon.LabelPartOfKey, rsWorkloadName)
 
 	Logger.Info("2. Create cross-namespace RCT (rs-shared/ext-ns-tpl)")
 	createCrossNamespaceRCT(t, tc)
@@ -353,13 +349,13 @@ func Test_RS1_HierarchicalResourceSharing(t *testing.T) {
 		t.Fatalf("Failed to list ResourceClaims for label check: %v", err)
 	}
 	for _, rc := range rcList.Items {
-		if rc.Labels["app.kubernetes.io/managed-by"] != "grove-operator" {
+		if rc.Labels[apicommon.LabelManagedByKey] != apicommon.LabelManagedByValue {
 			t.Errorf("RC %s missing managed-by label", rc.Name)
 		}
-		if rc.Labels["app.kubernetes.io/part-of"] != rsWorkloadName {
+		if rc.Labels[apicommon.LabelPartOfKey] != rsWorkloadName {
 			t.Errorf("RC %s missing part-of label", rc.Name)
 		}
-		if rc.Labels["app.kubernetes.io/component"] != "resource-claim" {
+		if rc.Labels[apicommon.LabelComponentKey] != "resource-claim" {
 			t.Errorf("RC %s missing component label", rc.Name)
 		}
 	}
@@ -464,7 +460,7 @@ func Test_RS1_HierarchicalResourceSharing(t *testing.T) {
 // scalePodClique scales a PodClique using the resource manager.
 func scalePodClique(tc *testctx.TestContext, name string, replicas int) error {
 	rm := resources.NewResourceManager(tc.Client, Logger)
-	return rm.ScaleCRD(tc.Ctx, podCliqueGVK, tc.Namespace, name, replicas)
+	return rm.ScaleCRD(tc.Ctx, gvk.PodClique, tc.Namespace, name, replicas)
 }
 
 // verifyRCState waits for the expected RC count and verifies exact RC names.
@@ -509,9 +505,9 @@ func verifyPodResourceClaimRefs(t *testing.T, pods []v1.Pod, expectedRefsByPCLQ 
 	matchedPCLQs := make(map[string]bool)
 
 	for _, pod := range pods {
-		pclqName := pod.Labels[LabelPodClique]
+		pclqName := pod.Labels[apicommon.LabelPodClique]
 		if pclqName == "" {
-			t.Errorf("Pod %s missing %s label", pod.Name, LabelPodClique)
+			t.Errorf("Pod %s missing %s label", pod.Name, apicommon.LabelPodClique)
 			continue
 		}
 
@@ -703,7 +699,7 @@ func verifyMultiPodPerReplicaRefs(t *testing.T, allPods []v1.Pod, pclqLabel stri
 	t.Helper()
 	var matchedPods []v1.Pod
 	for _, pod := range allPods {
-		if pod.Labels[LabelPodClique] == pclqLabel {
+		if pod.Labels[apicommon.LabelPodClique] == pclqLabel {
 			matchedPods = append(matchedPods, pod)
 		}
 	}

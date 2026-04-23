@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ai-dynamo/grove/operator/api/common"
 	corev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/e2e/log"
 	kaitopologyv1alpha1 "github.com/kai-scheduler/KAI-scheduler/pkg/apis/kai/v1alpha1"
@@ -175,8 +176,8 @@ func (tv *TopologyVerifier) VerifyLabeledPodsInTopologyDomain(ctx context.Contex
 func (tv *TopologyVerifier) VerifyPCSGReplicasInTopologyDomain(ctx context.Context, allPods []v1.Pod, pcsgLabel string, replicaCount, podsPerReplica int, topologyLabel string) error {
 	for replica := 0; replica < replicaCount; replica++ {
 		replicaPods := FilterPodsByLabel(
-			FilterPodsByLabel(allPods, "grove.io/podcliquescalinggroup", pcsgLabel),
-			"grove.io/podcliquescalinggroup-replica-index",
+			FilterPodsByLabel(allPods, common.LabelPodCliqueScalingGroup, pcsgLabel),
+			common.LabelPodCliqueScalingGroupReplicaIndex,
 			fmt.Sprintf("%d", replica),
 		)
 		if len(replicaPods) != podsPerReplica {
@@ -194,8 +195,8 @@ func (tv *TopologyVerifier) VerifyMultiTypePCSGReplicas(ctx context.Context, all
 	for _, pcsgType := range pcsgTypes {
 		for replica := 0; replica < replicasPerType; replica++ {
 			replicaPods := FilterPodsByLabel(
-				FilterPodsByLabel(allPods, "grove.io/podcliquescalinggroup", pcsgType.FQN),
-				"grove.io/podcliquescalinggroup-replica-index",
+				FilterPodsByLabel(allPods, common.LabelPodCliqueScalingGroup, pcsgType.FQN),
+				common.LabelPodCliqueScalingGroupReplicaIndex,
 				fmt.Sprintf("%d", replica),
 			)
 			if len(replicaPods) != podsPerReplica {

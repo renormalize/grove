@@ -62,41 +62,6 @@ const (
 	EnvRegistryPort = "E2E_REGISTRY_PORT"
 )
 
-// resourceType represents a Kubernetes resource type for cleanup operations.
-type resourceType struct {
-	schema.GroupVersionResource
-	kind string // singular Kind (e.g. "PodCliqueSet")
-	name string // display name for logging (e.g. "PodCliqueSets")
-}
-
-// pcsResourceType is the PodCliqueSet resource — the top-level user-created resource
-// that doesn't carry the managed-by label and must be checked without label selector.
-var pcsResourceType = resourceType{
-	GroupVersionResource: schema.GroupVersionResource{Group: "grove.io", Version: "v1alpha1", Resource: "podcliquesets"},
-	kind:                 "PodCliqueSet",
-	name:                 "PodCliqueSets",
-}
-
-// groveManagedResourceTypes defines all resource types managed by Grove operator that need to be tracked for cleanup.
-var groveManagedResourceTypes = []resourceType{
-	// Grove CRDs
-	pcsResourceType,
-	{GroupVersionResource: schema.GroupVersionResource{Group: "grove.io", Version: "v1alpha1", Resource: "podcliquescalinggroups"}, kind: "PodCliqueScalingGroup", name: "PodCliqueScalingGroups"},
-	{GroupVersionResource: schema.GroupVersionResource{Group: "scheduler.grove.io", Version: "v1alpha1", Resource: "podgangs"}, kind: "PodGang", name: "PodGangs"},
-	{GroupVersionResource: schema.GroupVersionResource{Group: "grove.io", Version: "v1alpha1", Resource: "podcliques"}, kind: "PodClique", name: "PodCliques"},
-	// Kubernetes core resources
-	{GroupVersionResource: schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}, kind: "Service", name: "Services"},
-	{GroupVersionResource: schema.GroupVersionResource{Group: "", Version: "v1", Resource: "serviceaccounts"}, kind: "ServiceAccount", name: "ServiceAccounts"},
-	{GroupVersionResource: schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}, kind: "Secret", name: "Secrets"},
-	// RBAC resources
-	{GroupVersionResource: schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"}, kind: "Role", name: "Roles"},
-	{GroupVersionResource: schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"}, kind: "RoleBinding", name: "RoleBindings"},
-	// Autoscaling resources
-	{GroupVersionResource: schema.GroupVersionResource{Group: "autoscaling", Version: "v2", Resource: "horizontalpodautoscalers"}, kind: "HorizontalPodAutoscaler", name: "HorizontalPodAutoscalers"},
-	// NVIDIA ComputeDomain (created by MNNVL feature, has finalizers that must be processed)
-	{GroupVersionResource: schema.GroupVersionResource{Group: "resource.nvidia.com", Version: "v1beta1", Resource: "computedomains"}, kind: "ComputeDomain", name: "ComputeDomains"},
-}
-
 // listUnstructured lists unstructured resources using client.Client.
 func listUnstructured(ctx context.Context, cl client.Client, rt resourceType, opts ...client.ListOption) (*unstructured.UnstructuredList, error) {
 	list := &unstructured.UnstructuredList{}
