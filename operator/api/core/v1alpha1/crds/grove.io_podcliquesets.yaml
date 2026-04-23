@@ -11094,18 +11094,6 @@ spec:
               updateProgress:
                 description: UpdateProgress represents the progress of an update.
                 properties:
-                  coherentUpdate:
-                    description: |-
-                      CoherentUpdate captures coherent-update-specific progress.
-                      This field is only set when the update strategy is Coherent.
-                    properties:
-                      latestMPGName:
-                        description: |-
-                          LatestMPGName is the name of the latest MPG (Minimal Pod Gang) PodGang resource being waited on
-                          for the currently-updating replica. The MPG follows the naming convention
-                          <pcs-name>-<pcs-replica-index>-<pcs-revision>-<iteration-index>.
-                        type: string
-                    type: object
                   currentlyUpdating:
                     description: |-
                       CurrentlyUpdating captures the progress of the PodCliqueSet replicas that are currently being updated.
@@ -11115,6 +11103,25 @@ spec:
                       description: PodCliqueSetReplicaUpdateProgress captures the
                         progress of an update for a specific PodCliqueSet replica.
                       properties:
+                        coherentUpdate:
+                          description: |-
+                            CoherentUpdate captures coherent-update-specific progress.
+                            This field is only set when the update strategy is Coherent.
+                          properties:
+                            iterationIndex:
+                              description: |-
+                                IterationIndex is the current iteration index used by the controller for the coherent update.
+                                It is a monotonically increasing value that is used as part of the MPG naming convention.
+                              format: int32
+                              type: integer
+                            latestMPGName:
+                              description: |-
+                                LatestMPGName is the name of the latest MPG (Minimal) PodGang resource being waited on
+                                for the currently-updating replica.
+                              type: string
+                          required:
+                          - iterationIndex
+                          type: object
                         replicaIndex:
                           description: ReplicaIndex is the replica index of the PodCliqueSet
                             that is being updated.

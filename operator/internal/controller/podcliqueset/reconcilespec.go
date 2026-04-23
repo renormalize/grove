@@ -134,7 +134,7 @@ func (r *Reconciler) setGenerationHashAndUpdateStatus(ctx context.Context, pcs *
 	return nil
 }
 
-// initUpdateProgress initializes a new rolling update by resetting progress tracking.
+// initUpdateProgress initializes a new update by resetting progress tracking.
 func (r *Reconciler) initUpdateProgress(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, pcsObjectName, newGenerationHash string) error {
 	pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
 		UpdateStartedAt: metav1.Now(),
@@ -145,6 +145,9 @@ func (r *Reconciler) initUpdateProgress(ctx context.Context, pcs *grovecorev1alp
 	}
 	pcs.Status.UpdatedReplicas = 0
 	pcs.Status.CurrentGenerationHash = &newGenerationHash
+	if pcs.Status.CurrentRevision != nil {
+		*pcs.Status.CurrentRevision++
+	}
 	if err := r.setGenerationHashAndUpdateStatus(ctx, pcs, pcsObjectName, newGenerationHash); err != nil {
 		return fmt.Errorf("could not set UpdateProgress for PodCliqueSet: %v: %w", client.ObjectKeyFromObject(pcs), err)
 	}

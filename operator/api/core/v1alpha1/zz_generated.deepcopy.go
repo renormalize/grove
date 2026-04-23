@@ -806,6 +806,11 @@ func (in *PodCliqueSetReplicaUpdateProgress) DeepCopyInto(out *PodCliqueSetRepli
 		in, out := &in.UpdateEndedAt, &out.UpdateEndedAt
 		*out = (*in).DeepCopy()
 	}
+	if in.CoherentUpdate != nil {
+		in, out := &in.CoherentUpdate, &out.CoherentUpdate
+		*out = new(CoherentUpdateProgress)
+		(*in).DeepCopyInto(*out)
+	}
 	return
 }
 
@@ -1068,11 +1073,6 @@ func (in *PodCliqueSetUpdateProgress) DeepCopyInto(out *PodCliqueSetUpdateProgre
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
-	}
-	if in.CoherentUpdate != nil {
-		in, out := &in.CoherentUpdate, &out.CoherentUpdate
-		*out = new(CoherentUpdateProgress)
-		(*in).DeepCopyInto(*out)
 	}
 	return
 }

@@ -120,3 +120,10 @@ func ExtractScalingGroupNameFromPCSGFQN(pcsgFQN string, pcsNameReplica ResourceN
 	prefix := fmt.Sprintf("%s-%d-", pcsNameReplica.Name, pcsNameReplica.Replica)
 	return pcsgFQN[len(prefix):]
 }
+
+// GenerateMPGName generates the name of an MPG (Minimal Pod Gang) PodGang resource
+// used during a coherent update. The name follows the convention:
+// <pcs-name>-<pcs-replica-index>-<pcs-revision>-<iteration-index>.
+func GenerateMPGName(pcsName string, pcsReplicaIndex int, pcsRevision int, iterationIndex int) string {
+	return fmt.Sprintf("%s-%d-%d-%d", pcsName, pcsReplicaIndex, pcsRevision, iterationIndex)
+}

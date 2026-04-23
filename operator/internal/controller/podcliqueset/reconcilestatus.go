@@ -34,6 +34,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -46,6 +47,11 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pc
 	err := r.mutateReplicas(ctx, logger, pcs)
 	if err != nil {
 		return ctrlcommon.ReconcileWithErrors("failed to mutate replicas status", err)
+	}
+
+	// We do not make use of pcs.Generation since a DELETE will bump up the generation on a CR if it has finalizers. We can not control generation behavior.
+	if pcs.Status.CurrentRevision == nil {
+		pcs.Status.CurrentRevision = ptr.To(int32(1))
 	}
 
 	// Update TopologyLevelsUnavailable condition based on TAS config and ClusterTopology
