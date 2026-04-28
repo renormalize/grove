@@ -11102,9 +11102,9 @@ spec:
                             CoherentUpdate captures coherent-update-specific progress.
                             This field is only set when the update strategy is Coherent.
                           properties:
-                            iterationIndex:
+                            counter:
                               description: |-
-                                IterationIndex is the current iteration index used by the controller for the coherent update.
+                                Counter is a counter used by the controller for the coherent update.
                                 It is a monotonically increasing value that is used as part of the MPG naming convention.
                               format: int32
                               type: integer
@@ -11114,7 +11114,7 @@ spec:
                                 for the currently-updating replica.
                               type: string
                           required:
-                          - iterationIndex
+                          - counter
                           type: object
                         replicaIndex:
                           description: ReplicaIndex is the replica index of the PodCliqueSet
