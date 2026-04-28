@@ -83,6 +83,126 @@ func TestIsAutoMNNVLEnabled(t *testing.T) {
 	}
 }
 
+func TestResolveGroupName(t *testing.T) {
+	testCases := []struct {
+		description   string
+		annotations   map[string]string
+		expectedGroup string
+		expectedOk    bool
+	}{
+		{
+			description:   "auto-mnnvl enabled only — default group",
+			annotations:   map[string]string{AnnotationAutoMNNVL: AnnotationAutoMNNVLEnabled},
+			expectedGroup: "",
+			expectedOk:    true,
+		},
+		{
+			description:   "mnnvl-group only — named group",
+			annotations:   map[string]string{AnnotationMNNVLGroup: "workers"},
+			expectedGroup: "workers",
+			expectedOk:    true,
+		},
+		{
+			description: "both — group takes precedence",
+			annotations: map[string]string{
+				AnnotationAutoMNNVL:  AnnotationAutoMNNVLEnabled,
+				AnnotationMNNVLGroup: "training",
+			},
+			expectedGroup: "training",
+			expectedOk:    true,
+		},
+		{
+			description: "auto-mnnvl disabled — not enrolled",
+			annotations: map[string]string{AnnotationAutoMNNVL: AnnotationAutoMNNVLDisabled},
+			expectedOk:  false,
+		},
+		{
+			description: "no annotations — not enrolled",
+			annotations: nil,
+			expectedOk:  false,
+		},
+	}
+
+	t.Parallel()
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+			group, ok := ResolveGroupName(tc.annotations)
+			assert.Equal(t, tc.expectedOk, ok)
+			if ok {
+				assert.Equal(t, tc.expectedGroup, group)
+			}
+		})
+	}
+}
+
+func TestResolveGroupNameHierarchically(t *testing.T) {
+	tests := []struct {
+		description   string
+		layers        []map[string]string
+		expectedGroup string
+		expectedOk    bool
+	}{
+		{
+			description:   "PCLQ has group — parent ignored",
+			layers:        []map[string]string{{AnnotationMNNVLGroup: "pclq-group"}, {AnnotationMNNVLGroup: "parent-group"}},
+			expectedGroup: "pclq-group",
+			expectedOk:    true,
+		},
+		{
+			description:   "PCLQ has auto-mnnvl enabled — parent group ignored (escape to default)",
+			layers:        []map[string]string{{AnnotationAutoMNNVL: AnnotationAutoMNNVLEnabled}, {AnnotationMNNVLGroup: "parent-group"}},
+			expectedGroup: "",
+			expectedOk:    true,
+		},
+		{
+			description:   "PCLQ has nothing — falls back to parent group",
+			layers:        []map[string]string{{}, {AnnotationMNNVLGroup: "parent-group"}},
+			expectedGroup: "parent-group",
+			expectedOk:    true,
+		},
+		{
+			description:   "PCLQ has nothing — falls back to parent auto-mnnvl",
+			layers:        []map[string]string{nil, {AnnotationAutoMNNVL: AnnotationAutoMNNVLEnabled}},
+			expectedGroup: "",
+			expectedOk:    true,
+		},
+		{
+			description:   "PCLQ has group — nil parent is safe",
+			layers:        []map[string]string{{AnnotationMNNVLGroup: "pclq-group"}, nil},
+			expectedGroup: "pclq-group",
+			expectedOk:    true,
+		},
+		{
+			description: "PCLQ empty — nil parent is safe",
+			layers:      []map[string]string{{}, nil},
+			expectedOk:  false,
+		},
+		{
+			description: "no layers have MNNVL — not enrolled",
+			layers:      []map[string]string{{}, {}},
+			expectedOk:  false,
+		},
+		{
+			description: "no layers at all — not enrolled",
+			layers:      nil,
+			expectedOk:  false,
+		},
+	}
+
+	t.Parallel()
+	for _, tc := range tests {
+		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+			group, ok := ResolveGroupNameHierarchically(tc.layers...)
+			assert.Equal(t, tc.expectedOk, ok)
+			if ok {
+				assert.Equal(t, tc.expectedGroup, group)
+			}
+		})
+	}
+}
+
 func TestGenerateRCTName(t *testing.T) {
 	tests := []struct {
 		description    string

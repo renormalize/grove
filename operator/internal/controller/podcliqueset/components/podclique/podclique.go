@@ -321,9 +321,10 @@ func (r _resource) buildResource(logger logr.Logger, pclq *grovecorev1alpha1.Pod
 	}
 	pclq.Spec.StartsAfter = dependentPclqNames
 
-	// Inject MNNVL resourceClaims if enabled on PCS
-	if mnnvl.IsAutoMNNVLEnabled(pcs.Annotations) {
-		mnnvl.InjectMNNVLIntoPodSpec(logger, &pclq.Spec.PodSpec, apicommon.ResourceNameReplica{Name: pcs.Name, Replica: pcsReplica})
+	// Inject MNNVL resourceClaims: resolve group hierarchically (PCLQ → PCS).
+	groupName, mnnvlEnabled := mnnvl.ResolveGroupNameHierarchically(pclqTemplateSpec.Annotations, pcs.Annotations)
+	if mnnvlEnabled {
+		mnnvl.InjectMNNVLIntoPodSpec(logger, &pclq.Spec.PodSpec, apicommon.ResourceNameReplica{Name: pcs.Name, Replica: pcsReplica}, groupName)
 	}
 
 	return nil
