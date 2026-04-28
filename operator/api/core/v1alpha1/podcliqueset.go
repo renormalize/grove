@@ -220,9 +220,9 @@ type PodCliqueSetReplicaUpdateProgress struct {
 
 // CoherentUpdateProgress captures the progress of a coherent update.
 type CoherentUpdateProgress struct {
-	// IterationIndex is the current iteration index used by the controller for the coherent update.
+	// Counter is a counter used by the controller for the coherent update.
 	// It is a monotonically increasing value that is used as part of the MPG naming convention.
-	IterationIndex int32 `json:"iterationIndex"`
+	Counter int32 `json:"counter"`
 	// LatestMPGName is the name of the latest MPG (Minimal) PodGang resource being waited on
 	// for the currently-updating replica.
 	// +optional
