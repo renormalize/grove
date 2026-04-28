@@ -715,7 +715,7 @@ func (v *pcsValidator) validatePodCliqueUpdate(oldCliques []*grovecorev1alpha1.P
 		// the index new clique is compared with the index of the old clique
 		if newCliqueIndex != oldIndexCliqueTuple.A {
 			allErrs = append(allErrs, field.Invalid(fldPath, newClique.Name,
-				fmt.Sprintf("clique order cannot be changed when StartupType is InOrder or Explicit. Expected '%s' at position %d, got '%s'",
+				fmt.Sprintf("clique order cannot be changed. Expected '%s' at position %d, got '%s'",
 					oldIndexCliqueTuple.B.Name, newCliqueIndex, newClique.Name)))
 		}
 

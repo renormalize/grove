@@ -151,7 +151,7 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) syncFlowResu
 		}
 	}
 
-	if componentutils.IsAutoUpdateStrategy(sc.pcs) && componentutils.IsPCLQAutoUpdateInProgress(sc.pclq) {
+	if componentutils.IsRollingRecreateStrategy(sc.pcs) && componentutils.IsPCLQAutoUpdateInProgress(sc.pclq) {
 		if err := r.processPendingUpdates(logger, sc); err != nil {
 			result.recordError(err)
 		}
