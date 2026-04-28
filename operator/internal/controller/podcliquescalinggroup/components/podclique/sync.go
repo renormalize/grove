@@ -116,7 +116,7 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) error {
 
 	// Create or update the expected PodCliques as per the PodCliqueScalingGroup configurations defined in the PodCliqueSet.
 	// For OnDelete update strategy, use createOrUpdatePCLQs which performs in-place updates.
-	// For RollingRecreate (default) update strategy, use createExpectedPCLQs which only creates missing PodCliques.
+	// For RollingRecreate (default) and Coherent update strategy, use createExpectedPCLQs which only creates missing PodCliques.
 	if !componentutils.IsAutoUpdateStrategy(sc.pcs) {
 		if err := r.createOrUpdatePCLQs(logger, sc); err != nil {
 			return err

@@ -333,7 +333,9 @@ func (r _resource) orchestrateCoherentUpdate(ctx context.Context, logger logr.Lo
 
 	if len(pcs.Status.UpdateProgress.CurrentlyUpdating) > 0 && updateWork.currentlyUpdatingReplicaInfo != nil {
 		cc := &coherentSyncContext{}
-		cc.prepareCoherentContext(ctx, logger, r.client, pcs, updateWork)
+		if err := cc.prepareCoherentContext(ctx, logger, r.client, pcs, updateWork); err != nil {
+			return err
+		}
 
 		if err := r.scheduleGateOldPendingPodsInPCSReplica(ctx, logger, cc, pcs); err != nil {
 			return err
@@ -403,7 +405,7 @@ func (r _resource) bumpCoherentUpdateIterationIndex(ctx context.Context, logger 
 	}
 	pcs.Status.UpdateProgress.CurrentlyUpdating[0].CoherentUpdate = &grovecorev1alpha1.CoherentUpdateProgress{
 		Counter:       iterationIndex,
-		LatestMPGName: ptr.To(apicommon.GenerateMPGName(pcs.Name, cc.updateWork.currentlyUpdatingReplicaInfo.replicaIndex, int(*pcs.Status.CurrentRevision), int(iterationIndex))),
+		LatestMPGName: ptr.To(apicommon.GenerateMPGName(pcs.Name, cc.updateWork.currentlyUpdatingReplicaInfo.replicaIndex, int(ptr.Deref(pcs.Status.CurrentRevision, 0)), int(iterationIndex))),
 	}
 	logger.Info("Bumping coherent update iteration index", "iterationIndex", iterationIndex)
 	return r.patchUpdateProgressStatus(ctx, logger, pcs, originalPCS)
@@ -424,6 +426,9 @@ func (r _resource) scheduleGateOldPendingPodsInPCSReplica(ctx context.Context, l
 
 	// schedule gate old pending pods
 	for _, pendingPod := range oldPendingPods {
+		if lo.Contains(pendingPod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: mvuRollingUpdateSchedulingGate}) {
+			return nil
+		}
 		result, err := controllerutil.CreateOrPatch(ctx, r.client, &pendingPod, func() error {
 			pendingPod.Spec.SchedulingGates = append(pendingPod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: mvuRollingUpdateSchedulingGate})
 			return nil

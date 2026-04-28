@@ -121,6 +121,14 @@ func IsAutoUpdateStrategy(pcs *grovecorev1alpha1.PodCliqueSet) bool {
 	return pcs.Spec.UpdateStrategy == nil || pcs.Spec.UpdateStrategy.Type != grovecorev1alpha1.OnDeleteStrategy
 }
 
+// IsRollingRecreateStrategy returns true when PodCliqueSet update strategy is RollingRecreate
+func IsRollingRecreateStrategy(pcs *grovecorev1alpha1.PodCliqueSet) bool {
+	if pcs == nil {
+		return false
+	}
+	return pcs.Spec.UpdateStrategy == nil || pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.RollingRecreateStrategy
+}
+
 // GetExpectedPCLQNamesGroupByOwner returns the expected unqualified PodClique names which are either owned by PodCliqueSet or PodCliqueScalingGroup.
 func GetExpectedPCLQNamesGroupByOwner(pcs *grovecorev1alpha1.PodCliqueSet) (expectedPCLQNamesForPCS []string, expectedPCLQNamesForPCSG []string) {
 	pcsgConfigs := pcs.Spec.Template.PodCliqueScalingGroupConfigs
