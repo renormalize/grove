@@ -21,50 +21,10 @@ import (
 
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 
-	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 const mnnvlNotEnabledMsgFormat = "MNNVL is not enabled in the operator configuration. Either enable MNNVL globally or remove the %s annotation"
-
-// MutateAutoMNNVL adds the grove.io/auto-mnnvl annotation to a PodCliqueSet
-// if all conditions are met:
-// 1. Annotation does not already exist
-// 2. MNNVL feature is enabled globally (autoMNNVLEnabled)
-// 3. PCS has at least one container requesting GPU
-func MutateAutoMNNVL(logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, autoMNNVLEnabled bool) {
-	// If feature is disabled, don't add annotation
-	if !autoMNNVLEnabled {
-		return
-	}
-
-	// If annotation already exists (user explicitly set it), don't override
-	if pcs.Annotations != nil {
-		if value, exists := pcs.Annotations[AnnotationAutoMNNVL]; exists {
-			logger.V(1).Info("Annotation already exists, skipping auto-mnnvl mutation",
-				"annotation", AnnotationAutoMNNVL, "value", value)
-			return
-		}
-	}
-
-	// Check if PCS has GPU requirements
-	if !hasGPURequirement(pcs) {
-		logger.V(1).Info("PCS does not have GPU requirements, skipping auto-mnnvl mutation")
-		return
-	}
-
-	// All conditions met - add the annotation
-	if pcs.Annotations == nil {
-		pcs.Annotations = make(map[string]string)
-	}
-	pcs.Annotations[AnnotationAutoMNNVL] = AnnotationAutoMNNVLEnabled
-
-	logger.Info("Added auto-mnnvl annotation",
-		"namespace", pcs.Namespace,
-		"name", pcs.Name,
-		"annotation", AnnotationAutoMNNVL,
-		"value", AnnotationAutoMNNVLEnabled)
-}
 
 // ValidatePCSOnCreate validates all MNNVL annotations on a PodCliqueSet during creation:
 // PCS-level metadata and each PodCliqueTemplateSpec in the spec.

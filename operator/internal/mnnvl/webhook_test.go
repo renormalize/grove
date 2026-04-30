@@ -21,70 +21,8 @@ import (
 
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 
-	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 )
-
-func TestMutateAutoMNNVL(t *testing.T) {
-	tests := []struct {
-		description        string
-		pcs                *grovecorev1alpha1.PodCliqueSet
-		autoMNNVLEnabled   bool
-		expectedAnnotation string
-	}{
-		{
-			description:        "feature enabled + GPU + no annotation -> add enabled",
-			pcs:                createPCSWithGPU(nil),
-			autoMNNVLEnabled:   true,
-			expectedAnnotation: AnnotationAutoMNNVLEnabled,
-		},
-		{
-			description:        "feature enabled + GPU + existing disabled -> no change",
-			pcs:                createPCSWithGPU(map[string]string{AnnotationAutoMNNVL: AnnotationAutoMNNVLDisabled}),
-			autoMNNVLEnabled:   true,
-			expectedAnnotation: AnnotationAutoMNNVLDisabled,
-		},
-		{
-			description:        "feature enabled + GPU + existing enabled -> no change",
-			pcs:                createPCSWithGPU(map[string]string{AnnotationAutoMNNVL: AnnotationAutoMNNVLEnabled}),
-			autoMNNVLEnabled:   true,
-			expectedAnnotation: AnnotationAutoMNNVLEnabled,
-		},
-		{
-			description:        "feature enabled + no GPU -> no annotation",
-			pcs:                createPCSWithoutGPU(nil),
-			autoMNNVLEnabled:   true,
-			expectedAnnotation: "",
-		},
-		{
-			description:        "feature disabled + GPU -> no annotation",
-			pcs:                createPCSWithGPU(nil),
-			autoMNNVLEnabled:   false,
-			expectedAnnotation: "",
-		},
-		{
-			description:        "feature disabled + no GPU -> no annotation",
-			pcs:                createPCSWithoutGPU(nil),
-			autoMNNVLEnabled:   false,
-			expectedAnnotation: "",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.description, func(t *testing.T) {
-			MutateAutoMNNVL(logr.Discard(), test.pcs, test.autoMNNVLEnabled)
-
-			if test.expectedAnnotation == "" {
-				if test.pcs.Annotations != nil {
-					_, exists := test.pcs.Annotations[AnnotationAutoMNNVL]
-					assert.False(t, exists, "annotation should not exist")
-				}
-			} else {
-				assert.Equal(t, test.expectedAnnotation, test.pcs.Annotations[AnnotationAutoMNNVL])
-			}
-		})
-	}
-}
 
 func TestValidatePCSOnCreate_Metadata(t *testing.T) {
 	tests := []struct {
@@ -653,6 +591,49 @@ func TestValidatePCSOnUpdate_Spec(t *testing.T) {
 			} else {
 				assert.Empty(t, errs, "expected no validation errors")
 			}
+		})
+	}
+}
+
+// TestValidatePCSOnCreate_NonGPUCliqueWithMNNVL verifies that MNNVL annotations
+// on non-GPU cliques are accepted (silently ignored at injection time).
+func TestValidatePCSOnCreate_NonGPUCliqueWithMNNVL(t *testing.T) {
+	tests := []struct {
+		description      string
+		pcs              *grovecorev1alpha1.PodCliqueSet
+		autoMNNVLEnabled bool
+	}{
+		{
+			description:      "non-GPU clique with auto-mnnvl enabled -> accepted (silently skipped at injection)",
+			pcs:              createPCSWithNonGPUCliqueAnnotations(map[string]string{AnnotationAutoMNNVL: AnnotationAutoMNNVLEnabled}),
+			autoMNNVLEnabled: true,
+		},
+		{
+			description:      "non-GPU clique with mnnvl-group -> accepted (silently skipped at injection)",
+			pcs:              createPCSWithNonGPUCliqueAnnotations(map[string]string{AnnotationMNNVLGroup: "workers"}),
+			autoMNNVLEnabled: true,
+		},
+		{
+			description:      "GPU clique with auto-mnnvl enabled -> accepted",
+			pcs:              createPCSWithGPUCliqueAnnotations(map[string]string{AnnotationAutoMNNVL: AnnotationAutoMNNVLEnabled}),
+			autoMNNVLEnabled: true,
+		},
+		{
+			description:      "GPU clique with mnnvl-group -> accepted",
+			pcs:              createPCSWithGPUCliqueAnnotations(map[string]string{AnnotationMNNVLGroup: "workers"}),
+			autoMNNVLEnabled: true,
+		},
+		{
+			description:      "non-GPU clique without MNNVL annotations -> accepted",
+			pcs:              createPCSWithNonGPUCliqueAnnotations(nil),
+			autoMNNVLEnabled: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.description, func(t *testing.T) {
+			errs := ValidatePCSOnCreate(test.pcs, test.autoMNNVLEnabled)
+			assert.Empty(t, errs, "MNNVL annotations on non-GPU cliques should be accepted")
 		})
 	}
 }
