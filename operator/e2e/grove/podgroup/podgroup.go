@@ -287,12 +287,10 @@ func (pv *PodGroupVerifier) VerifyScaledPCSGReplicaTopology(ctx context.Context,
 		return fmt.Errorf("failed to get KAI PodGroups: %w", err)
 	}
 
-	pcsgFQN := nameutils.GeneratePodCliqueScalingGroupName(
-		nameutils.ResourceNameReplica{Name: pcsName, Replica: pcsReplica},
-		pcsgConfig.PCSGName,
-	)
-
-	scaledPodGangName := nameutils.CreatePodGangNameFromPCSGFQN(pcsgFQN, pcsgConfig.PCSGReplica-pcsgConfig.MinAvailable)
+	// In the unified naming convention, scaled PodGangs get counter values starting at 1.
+	// For a single PCSG, the counter is simply 1 + scaledIndex.
+	scaledIndex := pcsgConfig.PCSGReplica - pcsgConfig.MinAvailable
+	scaledPodGangName := nameutils.GeneratePodGangName(pcsName, pcsReplica, 1+scaledIndex)
 
 	scaledPodGroup, err := FilterPodGroupByOwner(podGroups, scaledPodGangName)
 	if err != nil {

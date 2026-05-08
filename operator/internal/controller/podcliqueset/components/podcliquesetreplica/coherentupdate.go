@@ -19,6 +19,7 @@ package podcliquesetreplica
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -27,13 +28,14 @@ import (
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
 	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
+	groveschedulerv1alpha1 "github.com/ai-dynamo/grove/scheduler/api/core/v1alpha1"
 
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 const (
@@ -44,18 +46,17 @@ const (
 	errCodeGetPodGang                   grovecorev1alpha1.ErrorCode = "ERR_GET_PODGANG"
 	errCodeDeleteTakeDownSetPod         grovecorev1alpha1.ErrorCode = "ERR_DELETE_TAKEDOWN_SET_POD"
 	errCodeDeleteTakeDownSetPCSGReplica grovecorev1alpha1.ErrorCode = "ERR_DELETE_TAKEDOWN_SET_PCSG_REPLICA"
-)
-
-const (
-	mvuRollingUpdateSchedulingGate = "grove.io/gate-old-pending-pods"
+	errCodeParsePodGangName             grovecorev1alpha1.ErrorCode = "ERR_PARSE_PODGANG_NAME"
 )
 
 type coherentSyncContext struct {
-	updateWork       *pendingUpdateWork
-	pcsReplicaPods   []corev1.Pod
-	pcsReplicaPCLQs  []grovecorev1alpha1.PodClique
-	pcsReplicaPCSGs  []grovecorev1alpha1.PodCliqueScalingGroup
-	expectedPCLQHash map[string]string
+	updateWork         *pendingUpdateWork
+	pcsReplicaPods     []corev1.Pod
+	pcsReplicaPCLQs    []grovecorev1alpha1.PodClique // standalone + pcsg pclqs
+	pcsReplicaPCSGs    []grovecorev1alpha1.PodCliqueScalingGroup
+	pcsPodGangs        []groveschedulerv1alpha1.PodGang
+	latestPodGangIndex *int
+	expectedPCLQHash   map[string]string
 }
 
 func (c *coherentSyncContext) prepareCoherentContext(ctx context.Context, logger logr.Logger, cl client.Client, pcs *grovecorev1alpha1.PodCliqueSet, updateWork *pendingUpdateWork) error {
@@ -95,6 +96,24 @@ func (c *coherentSyncContext) prepareCoherentContext(ctx context.Context, logger
 		}
 		expectedHashByPCLQ[pclq.Name] = expectedHash
 	}
+
+	c.pcsPodGangs, err = componentutils.GetExistingPodGangsWithLabelSeletor(ctx, cl, pcs.ObjectMeta, pcs.Namespace, map[string]string{
+		apicommon.LabelPodCliqueSetReplicaIndex: strconv.Itoa(updateWork.currentlyUpdatingReplicaInfo.replicaIndex),
+	})
+
+	pgNames := lo.Map(c.pcsPodGangs, func(pg groveschedulerv1alpha1.PodGang, _ int) string {
+		return pg.Name
+	})
+	slices.Sort(pgNames)
+	c.latestPodGangIndex, err = apicommon.ExtractPodGangGlobalCounter(pgNames)
+	if err != nil {
+		return groveerr.WrapError(err,
+			errCodeParsePodGangName,
+			component.OperationSync,
+			fmt.Sprintf("failed to fetch the PodGang counter from the PodGang name: %s", pgNames[len(pgNames)-1]),
+		)
+	}
+
 	c.expectedPCLQHash = expectedHashByPCLQ
 	c.pcsReplicaPCSGs = updateWork.currentlyUpdatingReplicaInfo.pcsgs
 	c.updateWork = updateWork
@@ -144,8 +163,8 @@ func computeMVUTemplate(logger logr.Logger, cc *coherentSyncContext) mvuTemplate
 			continue
 		}
 
-		pcsgFQN, isPCSGOwned := pclq.Labels[apicommon.LabelPodCliqueScalingGroup]
-		if !isPCSGOwned {
+		pcsgFQN, isPCSGOwner := pclq.Labels[apicommon.LabelPodCliqueScalingGroup]
+		if !isPCSGOwner {
 			// Standalone PCLQ is outdated — add it to the template.
 			template.standalonePCLQs = append(template.standalonePCLQs, mvuTemplateEntry{
 				fqn:          pclq.Name,
@@ -206,6 +225,8 @@ func computeTakeDownSet(logger logr.Logger, template mvuTemplate, pcsReplicaPods
 				oldPods = append(oldPods, pod)
 			}
 		}
+
+		// TODO: @renormalize sorting pods in the list for deletion preference is not fully done
 
 		// Sort: scheduled pods first (prefer taking down scheduled pods ahead of pending).
 		sort.Slice(oldPods, func(i, j int) bool {
@@ -328,34 +349,34 @@ func (r _resource) deleteTakeDownSet(ctx context.Context, logger logr.Logger, pc
 func (r _resource) orchestrateCoherentUpdate(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, pcsIndicesToTerminate, minAvailableBreachedPCSReplicaIndices []int) error {
 	updateWork, err := r.computePendingUpdateWork(ctx, pcs, pcsIndicesToTerminate)
 	if err != nil {
+		logger.Error(err, "DEBUG: ERROR while computing")
 		return err
 	}
 
 	if len(pcs.Status.UpdateProgress.CurrentlyUpdating) > 0 && updateWork.currentlyUpdatingReplicaInfo != nil {
 		cc := &coherentSyncContext{}
 		if err := cc.prepareCoherentContext(ctx, logger, r.client, pcs, updateWork); err != nil {
+			logger.Error(err, "DEBUG: ERROR while preparing")
 			return err
 		}
 
-		if err := r.scheduleGateOldPendingPodsInPCSReplica(ctx, logger, cc, pcs); err != nil {
-			return err
-		}
-
-		if pcs.Status.UpdateProgress.CurrentlyUpdating[0].CoherentUpdate != nil {
-			// Coherent update has already been initiated, we check the availability of the MPG corresponding with the current iteration
-			// Check that the latest MPG is available. If it is not, requeue.
-			// TODO: @renormalize the name will always be set here? If it is set here then we can get rid of this.
-			// If the name is set in the PodGang component, then we will have to check since the patch of the status might fail and this field might be empty
-			if pcs.Status.UpdateProgress.CurrentlyUpdating[0].CoherentUpdate.LatestMPGName != nil {
-				// If current MPG is not available, the ContinueReconcileAndRequeue will cause the function to return here
-				if err := r.isCurrentMPGAvailable(ctx, logger, cc, pcs); err != nil {
-					return err
-				}
+		// if pcs.Status.UpdateProgress.CurrentlyUpdating[0].CoherentUpdate != nil {
+		// Coherent update has already been initiated, we check the availability of the MPG corresponding with the current iteration
+		// Check that the latest MPG is available. If it is not, requeue.
+		// TODO: @renormalize the name will always be set here? If it is set here then we can get rid of this.
+		// If the name is set in the PodGang component, then we will have to check since the patch of the status might fail and this field might be empty
+		if pcs.Status.UpdateProgress.CurrentlyUpdating[0].InProgressPodGang != nil {
+			// If current MPG is not available, the ContinueReconcileAndRequeue will cause the function to return here
+			if err := r.isCurrentMPGAvailable(ctx, logger, cc, pcs); err != nil {
+				logger.Error(err, "DEBUG: ERROR while waiting")
+				return err
 			}
 		}
+		// }
 
 		// Signal the start of coherent update OR finish of last iteration index by bumping the iteration index
 		if err := r.bumpCoherentUpdateIterationIndex(ctx, logger, cc, pcs); err != nil {
+			logger.Error(err, "DEBUG: ERROR while bumping")
 			return err
 		}
 
@@ -364,12 +385,14 @@ func (r _resource) orchestrateCoherentUpdate(ctx context.Context, logger logr.Lo
 		if !mvuTmpl.isEmpty() {
 			tds := computeTakeDownSet(logger, mvuTmpl, cc.pcsReplicaPods, cc.pcsReplicaPCLQs, cc.expectedPCLQHash)
 			if err := r.deleteTakeDownSet(ctx, logger, pcs, tds); err != nil {
+				logger.Error(err, "DEBUG: ERROR while deleting")
 				return err
 			}
 		}
 
 		// Update the PCS status with the latest update progress
 		if err = r.updatePCSWithReplicaUpdateProgress(ctx, logger, pcs, updateWork.currentlyUpdatingReplicaInfo.updateProgress); err != nil {
+			logger.Error(err, "DEBUG: ERROR while updating progress")
 			return err
 		}
 
@@ -383,7 +406,8 @@ func (r _resource) orchestrateCoherentUpdate(ctx context.Context, logger logr.Lo
 	}
 	// pick the next replica index to update.
 	nextReplicaToUpdate := updateWork.getNextReplicaToUpdate(pcs, minAvailableBreachedPCSReplicaIndices)
-	if err = r.updatePCSWithNextSelectedReplica(ctx, logger, pcs, nextReplicaToUpdate); err != nil {
+	nextPodGangName := ""
+	if err = r.updatePCSWithNextSelectedReplica(ctx, logger, pcs, nextReplicaToUpdate, nextPodGangName); err != nil {
 		return err
 	}
 
@@ -399,50 +423,27 @@ func (r _resource) orchestrateCoherentUpdate(ctx context.Context, logger logr.Lo
 
 func (r _resource) bumpCoherentUpdateIterationIndex(ctx context.Context, logger logr.Logger, cc *coherentSyncContext, pcs *grovecorev1alpha1.PodCliqueSet) error {
 	originalPCS := pcs.DeepCopy()
-	iterationIndex := int32(0)
-	if pcs.Status.UpdateProgress.CurrentlyUpdating[0].CoherentUpdate != nil {
-		iterationIndex = pcs.Status.UpdateProgress.CurrentlyUpdating[0].CoherentUpdate.Counter + 1
-	}
-	pcs.Status.UpdateProgress.CurrentlyUpdating[0].CoherentUpdate = &grovecorev1alpha1.CoherentUpdateProgress{
-		Counter:       iterationIndex,
-		LatestMPGName: ptr.To(apicommon.GenerateMPGName(pcs.Name, cc.updateWork.currentlyUpdatingReplicaInfo.replicaIndex, int(ptr.Deref(pcs.Status.CurrentRevision, 0)), int(iterationIndex))),
-	}
-	logger.Info("Bumping coherent update iteration index", "iterationIndex", iterationIndex)
+	// iterationIndex := int32(0) // TODO: @renormalize the iteration index is monotonically increasing. it is fetched from the index at the end of PG
+	// iterationIndex := int32(0)
+	// if pcs.Status.UpdateProgress.CurrentlyUpdating[0].CoherentUpdate != nil {
+	// 	iterationIndex = pcs.Status.UpdateProgress.CurrentlyUpdating[0].CoherentUpdate.Counter + 1
+	// }
+	pcs.Status.UpdateProgress.CurrentlyUpdating[0].InProgressPodGang = ptr.To(apicommon.GeneratePodGangName(pcs.Name, cc.updateWork.currentlyUpdatingReplicaInfo.replicaIndex, *cc.latestPodGangIndex+1))
+
+	// Allocate the next global counter for this PCS replica's PodGang.
+	// replicaKey := strconv.Itoa(cc.updateWork.currentlyUpdatingReplicaInfo.replicaIndex)
+	// if pcs.Status.PodGangCounters == nil {
+	// 	pcs.Status.PodGangCounters = make(map[string]int32)
+	// }
+	// globalCounter := pcs.Status.PodGangCounters[replicaKey]
+	// pcs.Status.PodGangCounters[replicaKey] = globalCounter + 1
+
+	// pcs.Status.UpdateProgress.CurrentlyUpdating[0].CoherentUpdate = &grovecorev1alpha1.CoherentUpdateProgress{
+	// 	Counter: iterationIndex,
+	// 	// LatestMPGName: ptr.To(apicommon.GeneratePodGangName(pcs.Name, cc.updateWork.currentlyUpdatingReplicaInfo.replicaIndex, int(globalCounter))),
+	// }
+	logger.Info("Bumping coherent update index", "newPodGangIndex", *cc.latestPodGangIndex+1)
 	return r.patchUpdateProgressStatus(ctx, logger, pcs, originalPCS)
-}
-
-func (r _resource) scheduleGateOldPendingPodsInPCSReplica(ctx context.Context, logger logr.Logger, cc *coherentSyncContext, pcs *grovecorev1alpha1.PodCliqueSet) error {
-	var oldPendingPods []corev1.Pod
-	for _, pod := range cc.pcsReplicaPods {
-		pclqName := pod.Labels[apicommon.LabelPodClique]
-		expectedHash, ok := cc.expectedPCLQHash[pclqName]
-		if !ok {
-			continue
-		}
-		if pod.Labels[apicommon.LabelPodTemplateHash] != expectedHash && pod.Status.Phase == corev1.PodPending {
-			oldPendingPods = append(oldPendingPods, pod)
-		}
-	}
-
-	// schedule gate old pending pods
-	for _, pendingPod := range oldPendingPods {
-		if lo.Contains(pendingPod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: mvuRollingUpdateSchedulingGate}) {
-			return nil
-		}
-		result, err := controllerutil.CreateOrPatch(ctx, r.client, &pendingPod, func() error {
-			pendingPod.Spec.SchedulingGates = append(pendingPod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: mvuRollingUpdateSchedulingGate})
-			return nil
-		})
-		if err != nil {
-			return groveerr.New(
-				errCodeAddPodSchedulingGate,
-				component.OperationSync,
-				fmt.Sprintf("failed to schedule gate old pending pods of PodCliqueSet replica %d", cc.updateWork.currentlyUpdatingReplicaInfo.replicaIndex),
-			)
-		}
-		logger.Info("Schedule gated an old pending pod as a part of the ongoing coherent update", "pcsReplicaIndex", cc.updateWork.currentlyUpdatingReplicaInfo.replicaIndex, "result", result)
-	}
-	return nil
 }
 
 // getPCSReplicaPods lists all Pods that belong to the passed PodCliqueSet replica.
@@ -468,9 +469,17 @@ func getPCSReplicaPods(ctx context.Context, cl client.Client, pcs *grovecorev1al
 // An MPG is considered available when, for each PodGroup in the PodGang,
 // the number of referenced pods in Running phase >= PodGroup.MinReplicas.
 func (r _resource) isCurrentMPGAvailable(ctx context.Context, logger logr.Logger, cc *coherentSyncContext, pcs *grovecorev1alpha1.PodCliqueSet) error {
-	mpgName := *pcs.Status.UpdateProgress.CurrentlyUpdating[0].CoherentUpdate.LatestMPGName
+	mpgName := *pcs.Status.UpdateProgress.CurrentlyUpdating[0].InProgressPodGang
 	mpg, err := componentutils.GetPodGang(ctx, r.client, mpgName, pcs.Namespace)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("MPG PodGang not yet created, waiting for PodGang sync", "mpgName", mpgName)
+			return groveerr.New(
+				groveerr.ErrCodeContinueReconcileAndRequeue,
+				component.OperationSync,
+				fmt.Sprintf("MPG %s not yet created for PodCliqueSet replica %d", mpgName, cc.updateWork.currentlyUpdatingReplicaInfo.replicaIndex),
+			)
+		}
 		return groveerr.WrapError(err,
 			errCodeGetPodGang,
 			component.OperationSync,

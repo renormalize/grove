@@ -18,6 +18,8 @@ package common
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 )
@@ -77,41 +79,37 @@ func GeneratePodCliqueScalingGroupName(pcsNameReplica ResourceNameReplica, pclqS
 	return fmt.Sprintf("%s-%d-%s", pcsNameReplica.Name, pcsNameReplica.Replica, pclqScalingGroupName)
 }
 
+// GeneratePodGangName generates a PodGang name using the unified naming convention:
+// <pcs-name>-<pcs-replica-index>-<global-counter>.
+// The global counter is a monotonically increasing integer scoped to the PCS replica,
+// assigned at PodGang creation time and never reused.
+func GeneratePodGangName(pcsName string, pcsReplicaIndex int, globalCounter int) string {
+	return fmt.Sprintf("%s-%d-%d", pcsName, pcsReplicaIndex, globalCounter)
+}
+
 // GenerateBasePodGangName generates a base PodGang name for a PodCliqueSet replica.
-// This is used for PodGangs that are not part of scaled scaling group replicas.
+// Deprecated: Use GeneratePodGangName with counter=0 instead.
+// TODO: @renormalize this has to be removed
 func GenerateBasePodGangName(pcsNameReplica ResourceNameReplica) string {
-	return fmt.Sprintf("%s-%d", pcsNameReplica.Name, pcsNameReplica.Replica)
+	return GeneratePodGangName(pcsNameReplica.Name, pcsNameReplica.Replica, 0)
 }
 
-// CreatePodGangNameFromPCSGFQN generates the PodGang name for a replica of a PodCliqueScalingGroup
-// when the PCSG name is already fully qualified.
-func CreatePodGangNameFromPCSGFQN(pcsgFQN string, scaledPodGangIndex int) string {
-	return fmt.Sprintf("%s-%d", pcsgFQN, scaledPodGangIndex)
-}
-
-// GeneratePodGangNameForPodCliqueOwnedByPodCliqueSet generates the PodGang name for a PodClique
-// that is directly owned by a PodCliqueSet.
-func GeneratePodGangNameForPodCliqueOwnedByPodCliqueSet(pcs *v1alpha1.PodCliqueSet, pcsReplicaIndex int) string {
-	return GenerateBasePodGangName(ResourceNameReplica{Name: pcs.Name, Replica: pcsReplicaIndex})
-}
-
-// GeneratePodGangNameForPodCliqueOwnedByPCSG generates the PodGang name for a PodClique
-// that is owned by a PodCliqueScalingGroup, using the PCSG object directly (no config lookup needed).
-func GeneratePodGangNameForPodCliqueOwnedByPCSG(pcs *v1alpha1.PodCliqueSet, pcsReplicaIndex int, pcsg *v1alpha1.PodCliqueScalingGroup, pcsgReplicaIndex int) string {
-	// MinAvailable should always be non-nil due to kubebuilder default and defaulting webhook
-	minAvailable := *pcsg.Spec.MinAvailable
-
-	// Apply the same logic as PodGang creation:
-	// Replicas 0..(minAvailable-1) → PCS replica PodGang (base PodGang)
-	// Replicas minAvailable+ → Scaled PodGangs (0-based indexing)
-	if pcsgReplicaIndex < int(minAvailable) {
-		return GenerateBasePodGangName(ResourceNameReplica{Name: pcs.Name, Replica: pcsReplicaIndex})
-	} else {
-		// Convert scaling group replica index to 0-based scaled PodGang index
-		scaledPodGangIndex := pcsgReplicaIndex - int(minAvailable)
-		// Use the PCSG name directly (it's already the FQN)
-		return CreatePodGangNameFromPCSGFQN(pcsg.Name, scaledPodGangIndex)
+// ExtractPodGangGlobalCounter extracts the global counter (last numeric segment) from the currently present PodGangs
+// formatted as <pcs-name>-<pcs-replica-index>-<global-counter>.
+func ExtractPodGangGlobalCounter(names []string) (*int, error) {
+	if len(names) == 0 {
+		return nil, nil
 	}
+	name := names[len(names)-1]
+	lastDash := strings.LastIndex(name, "-")
+	if lastDash < 0 {
+		return nil, fmt.Errorf("invalid PodGang name: %s", name)
+	}
+	counter, err := strconv.Atoi(name[lastDash+1:])
+	if err != nil {
+		return nil, fmt.Errorf("invalid globalCounter in PodGang name %s: %w", name, err)
+	}
+	return &counter, nil
 }
 
 // ExtractScalingGroupNameFromPCSGFQN extracts the scaling group name from a PodCliqueScalingGroup FQN.
@@ -119,11 +117,4 @@ func GeneratePodGangNameForPodCliqueOwnedByPCSG(pcs *v1alpha1.PodCliqueSet, pcsR
 func ExtractScalingGroupNameFromPCSGFQN(pcsgFQN string, pcsNameReplica ResourceNameReplica) string {
 	prefix := fmt.Sprintf("%s-%d-", pcsNameReplica.Name, pcsNameReplica.Replica)
 	return pcsgFQN[len(prefix):]
-}
-
-// GenerateMPGName generates the name of an MPG (Minimal Pod Gang) PodGang resource
-// used during a coherent update. The name follows the convention:
-// <pcs-name>-<pcs-replica-index>-<pcs-revision>-<iteration-index>.
-func GenerateMPGName(pcsName string, pcsReplicaIndex int, pcsRevision int, iterationIndex int) string {
-	return fmt.Sprintf("%s-%d-%d-%d", pcsName, pcsReplicaIndex, pcsRevision, iterationIndex)
 }

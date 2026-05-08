@@ -56,3 +56,36 @@ func GetExistingPodGangs(ctx context.Context, cl client.Client, pcsObjectMeta me
 	}
 	return podGangs.Items, nil
 }
+
+// GetExistingPodGangsWithLabelSeletor fetches all existing PodGangs that are managed by Grove in the given namespace with the passed label selector
+func GetExistingPodGangsWithLabelSeletor(ctx context.Context, cl client.Client, pcsObjectMeta metav1.ObjectMeta, namespace string, labelSelector map[string]string) ([]groveschedulerv1alpha1.PodGang, error) {
+	podGangs := groveschedulerv1alpha1.PodGangList{}
+	if err := cl.List(ctx, &podGangs,
+		client.InNamespace(namespace),
+		client.MatchingLabels(
+			lo.Assign(
+				GetPodGangSelectorLabels(pcsObjectMeta),
+				labelSelector,
+			),
+		)); err != nil {
+		return nil, err
+	}
+	return podGangs.Items, nil
+}
+
+// FindPodGangForPodClique searches existing PodGangs for one that contains a PodGroup
+// matching the given PodClique FQN. Returns the PodGang name or empty string if not found.
+func FindPodGangForPodClique(ctx context.Context, cl client.Client, pcsObjectMeta metav1.ObjectMeta, namespace string, pclqFQN string) (string, error) {
+	podGangs, err := GetExistingPodGangs(ctx, cl, pcsObjectMeta, namespace)
+	if err != nil {
+		return "", err
+	}
+	for _, pg := range podGangs {
+		for _, podGroup := range pg.Spec.PodGroups {
+			if podGroup.Name == pclqFQN {
+				return pg.Name, nil
+			}
+		}
+	}
+	return "", nil
+}

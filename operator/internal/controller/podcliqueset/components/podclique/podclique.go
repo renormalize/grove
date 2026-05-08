@@ -307,7 +307,7 @@ func (r _resource) buildResource(logger logr.Logger, pclq *grovecorev1alpha1.Pod
 	}
 	// Add finalizer at creation so PCLQ controller does not need a separate PATCH on first reconcile.
 	controllerutil.AddFinalizer(pclq, apiconstants.FinalizerPodClique)
-	pclq.Labels = getLabels(pcs, pcsReplica, pclqObjectKey, pclqTemplateSpec, apicommon.GeneratePodGangNameForPodCliqueOwnedByPodCliqueSet(pcs, pcsReplica))
+	pclq.Labels = getLabels(pcs, pcsReplica, pclqObjectKey, pclqTemplateSpec)
 	pclq.Annotations = maps.Clone(pclqTemplateSpec.Annotations)
 	delete(pclq.Annotations, apiconstants.AnnotationTopologyName)
 	// set PodCliqueSpec
@@ -382,12 +382,13 @@ func getPodCliqueSelectorLabels(pcsObjectMeta metav1.ObjectMeta) map[string]stri
 }
 
 // getLabels constructs labels for a PodClique resource including pod template hash.
-func getLabels(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplica int, pclqObjectKey client.ObjectKey, pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec, podGangName string) map[string]string {
+func getLabels(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplica int, pclqObjectKey client.ObjectKey, pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec) map[string]string {
+	// LabelPodGang is not added to standalone PodCliques managed by the PodCliqueSet controller.
+	// The label is added to the pods directly, as pods that belong to a particular PodClique can belong to multiple PodGangs (in Coherent Updates).
 	pclqComponentLabels := map[string]string{
 		apicommon.LabelAppNameKey:               pclqObjectKey.Name,
 		apicommon.LabelComponentKey:             apicommon.LabelComponentNamePodCliqueSetPodClique,
 		apicommon.LabelPodCliqueSetReplicaIndex: strconv.Itoa(pcsReplica),
-		apicommon.LabelPodGang:                  podGangName,
 		apicommon.LabelPodTemplateHash:          componentutils.ComputePCLQPodTemplateHash(pclqTemplateSpec, pcs.Spec.Template.PriorityClassName),
 	}
 	return lo.Assign(

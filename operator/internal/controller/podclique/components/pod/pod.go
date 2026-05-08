@@ -66,9 +66,9 @@ const (
 	errCodeUpdatePodCliqueStatus               grovecorev1alpha1.ErrorCode = "ERR_UPDATE_PODCLIQUE_STATUS"
 )
 
-const (
-	podGangSchedulingGate = "grove.io/podgang-pending-creation"
-)
+// const (
+// 	podGangSchedulingGate = "grove.io/podgang-pending-creation"
+// )
 
 type _resource struct {
 	client            client.Client
@@ -134,7 +134,7 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pclq *grovecore
 }
 
 // buildResource constructs a Pod resource from PodClique specifications, setting up metadata, labels, scheduling gates, and dependencies
-func (r _resource) buildResource(pcs *grovecorev1alpha1.PodCliqueSet, pclq *grovecorev1alpha1.PodClique, podGangName string, pod *corev1.Pod, podIndex int) error {
+func (r _resource) buildResource(pcs *grovecorev1alpha1.PodCliqueSet, pclq *grovecorev1alpha1.PodClique, pod *corev1.Pod, podIndex int) error {
 	// Extract PCS replica index from PodClique FQN
 	pcsName := componentutils.GetPodCliqueSetName(pclq.ObjectMeta)
 	pcsReplicaIndex, err := utils.GetPodCliqueSetReplicaIndexFromPodCliqueFQN(pcsName, pclq.Name)
@@ -146,7 +146,7 @@ func (r _resource) buildResource(pcs *grovecorev1alpha1.PodCliqueSet, pclq *grov
 		)
 	}
 
-	labels := getLabels(pclq.ObjectMeta, pcsName, podGangName, pcsReplicaIndex, podIndex)
+	labels := getLabels(pclq.ObjectMeta, pcsName, pcsReplicaIndex, podIndex)
 	pod.ObjectMeta = metav1.ObjectMeta{
 		GenerateName: fmt.Sprintf("%s-", pclq.Name),
 		Namespace:    pclq.Namespace,
@@ -161,7 +161,7 @@ func (r _resource) buildResource(pcs *grovecorev1alpha1.PodCliqueSet, pclq *grov
 		)
 	}
 	pod.Spec = *pclq.Spec.PodSpec.DeepCopy()
-	pod.Spec.SchedulingGates = []corev1.PodSchedulingGate{{Name: podGangSchedulingGate}}
+	pod.Spec.SchedulingGates = []corev1.PodSchedulingGate{{Name: constants.PodGangSchedulingGate}}
 
 	// Resolve scheduler: from template or default backend; then prepare pod (schedulerName, annotations, etc.)
 	schedulerName := pclq.Spec.PodSpec.SchedulerName
@@ -303,11 +303,10 @@ func getSelectorLabelsForPods(pclqObjectMeta metav1.ObjectMeta) map[string]strin
 }
 
 // getLabels constructs the complete set of labels for a pod including Grove-specific and template labels
-func getLabels(pclqObjectMeta metav1.ObjectMeta, pcsName, podGangName string, pcsReplicaIndex, podIndex int) map[string]string {
+func getLabels(pclqObjectMeta metav1.ObjectMeta, pcsName string, pcsReplicaIndex, podIndex int) map[string]string {
 	labels := map[string]string{
 		apicommon.LabelPodClique:                pclqObjectMeta.Name,
 		apicommon.LabelPodCliqueSetReplicaIndex: strconv.Itoa(pcsReplicaIndex),
-		apicommon.LabelPodGang:                  podGangName,
 		apicommon.LabelPodCliquePodIndex:        strconv.Itoa(podIndex),
 	}
 	return lo.Assign(

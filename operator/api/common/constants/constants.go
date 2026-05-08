@@ -47,6 +47,11 @@ const (
 	AnnotationTopologyName = "grove.io/topology-name"
 )
 
+const (
+	// PodGangSchedulingGate is the scheduling gate added to pods when they are created. This is removed when the pod is assigned to a PodGang.
+	PodGangSchedulingGate = "grove.io/podgang-pending-creation"
+)
+
 // Constants for Grove environment variables
 const (
 	// EnvVarPodCliqueSetName is the environment variable name for PodCliqueSet name

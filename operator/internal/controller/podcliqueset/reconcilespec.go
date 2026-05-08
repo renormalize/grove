@@ -294,11 +294,12 @@ func getKindSyncGroups() [][]component.Kind {
 		// G2: PodClique must exist before PodGang can reference their pods.
 		{
 			component.KindPodClique,
+			// Moved PCSG here since the PCSG PodCliques must exist before PodGang component is synced.
+			component.KindPodCliqueScalingGroup,
 		},
 		// G3: PCSG and PodGang run concurrently — PCSG creates its own PodCliques via a
 		// separate reconciler, and PodGang reads existing PodClique/Pod state.
 		{
-			component.KindPodCliqueScalingGroup,
 			component.KindPodGang,
 		},
 	}

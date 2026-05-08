@@ -11103,25 +11103,14 @@ spec:
                       description: PodCliqueSetReplicaUpdateProgress captures the
                         progress of an update for a specific PodCliqueSet replica.
                       properties:
-                        coherentUpdate:
+                        inProgressPodGang:
                           description: |-
-                            CoherentUpdate captures coherent-update-specific progress.
-                            This field is only set when the update strategy is Coherent.
-                          properties:
-                            counter:
-                              description: |-
-                                Counter is a counter used by the controller for the coherent update.
-                                It is a monotonically increasing value that is used as part of the MPG naming convention.
-                              format: int32
-                              type: integer
-                            latestMPGName:
-                              description: |-
-                                LatestMPGName is the name of the latest MPG (Minimal) PodGang resource being waited on
-                                for the currently-updating replica.
-                              type: string
-                          required:
-                          - counter
-                          type: object
+                            // CoherentUpdate captures coherent-update-specific progress.
+                            // This field is only set when the update strategy is Coherent.
+                            // +optional
+                            CoherentUpdate *CoherentUpdateProgress `json:"coherentUpdate,omitempty"`
+                            InProgressPodGang is the name of the PodGang that is currently being waited on in the coherent update.
+                          type: string
                         replicaIndex:
                           description: ReplicaIndex is the replica index of the PodCliqueSet
                             that is being updated.

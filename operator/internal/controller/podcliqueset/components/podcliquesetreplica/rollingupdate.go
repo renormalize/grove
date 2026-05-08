@@ -58,7 +58,8 @@ func (r _resource) orchestrateRollingRecreateUpdate(ctx context.Context, logger 
 
 	// pick the next replica index to update.
 	nextReplicaToUpdate := updateWork.getNextReplicaToUpdate(pcs, minAvailableBreachedPCSReplicaIndices)
-	if err = r.updatePCSWithNextSelectedReplica(ctx, logger, pcs, nextReplicaToUpdate); err != nil {
+	// TODO: @renormalize This is most definitely broken
+	if err = r.updatePCSWithNextSelectedReplica(ctx, logger, pcs, nextReplicaToUpdate, ""); err != nil {
 		return err
 	}
 
@@ -168,7 +169,7 @@ func (r _resource) updatePCSWithReplicaUpdateProgress(ctx context.Context, logge
 }
 
 // updatePCSWithNextSelectedReplica initiates an update for the next replica or marks completion.
-func (r _resource) updatePCSWithNextSelectedReplica(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, nextPCSReplicaToUpdate *int) error {
+func (r _resource) updatePCSWithNextSelectedReplica(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, nextPCSReplicaToUpdate *int, nextPodGangName string) error {
 	original := pcs.DeepCopy()
 
 	if nextPCSReplicaToUpdate == nil {
@@ -179,8 +180,9 @@ func (r _resource) updatePCSWithNextSelectedReplica(ctx context.Context, logger 
 		logger.Info("Initiating update for next replica index", "nextReplicaIndex", *nextPCSReplicaToUpdate)
 		pcs.Status.UpdateProgress.CurrentlyUpdating = []grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress{
 			{
-				ReplicaIndex:    int32(*nextPCSReplicaToUpdate),
-				UpdateStartedAt: metav1.Now(),
+				ReplicaIndex:      int32(*nextPCSReplicaToUpdate),
+				UpdateStartedAt:   metav1.Now(),
+				InProgressPodGang: &nextPodGangName,
 			},
 		}
 	}

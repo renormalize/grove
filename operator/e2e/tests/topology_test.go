@@ -811,10 +811,6 @@ func Test_TAS12_LargeScalingRatio(t *testing.T) {
 
 	// Verify top-level TopologyConstraint (PCS level: block)
 	// SubGroups (3 worker PCLQs with host constraint, no PCSG parent since no rack constraint)
-	pcsgFQN := nameutils.GeneratePodCliqueScalingGroupName(
-		nameutils.ResourceNameReplica{Name: tc.Workload.Name, Replica: 0},
-		"workers",
-	)
 	expectedSubGroups := []podgroup.ExpectedSubGroup{
 		podgroup.CreateExpectedPCLQInPCSGSubGroupNoParent(tc.Workload.Name, 0, "workers", 0, "worker", 2, setup.TopologyLabelHostname),
 		podgroup.CreateExpectedPCLQInPCSGSubGroupNoParent(tc.Workload.Name, 0, "workers", 1, "worker", 2, setup.TopologyLabelHostname),
@@ -831,14 +827,14 @@ func Test_TAS12_LargeScalingRatio(t *testing.T) {
 	}
 
 	// PCSG config: replicas=10, minAvailable=3
-	// Base PodGang contains replicas 0-2, scaled PodGangs contain replicas 3-9 (reuse pcsgFQN from above)
+	// Base PodGang contains replicas 0-2, scaled PodGangs contain replicas 3-9
 	pcsgMinAvailable := 3
 	pcsgTotalReplicas := 10
 	scaledPodGangCount := pcsgTotalReplicas - pcsgMinAvailable
 
 	for scaledIndex := 0; scaledIndex < scaledPodGangCount; scaledIndex++ {
 		pcsgReplicaIndex := pcsgMinAvailable + scaledIndex
-		scaledPodGangName := nameutils.CreatePodGangNameFromPCSGFQN(pcsgFQN, scaledIndex)
+		scaledPodGangName := nameutils.GeneratePodGangName(tc.Workload.Name, 0, 1+scaledIndex)
 
 		scaledPodGroup, err := podgroup.FilterPodGroupByOwner(kaiPodGroups, scaledPodGangName)
 		if err != nil {

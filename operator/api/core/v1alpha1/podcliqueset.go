@@ -212,22 +212,25 @@ type PodCliqueSetReplicaUpdateProgress struct {
 	// running the latest specification.
 	// +optional
 	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
-	// CoherentUpdate captures coherent-update-specific progress.
-	// This field is only set when the update strategy is Coherent.
+	// // CoherentUpdate captures coherent-update-specific progress.
+	// // This field is only set when the update strategy is Coherent.
+	// // +optional
+	// CoherentUpdate *CoherentUpdateProgress `json:"coherentUpdate,omitempty"`
+	// InProgressPodGang is the name of the PodGang that is currently being waited on in the coherent update.
 	// +optional
-	CoherentUpdate *CoherentUpdateProgress `json:"coherentUpdate,omitempty"`
+	InProgressPodGang *string `json:"inProgressPodGang,omitempty"`
 }
 
-// CoherentUpdateProgress captures the progress of a coherent update.
-type CoherentUpdateProgress struct {
-	// Counter is a counter used by the controller for the coherent update.
-	// It is a monotonically increasing value that is used as part of the MPG naming convention.
-	Counter int32 `json:"counter"`
-	// LatestMPGName is the name of the latest MPG (Minimal) PodGang resource being waited on
-	// for the currently-updating replica.
-	// +optional
-	LatestMPGName *string `json:"latestMPGName,omitempty"`
-}
+// // CoherentUpdateProgress captures the progress of a coherent update.
+// type CoherentUpdateProgress struct {
+// 	// Counter is a counter used by the controller for the coherent update.
+// 	// It is a monotonically increasing value that is used as part of the MPG naming convention.
+// 	Counter int32 `json:"counter"`
+// 	// LatestMPGName is the name of the latest MPG (Minimal) PodGang resource being waited on
+// 	// for the currently-updating replica.
+// 	// +optional
+// 	LatestMPGName *string `json:"latestMPGName,omitempty"`
+// }
 
 // PodCliqueSetTemplateSpec defines a template spec for a PodGang.
 // A PodGang does not have a RestartPolicy field because the restart policy is predefined:

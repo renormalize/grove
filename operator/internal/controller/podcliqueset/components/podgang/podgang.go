@@ -54,6 +54,8 @@ const (
 	errCodeCreateOrPatchPodGang       grovecorev1alpha1.ErrorCode = "ERR_CREATE_OR_PATCH_PODGANG"
 	errCodeCreatePodGang              grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODGANG"
 	errCodeGetClusterTopologyLevels   grovecorev1alpha1.ErrorCode = "ERR_GET_CLUSTER_TOPOLOGY_LEVELS"
+	errCodeUpdatePCSStatus            grovecorev1alpha1.ErrorCode = "ERR_UPDATE_PCS_STATUS_PODGANG_COUNTERS"
+	errCodeAssignPodsToPodGang        grovecorev1alpha1.ErrorCode = "ERR_ASSIGN_PODS_TO_PODGANG"
 )
 
 type _resource struct {
@@ -104,6 +106,13 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcs *grovecorev
 	if result.hasErrors() {
 		return result.getAggregatedError()
 	}
+	// Ensure PodGangCounters are initialized/updated in PCS status.
+	// The counter for each replica must be at least equal to the number of expected PodGangs
+	// for that replica, so that future dynamic allocations (coherent updates, HPA) start from
+	// the correct value.
+	// if err := r.ensurePodGangCounters(ctx, logger, pcs, sc); err != nil {
+	// 	return err
+	// }
 	return nil
 }
 
