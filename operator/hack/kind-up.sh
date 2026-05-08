@@ -110,9 +110,18 @@ function kind::generate_config() {
   cat >"${KIND_CONFIG_DIR}/cluster-config.yaml" <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+featureGates:
+  "GenericWorkload": true
+kubeadmConfigPatches:
+- |
+  kind: ClusterConfiguration
+  apiServer:
+    extraArgs:
+      runtime-config: "api/all=true"
+      feature-gates: "GenericWorkload=true"
 nodes:
 - role: control-plane
-  image: kindest/node:v1.34.3
+  image: kindest/node:v1.35.1
 EOF
   if [ "${DEPLOY_REGISTRY}" = true ]; then
     echo "Adding registry config to the kind cluster config..."

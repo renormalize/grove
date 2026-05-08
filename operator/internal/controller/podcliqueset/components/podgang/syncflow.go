@@ -589,34 +589,6 @@ func getNextCounterForReplica(existingPodGangs []groveschedulerv1alpha1.PodGang,
 	return *counter + 1
 }
 
-// countPCSGReplicasInExistingPodGangs counts how many distinct PCSG replicas are already
-// represented in existing PodGangs for the given PCS replica. It checks PodGroup names
-// matching the PCSG's constituent PCLQ naming pattern.
-func countPCSGReplicasInExistingPodGangs(existingPodGangs []groveschedulerv1alpha1.PodGang, pcsNameReplica apicommon.ResourceNameReplica, pcsgConfig grovecorev1alpha1.PodCliqueScalingGroupConfig) int {
-	pcsgFQN := apicommon.GeneratePodCliqueScalingGroupName(pcsNameReplica, pcsgConfig.Name)
-	totalReplicas := int(*pcsgConfig.Replicas)
-	consumed := 0
-	for replicaIdx := 0; replicaIdx < totalReplicas; replicaIdx++ {
-		prefix := fmt.Sprintf("%s-%d-", pcsgFQN, replicaIdx)
-		found := false
-		for _, pg := range existingPodGangs {
-			for _, podGroup := range pg.Spec.PodGroups {
-				if strings.HasPrefix(podGroup.Name, prefix) {
-					found = true
-					break
-				}
-			}
-			if found {
-				break
-			}
-		}
-		if found {
-			consumed++
-		}
-	}
-	return consumed
-}
-
 // buildPodGangFromUnassignedPods builds a podGangInfo by selecting pods from the unassigned pool.
 // For standalone PCLQs: MinAvailable pods are taken. If the remainder after taking would be less
 // than MinAvailable, the remainder is also absorbed (no standalone-only tail PodGangs).
@@ -693,19 +665,31 @@ func (r _resource) buildPodGangFromUnassignedPods(sc *syncContext, replicaIndex 
 		return nil, nil
 	}
 
-	// Determine if this is the last PodGang for this PCS replica by comparing total
-	// PCSG replicas consumed (existing PodGangs + this call) against total expected from spec.
-	// We cannot just check what remains in pclqPods because pods that haven't been created yet
-	// won't appear in the map — that would make lastIteration=true prematurely.
+	// Determine if this is the last PodGang for this PCS replica.
+	// Since we gate on all pods being created before entering this function,
+	// checking what remains in pclqPods is sufficient.
 	lastIteration := !hasPCSGs
 	if hasPCSGs {
-		totalExpectedPCSGReplicas := 0
-		totalConsumedPCSGReplicas := pcsgReplicasTaken
+		lastIteration = true
 		for _, pcsgConfig := range sc.pcs.Spec.Template.PodCliqueScalingGroupConfigs {
-			totalExpectedPCSGReplicas += int(*pcsgConfig.Replicas)
-			totalConsumedPCSGReplicas += countPCSGReplicasInExistingPodGangs(sc.existingPodGangs, pcsNameReplica, pcsgConfig)
+			pcsgFQN := apicommon.GeneratePodCliqueScalingGroupName(pcsNameReplica, pcsgConfig.Name)
+			totalReplicas := int(*pcsgConfig.Replicas)
+			for replicaIdx := 0; replicaIdx < totalReplicas; replicaIdx++ {
+				for _, pclqName := range pcsgConfig.CliqueNames {
+					pclqFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcsgFQN, Replica: replicaIdx}, pclqName)
+					if len(pclqPods[pclqFQN]) > 0 {
+						lastIteration = false
+						break
+					}
+				}
+				if !lastIteration {
+					break
+				}
+			}
+			if !lastIteration {
+				break
+			}
 		}
-		lastIteration = totalConsumedPCSGReplicas >= totalExpectedPCSGReplicas
 	}
 
 	// Standalone PCLQs: take MinAvailable pods. If the remainder after taking is less than

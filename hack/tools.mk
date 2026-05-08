@@ -33,7 +33,7 @@ GOTESTSUM         := $(TOOLS_BIN_DIR)/gotestsum
 # default tool versions
 # -------------------------------------------------------------------------
 CONTROLLER_GEN_VERSION    ?= $(call version_gomod,sigs.k8s.io/controller-tools)
-KIND_VERSION              ?= v0.30.0
+KIND_VERSION              ?= v0.31.0
 GOLANGCI_LINT_VERSION     ?= v2.6.1
 GOIMPORTS_REVISER_VERSION ?= v3.10.0
 YQ_VERSION                ?= v4.48.1
