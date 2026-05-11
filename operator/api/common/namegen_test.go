@@ -107,10 +107,10 @@ func TestExtractScalingGroupNameFromPCSGFQN(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ExtractScalingGroupNameFromPCSGFQN(tt.pcsgName, tt.pcsNameReplica)
-			assert.Equal(t, tt.expected, result)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := ExtractScalingGroupNameFromPCSGFQN(tc.pcsgName, tc.pcsNameReplica)
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -138,10 +138,10 @@ func TestGenerateBasePodGangName(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := GenerateBasePodGangName(tt.pcsNameReplica)
-			assert.Equal(t, tt.expected, result)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GenerateBasePodGangName(tc.pcsNameReplica)
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -205,10 +205,10 @@ func TestGeneratePodGangNameForPodCliqueOwnedByPodCliqueSet(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := GeneratePodGangNameForPodCliqueOwnedByPodCliqueSet(pcs, tt.pcsReplicaIndex)
-			assert.Equal(t, tt.expectedPodGangName, result)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GeneratePodGangNameForPodCliqueOwnedByPodCliqueSet(pcs, tc.pcsReplicaIndex)
+			assert.Equal(t, tc.expectedPodGangName, result)
 		})
 	}
 }
@@ -272,10 +272,10 @@ func TestGeneratePodGangNameForPodCliqueOwnedByPCSG(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := GeneratePodGangNameForPodCliqueOwnedByPCSG(pcs, tt.pcsReplicaIndex, tt.pcsg, tt.pcsgReplicaIndex)
-			assert.Equal(t, tt.expectedPodGangName, result)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GeneratePodGangNameForPodCliqueOwnedByPCSG(pcs, tc.pcsReplicaIndex, tc.pcsg, tc.pcsgReplicaIndex)
+			assert.Equal(t, tc.expectedPodGangName, result)
 		})
 	}
 }
@@ -307,10 +307,113 @@ func TestCreatePodGangNameFromPCSGFQN(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := CreatePodGangNameFromPCSGFQN(tt.pcsgFQN, tt.pcsgReplicaIndex)
-			assert.Equal(t, tt.expected, result)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := CreatePodGangNameFromPCSGFQN(tc.pcsgFQN, tc.pcsgReplicaIndex)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestGeneratePodGangName(t *testing.T) {
+	tests := []struct {
+		name                string
+		pcsName             string
+		replicaIndex        int32
+		pcsGenerationHash   string
+		createdPodGangCount int32
+		expected            string
+	}{
+		{
+			name:                "first PodGang in first update",
+			pcsName:             "my-pcs",
+			replicaIndex:        0,
+			pcsGenerationHash:   "abc123def456",
+			createdPodGangCount: 0,
+			expected:            "my-pcs-0-abc123def456-0",
+		},
+		{
+			name:                "second PodGang in same update",
+			pcsName:             "my-pcs",
+			replicaIndex:        0,
+			pcsGenerationHash:   "abc123def456",
+			createdPodGangCount: 1,
+			expected:            "my-pcs-0-abc123def456-1",
+		},
+		{
+			name:                "different replica index",
+			pcsName:             "my-pcs",
+			replicaIndex:        2,
+			pcsGenerationHash:   "abc123def456",
+			createdPodGangCount: 0,
+			expected:            "my-pcs-2-abc123def456-0",
+		},
+		{
+			name:                "different PCS name with higher count",
+			pcsName:             "inference-workload",
+			replicaIndex:        1,
+			pcsGenerationHash:   "xyz99abcdef",
+			createdPodGangCount: 3,
+			expected:            "inference-workload-1-xyz99abcdef-3",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GeneratePodGangName(tc.pcsName, tc.replicaIndex, tc.pcsGenerationHash, tc.createdPodGangCount)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestGeneratePodGangMapName(t *testing.T) {
+	pcsNameReplica := ResourceNameReplica{Name: "my-pcs", Replica: 0}
+	assert.Equal(t, "my-pcs-0", GeneratePodGangMapName(pcsNameReplica))
+}
+
+func TestGenerateScaledPodGangName(t *testing.T) {
+	tests := []struct {
+		name               string
+		pcsName            string
+		pcsReplicaIndex    int32
+		pcsGenerationHash  string
+		pcsgConfigName     string
+		scaledPodGangIndex int
+		expected           string
+	}{
+		{
+			name:               "first scaled PodGang",
+			pcsName:            "my-pcs",
+			pcsReplicaIndex:    0,
+			pcsGenerationHash:  "abc123def456",
+			pcsgConfigName:     "sg",
+			scaledPodGangIndex: 0,
+			expected:           "my-pcs-0-abc123def456-sg-0",
+		},
+		{
+			name:               "subsequent scaled PodGang",
+			pcsName:            "my-pcs",
+			pcsReplicaIndex:    0,
+			pcsGenerationHash:  "abc123def456",
+			pcsgConfigName:     "sg",
+			scaledPodGangIndex: 5,
+			expected:           "my-pcs-0-abc123def456-sg-5",
+		},
+		{
+			name:               "different PCS replica and PCSG config",
+			pcsName:            "inference-workload",
+			pcsReplicaIndex:    2,
+			pcsGenerationHash:  "xyz99abcdef",
+			pcsgConfigName:     "prefill",
+			scaledPodGangIndex: 7,
+			expected:           "inference-workload-2-xyz99abcdef-prefill-7",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GenerateScaledPodGangName(tc.pcsName, tc.pcsReplicaIndex, tc.pcsGenerationHash, tc.pcsgConfigName, tc.scaledPodGangIndex)
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }

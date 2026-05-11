@@ -10811,13 +10811,14 @@ spec:
                   PodCliqueScalingGroups.
                 properties:
                   type:
-                    default: RollingRecreate
+                    default: Coherent
                     description: |-
                       Type indicates the type of update strategy.
                       This strategy applies uniformly to both standalone PodCliques and
                       PodCliqueScalingGroups within the PodCliqueSet.
-                      Default is RollingRecreate.
+                      Default is Coherent.
                     enum:
+                    - Coherent
                     - RollingRecreate
                     - OnDelete
                     type: string
@@ -10940,11 +10941,28 @@ spec:
                   by the controller.
                 format: int64
                 type: integer
+              podGangCounter:
+                additionalProperties:
+                  format: int32
+                  type: integer
+                description: |-
+                  PodGangCounter tracks the number of PodGangs created per PodCliqueSet replica.
+                  Key is the stringified replica index; value is the creation count of PodGangs for that replica.
+                  The counter resets to zero at the start of each new update and increments once per
+                  PodGang create — during an update as well as for scale-out events between updates.
+                  It is never decremented, including on PodCliqueScalingGroup scale-in. Combined with
+                  the generation hash segment in the PodGang name, it ensures unique PodGang names
+                  across all iterations within a single update.
+                type: object
               podGangStatuses:
-                description: PodGangStatuses captures the status for all the PodGang's
-                  that are part of the PodCliqueSet.
+                description: |-
+                  PodGangStatuses captures the status for all the PodGang's that are part of the PodCliqueSet.
+                  Deprecated: Status of the PodGang should be captured as part of the PodGang resource.
+                  This field is not been set today and will be removed in the future.
                 items:
-                  description: PodGangStatus defines the status of a PodGang.
+                  description: |-
+                    PodGangStatus defines the status of a PodGang.
+                    Deprecated
                   properties:
                     conditions:
                       description: Conditions represents the latest available observations
@@ -11039,6 +11057,18 @@ spec:
                       description: PodCliqueSetReplicaUpdateProgress captures the
                         progress of an update for a specific PodCliqueSet replica.
                       properties:
+                        errorMessage:
+                          description: ErrorMessage captures the reason the update
+                            of this replica is stalled or failing, if any.
+                          type: string
+                        inFlightPodGangs:
+                          description: |-
+                            InFlightPodGangs are the names of PodGangs that are part of the current update
+                            iteration for this replica. The orchestrator waits for all of them to become
+                            available before advancing to the next iteration.
+                          items:
+                            type: string
+                          type: array
                         replicaIndex:
                           description: ReplicaIndex is the replica index of the PodCliqueSet
                             that is being updated.

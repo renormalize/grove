@@ -26,6 +26,7 @@ import (
 	"github.com/ai-dynamo/grove/operator/internal/constants"
 	ctrlcommon "github.com/ai-dynamo/grove/operator/internal/controller/common"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
+	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	ctrlutils "github.com/ai-dynamo/grove/operator/internal/controller/utils"
 	"github.com/ai-dynamo/grove/operator/internal/utils"
 	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
@@ -134,17 +135,22 @@ func (r *Reconciler) setGenerationHashAndUpdateStatus(ctx context.Context, pcs *
 	return nil
 }
 
-// initUpdateProgress initializes a new rolling update by resetting progress tracking.
+// initUpdateProgress initializes a new update by resetting progress tracking for the active strategy.
 func (r *Reconciler) initUpdateProgress(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, pcsObjectName, newGenerationHash string) error {
-	pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
-		UpdateStartedAt: metav1.Now(),
-	}
-	// OnDelete strategy sets UpdateEndedAt too, since we do not know when all the pods will manually be deleted, and gang termination is disabled when an update is in progress
-	if pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategy {
-		pcs.Status.UpdateProgress.UpdateEndedAt = ptr.To(metav1.Now())
+	if componentutils.IsCoherentStrategy(pcs) {
+		pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+			UpdateStartedAt: metav1.Now(),
+		}
+	} else {
+		pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+			UpdateStartedAt: metav1.Now(),
+		}
+		// OnDelete strategy sets UpdateEndedAt too, since we do not know when all the pods will manually be deleted, and gang termination is disabled when an update is in progress
+		if pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategy {
+			pcs.Status.UpdateProgress.UpdateEndedAt = ptr.To(metav1.Now())
+		}
 	}
 	pcs.Status.UpdatedReplicas = 0
-	pcs.Status.CurrentGenerationHash = &newGenerationHash
 	if err := r.setGenerationHashAndUpdateStatus(ctx, pcs, pcsObjectName, newGenerationHash); err != nil {
 		return fmt.Errorf("could not set UpdateProgress for PodCliqueSet: %v: %w", client.ObjectKeyFromObject(pcs), err)
 	}
@@ -275,8 +281,10 @@ func (r *Reconciler) recordIncompleteReconcile(ctx context.Context, logger logr.
 // are processed in order to respect cross-group dependencies.
 func getKindSyncGroups() [][]component.Kind {
 	return [][]component.Kind{
-		// G1: RBAC + static per-PCS infra (Service, HPA targets by name so no ordering
+		// G0: RBAC + static per-PCS infra (Service, HPA targets by name so no ordering
 		// vs PodClique/PCSG needed, ComputeDomain/ResourceClaim are independent add-ons).
+		// PodGangMap is computed here — it has no dependency on any other component, and
+		// must be ready before PodCliqueSetReplica (G1) and PodClique/PCSG/PodGang (G2) read it.
 		{
 			component.KindServiceAccount,
 			component.KindRole,
@@ -284,17 +292,20 @@ func getKindSyncGroups() [][]component.Kind {
 			component.KindServiceAccountTokenSecret,
 			component.KindHeadlessService,
 			component.KindHorizontalPodAutoscaler,
-			component.KindPodCliqueSetReplica,
 			component.KindComputeDomain,
 			component.KindResourceClaim,
+			component.KindPodGangMap,
 		},
-		// G2: PodClique must exist before PodGang can reference their pods.
+		// G1: PodCliqueSetReplica orchestrates replica deletion and rolling updates; it reads
+		// PodGangMap (for Coherent updates) so must run after G0.
+		{
+			component.KindPodCliqueSetReplica,
+		},
+		// G2: PodClique, PCSG, and PodGang run concurrently. PodGang reads existing PodClique/Pod
+		// state from the API server (persisted from prior reconciles) — no same-reconcile ordering
+		// dependency between them. PCSG creates its own PodCliques via a separate reconciler.
 		{
 			component.KindPodClique,
-		},
-		// G3: PCSG and PodGang run concurrently — PCSG creates its own PodCliques via a
-		// separate reconciler, and PodGang reads existing PodClique/Pod state.
-		{
 			component.KindPodCliqueScalingGroup,
 			component.KindPodGang,
 		},

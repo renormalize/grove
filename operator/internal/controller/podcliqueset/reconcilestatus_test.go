@@ -882,3 +882,99 @@ func pcsgName(replicaIndex int) string {
 		return ""
 	}
 }
+
+func TestMutatePodGangCounter_NilGenerationHash(t *testing.T) {
+	pcs := &grovecorev1alpha1.PodCliqueSet{
+		ObjectMeta: metav1.ObjectMeta{Name: testPCSName, Namespace: testNamespace},
+		Spec:       grovecorev1alpha1.PodCliqueSetSpec{Replicas: 1},
+	}
+	cl := testutils.NewTestClientBuilder().WithObjects(pcs).Build()
+	r := &Reconciler{client: cl}
+
+	err := r.mutatePodGangCounter(context.Background(), pcs)
+	require.NoError(t, err)
+	assert.Nil(t, pcs.Status.PodGangCounter)
+}
+
+func TestMutatePodGangCounter_CountsEntriesMatchingCurrentHash(t *testing.T) {
+	pcsGenerationHash := "new-hash-123"
+	pcs := &grovecorev1alpha1.PodCliqueSet{
+		ObjectMeta: metav1.ObjectMeta{Name: testPCSName, Namespace: testNamespace},
+		Spec:       grovecorev1alpha1.PodCliqueSetSpec{Replicas: 1},
+		Status: grovecorev1alpha1.PodCliqueSetStatus{
+			CurrentGenerationHash: &pcsGenerationHash,
+		},
+	}
+	pgm := &grovecorev1alpha1.PodGangMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pcs-0", Namespace: testNamespace},
+		Spec: grovecorev1alpha1.PodGangMapSpec{
+			PodCliqueSetReplicaIndex: 0,
+			Entries: []grovecorev1alpha1.PodGangEntry{
+				{Name: "pg-old", PodCliqueSetGenerationHash: "old-hash"},
+				{Name: "pg-new-0", PodCliqueSetGenerationHash: pcsGenerationHash},
+				{Name: "pg-new-1", PodCliqueSetGenerationHash: pcsGenerationHash},
+			},
+		},
+	}
+	cl := testutils.NewTestClientBuilder().WithObjects(pcs, pgm).Build()
+	r := &Reconciler{client: cl}
+
+	err := r.mutatePodGangCounter(context.Background(), pcs)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int32{"0": 2}, pcs.Status.PodGangCounter)
+}
+
+func TestMutatePodGangCounter_SkipsReplicaWithMissingPodGangMap(t *testing.T) {
+	pcsGenerationHash := "hash-123"
+	pcs := &grovecorev1alpha1.PodCliqueSet{
+		ObjectMeta: metav1.ObjectMeta{Name: testPCSName, Namespace: testNamespace},
+		Spec:       grovecorev1alpha1.PodCliqueSetSpec{Replicas: 2},
+		Status: grovecorev1alpha1.PodCliqueSetStatus{
+			CurrentGenerationHash: &pcsGenerationHash,
+		},
+	}
+	// Only create PodGangMap for replica 1, not replica 0
+	pgm := &grovecorev1alpha1.PodGangMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pcs-1", Namespace: testNamespace},
+		Spec: grovecorev1alpha1.PodGangMapSpec{
+			PodCliqueSetReplicaIndex: 1,
+			Entries: []grovecorev1alpha1.PodGangEntry{
+				{Name: "pg-0", PodCliqueSetGenerationHash: pcsGenerationHash},
+				{Name: "pg-1", PodCliqueSetGenerationHash: pcsGenerationHash},
+				{Name: "pg-2", PodCliqueSetGenerationHash: pcsGenerationHash},
+			},
+		},
+	}
+	cl := testutils.NewTestClientBuilder().WithObjects(pcs, pgm).Build()
+	r := &Reconciler{client: cl}
+
+	err := r.mutatePodGangCounter(context.Background(), pcs)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int32{"1": 3}, pcs.Status.PodGangCounter)
+}
+
+func TestMutatePodGangCounter_NoMatchingEntries(t *testing.T) {
+	pcsGenerationHash := "new-hash"
+	pcs := &grovecorev1alpha1.PodCliqueSet{
+		ObjectMeta: metav1.ObjectMeta{Name: testPCSName, Namespace: testNamespace},
+		Spec:       grovecorev1alpha1.PodCliqueSetSpec{Replicas: 1},
+		Status: grovecorev1alpha1.PodCliqueSetStatus{
+			CurrentGenerationHash: &pcsGenerationHash,
+		},
+	}
+	pgm := &grovecorev1alpha1.PodGangMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pcs-0", Namespace: testNamespace},
+		Spec: grovecorev1alpha1.PodGangMapSpec{
+			PodCliqueSetReplicaIndex: 0,
+			Entries: []grovecorev1alpha1.PodGangEntry{
+				{Name: "pg-old", PodCliqueSetGenerationHash: "old-hash"},
+			},
+		},
+	}
+	cl := testutils.NewTestClientBuilder().WithObjects(pcs, pgm).Build()
+	r := &Reconciler{client: cl}
+
+	err := r.mutatePodGangCounter(context.Background(), pcs)
+	require.NoError(t, err)
+	assert.Nil(t, pcs.Status.PodGangCounter)
+}

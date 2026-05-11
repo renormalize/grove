@@ -1,0 +1,422 @@
+// /*
+// Copyright 2025 The Grove Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// */
+
+package podgangmap
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	groveclientscheme "github.com/ai-dynamo/grove/operator/internal/client"
+	testutils "github.com/ai-dynamo/grove/operator/test/utils"
+
+	groveschedulerv1alpha1 "github.com/ai-dynamo/grove/scheduler/api/core/v1alpha1"
+	"github.com/go-logr/logr"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+)
+
+func TestSync_NoPGMsExist_NoCoherentUpdate_NoOp(t *testing.T) {
+	pcs := newTestPCS("my-pcs", "abc12xyz", nil, nil)
+	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{
+		Type: grovecorev1alpha1.CoherentStrategy,
+	}
+
+	cl := testutils.NewTestClientBuilder().WithObjects(pcs).Build()
+	r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
+
+	err := r.Sync(context.Background(), logr.Discard(), pcs)
+	require.NoError(t, err)
+}
+
+func TestSync_RollingRecreate_NoPGMsExist_NoOp(t *testing.T) {
+	pcs := newTestPCS("my-pcs", "abc12xyz", nil, nil)
+	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{
+		Type: grovecorev1alpha1.RollingRecreateStrategy,
+	}
+
+	cl := testutils.NewTestClientBuilder().WithObjects(pcs).Build()
+	r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
+
+	err := r.Sync(context.Background(), logr.Discard(), pcs)
+	require.NoError(t, err)
+}
+
+func TestBuildEntryFromPodGang(t *testing.T) {
+	pcs := newTestPCS("my-pcs", "old-hash",
+		[]grovecorev1alpha1.PodCliqueTemplateSpec{
+			{Name: "frontend", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 5, MinAvailable: ptr.To[int32](2)}},
+			{Name: "pleader", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 1, MinAvailable: ptr.To[int32](1)}},
+			{Name: "pworker", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 3, MinAvailable: ptr.To[int32](2)}},
+			{Name: "dleader", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 1, MinAvailable: ptr.To[int32](1)}},
+			{Name: "dworker", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 4, MinAvailable: ptr.To[int32](2)}},
+		},
+		[]grovecorev1alpha1.PodCliqueScalingGroupConfig{
+			{Name: "prefill", CliqueNames: []string{"pleader", "pworker"}, MinAvailable: ptr.To[int32](1)},
+			{Name: "decode", CliqueNames: []string{"dleader", "dworker"}, MinAvailable: ptr.To[int32](1)},
+		},
+	)
+
+	t.Run("BPG with standalone PCLQ and PCSGs", func(t *testing.T) {
+		pg := groveschedulerv1alpha1.PodGang{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0"},
+			Spec: groveschedulerv1alpha1.PodGangSpec{
+				PodGroups: []groveschedulerv1alpha1.PodGroup{
+					{Name: "my-pcs-0-frontend", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 5)},
+					{Name: "my-pcs-0-prefill-0-pleader", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 1)},
+					{Name: "my-pcs-0-prefill-0-pworker", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 3)},
+					{Name: "my-pcs-0-decode-0-dleader", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 1)},
+					{Name: "my-pcs-0-decode-0-dworker", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 4)},
+				},
+			},
+		}
+
+		entry, err := buildEntryFromPodGang(pcs, "old-hash", pg)
+		require.NoError(t, err)
+		assert.Equal(t, "my-pcs-0", entry.Name)
+		assert.Equal(t, "old-hash", entry.PodCliqueSetGenerationHash)
+		assert.Equal(t, int32(5), entry.PodCliques["frontend"])
+		assert.Equal(t, int32(1), entry.PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, int32(1), entry.PodCliqueScalingGroups["decode"])
+	})
+
+	t.Run("SPG with single PCSG replica", func(t *testing.T) {
+		pg := groveschedulerv1alpha1.PodGang{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0-spg-1"},
+			Spec: groveschedulerv1alpha1.PodGangSpec{
+				PodGroups: []groveschedulerv1alpha1.PodGroup{
+					{Name: "my-pcs-0-prefill-1-pleader", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 1)},
+					{Name: "my-pcs-0-prefill-1-pworker", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 3)},
+				},
+			},
+		}
+
+		entry, err := buildEntryFromPodGang(pcs, "old-hash", pg)
+		require.NoError(t, err)
+		assert.Equal(t, "my-pcs-0-spg-1", entry.Name)
+		assert.Empty(t, entry.PodCliques)
+		assert.Equal(t, int32(1), entry.PodCliqueScalingGroups["prefill"])
+	})
+
+	t.Run("standalone PCLQ only PodGang", func(t *testing.T) {
+		pg := groveschedulerv1alpha1.PodGang{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0-mvu-0"},
+			Spec: groveschedulerv1alpha1.PodGangSpec{
+				PodGroups: []groveschedulerv1alpha1.PodGroup{
+					{Name: "my-pcs-0-frontend", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 2)},
+				},
+			},
+		}
+
+		entry, err := buildEntryFromPodGang(pcs, "new-hash", pg)
+		require.NoError(t, err)
+		assert.Equal(t, int32(2), entry.PodCliques["frontend"])
+		assert.Empty(t, entry.PodCliqueScalingGroups)
+	})
+
+	t.Run("unknown PodGroup name returns error", func(t *testing.T) {
+		pg := groveschedulerv1alpha1.PodGang{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0-bad"},
+			Spec: groveschedulerv1alpha1.PodGangSpec{
+				PodGroups: []groveschedulerv1alpha1.PodGroup{
+					{Name: "my-pcs-0-unknown", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 1)},
+				},
+			},
+		}
+
+		_, err := buildEntryFromPodGang(pcs, "old-hash", pg)
+		require.Error(t, err)
+	})
+}
+
+func TestExtractCliqueName(t *testing.T) {
+	pcs := newTestPCS("my-pcs", "",
+		[]grovecorev1alpha1.PodCliqueTemplateSpec{
+			{Name: "frontend"},
+			{Name: "pleader"},
+			{Name: "pworker"},
+		}, nil)
+
+	t.Run("standalone PCLQ FQN", func(t *testing.T) {
+		name, err := extractCliqueName("my-pcs-0-frontend", pcs)
+		require.NoError(t, err)
+		assert.Equal(t, "frontend", name)
+	})
+
+	t.Run("PCSG-owned PCLQ FQN", func(t *testing.T) {
+		name, err := extractCliqueName("my-pcs-0-prefill-0-pworker", pcs)
+		require.NoError(t, err)
+		assert.Equal(t, "pworker", name)
+	})
+
+	t.Run("unknown name returns error", func(t *testing.T) {
+		_, err := extractCliqueName("something-unknown", pcs)
+		require.Error(t, err)
+	})
+}
+
+// TestComputeCoherentUpdateEntries_FirstReconcile tests the first reconcile path where no
+// PodGangMap exists yet. Old entries are built from existing PodGang resources, and the
+// first MVU iteration is computed.
+//
+// Starting state:
+//
+//	PCS "my-pcs" with:
+//	  - Frontend (standalone, 5 pods, minAvailable=2) — updated
+//	  - Prefill PCSG (pleader+pworker, 2 replicas, minAvailable=1) — updated
+//	Existing PodGangs:
+//	  - BPG "my-pcs-0": {5 Frontend, 1 Prefill replica (pleader+pworker)}
+//	  - SPG "my-pcs-0-spg-1": {1 Prefill replica (pleader+pworker)}
+//	No PodGangMap exists yet. PodGangCounter = 0.
+//
+// MVU template: {Frontend: 2 pods, Prefill: 1 replica}
+//
+// Expected: old BPG reduced {F:3, P:0}, SPG unchanged {P:1}, new MVU entry {F:2, P:1}.
+func TestComputeCoherentUpdateEntries_PodGangMapNotFound(t *testing.T) {
+	oldHash := "oldhash12345"
+	newHash := "newhash12345"
+
+	pcs := newTestPCS("my-pcs", newHash,
+		[]grovecorev1alpha1.PodCliqueTemplateSpec{
+			{Name: "frontend", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 5, MinAvailable: ptr.To[int32](2)}},
+			{Name: "pleader", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 1, MinAvailable: ptr.To[int32](1)}},
+			{Name: "pworker", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 3, MinAvailable: ptr.To[int32](2)}},
+		},
+		[]grovecorev1alpha1.PodCliqueScalingGroupConfig{
+			{Name: "prefill", CliqueNames: []string{"pleader", "pworker"}, MinAvailable: ptr.To[int32](1)},
+		},
+	)
+	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy}
+	pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{UpdateStartedAt: metav1.Now()}
+	pcs.Status.PodGangCounter = map[string]int32{"0": 0}
+
+	pgLabels := map[string]string{
+		"app.kubernetes.io/managed-by":        "grove-operator",
+		"app.kubernetes.io/part-of":           "my-pcs",
+		"app.kubernetes.io/component":         "podgang",
+		"grove.io/podcliqueset-replica-index": "0",
+	}
+
+	// BPG: {5F, 1P (pleader+pworker)}
+	bpg := &groveschedulerv1alpha1.PodGang{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "my-pcs-0", Namespace: "default", Labels: pgLabels,
+			OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueSet", Name: "my-pcs", UID: pcs.UID, Controller: ptr.To(true)}},
+		},
+		Spec: groveschedulerv1alpha1.PodGangSpec{
+			PodGroups: []groveschedulerv1alpha1.PodGroup{
+				{Name: "my-pcs-0-frontend", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 5)},
+				{Name: "my-pcs-0-prefill-0-pleader", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 1)},
+				{Name: "my-pcs-0-prefill-0-pworker", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 3)},
+			},
+		},
+	}
+
+	// SPG: {1P (pleader+pworker)}
+	spg := &groveschedulerv1alpha1.PodGang{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "my-pcs-0-spg-1", Namespace: "default", Labels: pgLabels,
+			OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueSet", Name: "my-pcs", UID: pcs.UID, Controller: ptr.To(true)}},
+		},
+		Spec: groveschedulerv1alpha1.PodGangSpec{
+			PodGroups: []groveschedulerv1alpha1.PodGroup{
+				{Name: "my-pcs-0-prefill-1-pleader", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 1)},
+				{Name: "my-pcs-0-prefill-1-pworker", PodReferences: make([]groveschedulerv1alpha1.NamespacedName, 3)},
+			},
+		},
+	}
+
+	// Live PCLQs with old hash.
+	pclqs := []grovecorev1alpha1.PodClique{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "my-pcs-0-frontend", Namespace: "default",
+				Labels:          map[string]string{"app.kubernetes.io/managed-by": "grove-operator", "app.kubernetes.io/part-of": "my-pcs", "grove.io/podcliqueset-replica-index": "0"},
+				OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueSet", Name: "my-pcs"}},
+			},
+			Spec:   grovecorev1alpha1.PodCliqueSpec{Replicas: 5, MinAvailable: ptr.To[int32](2)},
+			Status: grovecorev1alpha1.PodCliqueStatus{CurrentPodCliqueSetGenerationHash: &oldHash, CurrentPodTemplateHash: ptr.To("old-fe-hash")},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "my-pcs-0-prefill-0-pleader", Namespace: "default",
+				Labels:          map[string]string{"app.kubernetes.io/managed-by": "grove-operator", "app.kubernetes.io/part-of": "my-pcs", "grove.io/podcliqueset-replica-index": "0", "grove.io/podcliquescalinggroup": "my-pcs-0-prefill", "grove.io/podcliquescalinggroup-replica-index": "0"},
+				OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueScalingGroup", Name: "my-pcs-0-prefill"}},
+			},
+			Spec:   grovecorev1alpha1.PodCliqueSpec{Replicas: 1, MinAvailable: ptr.To[int32](1)},
+			Status: grovecorev1alpha1.PodCliqueStatus{CurrentPodCliqueSetGenerationHash: &oldHash, CurrentPodTemplateHash: ptr.To("old-pl-hash")},
+		},
+	}
+
+	cl := testutils.NewTestClientBuilder().WithObjects(pcs, bpg, spg).Build()
+	r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
+
+	entries, err := r.computeCoherentUpdateEntries(context.Background(), pcs, 0, pclqs)
+	require.NoError(t, err)
+
+	// Expected: 2 old entries (BPG reduced + SPG) + 1 new MVU entry.
+	// BPG: F reduced from 5→3, P reduced from 1→0. Since P=0 but F=3 still present, BPG stays.
+	// SPG: P=1 unchanged (deduction took from BPG first).
+	// New: MVU {F:2, P:1}.
+	require.Len(t, entries, 3)
+
+	// Old BPG (reduced)
+	assert.Equal(t, "my-pcs-0", entries[0].Name)
+	assert.Equal(t, oldHash, entries[0].PodCliqueSetGenerationHash)
+	assert.Equal(t, int32(3), entries[0].PodCliques["frontend"])
+
+	// Old SPG (unchanged)
+	assert.Equal(t, "my-pcs-0-spg-1", entries[1].Name)
+	assert.Equal(t, oldHash, entries[1].PodCliqueSetGenerationHash)
+	assert.Equal(t, int32(1), entries[1].PodCliqueScalingGroups["prefill"])
+
+	// New MVU entry
+	expectedName := fmt.Sprintf("my-pcs-0-%s-0", newHash)
+	assert.Equal(t, expectedName, entries[2].Name)
+	assert.Equal(t, newHash, entries[2].PodCliqueSetGenerationHash)
+	assert.Equal(t, int32(2), entries[2].PodCliques["frontend"])
+	assert.Equal(t, int32(1), entries[2].PodCliqueScalingGroups["prefill"])
+}
+
+// TestComputeCoherentUpdateEntries_SubsequentReconcile tests the path where PodGangMap
+// already exists from a prior iteration. Verifies correct separation by hash and assembly.
+//
+// Starting state:
+//
+//	PCS "my-pcs" with Frontend (standalone, 5 pods, minAvail=2) + Prefill PCSG (2 replicas, minAvail=1).
+//	PodGangMap exists with:
+//	  - Old entry "bpg-0" (old hash): {F:3, P:1} (reduced from first iteration)
+//	  - New entry "my-pcs-0-newhash12345-0" (new hash): {F:2, P:1} (from first iteration)
+//	PodGangCounter = 1.
+//
+// MVU template: {Frontend: 2, Prefill: 1}
+// Remaining in old: F=3, P=1. canFormMVU? Yes (3≥2, 1≥1). After deduction: F=1, P=0.
+// canFormAnother? No (P=0<1). Absorb F=1. MVU becomes {F:3, P:1}. Old entry removed (all zero).
+//
+// Expected: 0 old entries + 1 existing new entry + 1 new MVU entry = 2 entries.
+func TestComputeCoherentUpdateEntries_SubsequentReconcile(t *testing.T) {
+	oldHash := "oldhash12345"
+	newHash := "newhash12345"
+
+	pcs := newTestPCS("my-pcs", newHash,
+		[]grovecorev1alpha1.PodCliqueTemplateSpec{
+			{Name: "frontend", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 5, MinAvailable: ptr.To[int32](2)}},
+			{Name: "pleader", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 1, MinAvailable: ptr.To[int32](1)}},
+			{Name: "pworker", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 3, MinAvailable: ptr.To[int32](2)}},
+		},
+		[]grovecorev1alpha1.PodCliqueScalingGroupConfig{
+			{Name: "prefill", CliqueNames: []string{"pleader", "pworker"}, MinAvailable: ptr.To[int32](1)},
+		},
+	)
+	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy}
+	pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{UpdateStartedAt: metav1.Now()}
+	pcs.Status.PodGangCounter = map[string]int32{"0": 1}
+
+	// Existing PodGangMap from prior iteration.
+	pgm := &grovecorev1alpha1.PodGangMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "my-pcs-0", Namespace: "default",
+			Labels: getLabels("my-pcs", 0),
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: grovecorev1alpha1.SchemeGroupVersion.String(), Kind: "PodCliqueSet", Name: "my-pcs", UID: pcs.UID, Controller: ptr.To(true)},
+			},
+		},
+		Spec: grovecorev1alpha1.PodGangMapSpec{
+			PodCliqueSetReplicaIndex: 0,
+			Entries: []grovecorev1alpha1.PodGangEntry{
+				{Name: "bpg-0", PodCliqueSetGenerationHash: oldHash, PodCliques: map[string]int32{"frontend": 3}, PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
+				{Name: "my-pcs-0-newhash12345-0", PodCliqueSetGenerationHash: newHash, PodCliques: map[string]int32{"frontend": 2}, PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
+			},
+		},
+	}
+
+	// Live PCLQ with old hash.
+	pclqs := []grovecorev1alpha1.PodClique{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "my-pcs-0-frontend", Namespace: "default",
+				Labels:          map[string]string{"app.kubernetes.io/managed-by": "grove-operator", "app.kubernetes.io/part-of": "my-pcs", "grove.io/podcliqueset-replica-index": "0"},
+				OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueSet", Name: "my-pcs"}},
+			},
+			Spec:   grovecorev1alpha1.PodCliqueSpec{Replicas: 5, MinAvailable: ptr.To[int32](2)},
+			Status: grovecorev1alpha1.PodCliqueStatus{CurrentPodCliqueSetGenerationHash: &oldHash, CurrentPodTemplateHash: ptr.To("old-fe-hash")},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "my-pcs-0-prefill-0-pleader", Namespace: "default",
+				Labels:          map[string]string{"app.kubernetes.io/managed-by": "grove-operator", "app.kubernetes.io/part-of": "my-pcs", "grove.io/podcliqueset-replica-index": "0", "grove.io/podcliquescalinggroup": "my-pcs-0-prefill", "grove.io/podcliquescalinggroup-replica-index": "0"},
+				OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueScalingGroup", Name: "my-pcs-0-prefill"}},
+			},
+			Spec:   grovecorev1alpha1.PodCliqueSpec{Replicas: 1, MinAvailable: ptr.To[int32](1)},
+			Status: grovecorev1alpha1.PodCliqueStatus{CurrentPodCliqueSetGenerationHash: &oldHash, CurrentPodTemplateHash: ptr.To("old-pl-hash")},
+		},
+	}
+
+	cl := testutils.NewTestClientBuilder().WithObjects(pcs, pgm).Build()
+	r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
+
+	entries, err := r.computeCoherentUpdateEntries(context.Background(), pcs, 0, pclqs)
+	require.NoError(t, err)
+
+	// Old entry {F:3, P:1}: deduct F:2 + P:1 for MVU → F:1, P:0.
+	// canFormAnother? No (P:0<1). Absorb F:1 → MVU becomes {F:3, P:1}. Old entry fully consumed → removed.
+	// Result: 0 old + 1 existing new + 1 new this iteration = 2 entries.
+	require.Len(t, entries, 2)
+
+	// First: existing new entry from prior iteration (preserved).
+	assert.Equal(t, "my-pcs-0-newhash12345-0", entries[0].Name)
+	assert.Equal(t, newHash, entries[0].PodCliqueSetGenerationHash)
+	assert.Equal(t, int32(2), entries[0].PodCliques["frontend"])
+	assert.Equal(t, int32(1), entries[0].PodCliqueScalingGroups["prefill"])
+
+	// Second: new MVU from this iteration with absorbed frontend pod.
+	expectedName := fmt.Sprintf("my-pcs-0-%s-1", newHash)
+	assert.Equal(t, expectedName, entries[1].Name)
+	assert.Equal(t, newHash, entries[1].PodCliqueSetGenerationHash)
+	assert.Equal(t, int32(3), entries[1].PodCliques["frontend"])
+	assert.Equal(t, int32(1), entries[1].PodCliqueScalingGroups["prefill"])
+}
+
+// --- Test helpers ---
+
+// newTestPCS creates a minimal PodCliqueSet for use in unit tests.
+func newTestPCS(name string, generationHash string, cliques []grovecorev1alpha1.PodCliqueTemplateSpec, pcsgConfigs []grovecorev1alpha1.PodCliqueScalingGroupConfig) *grovecorev1alpha1.PodCliqueSet {
+	cliquePtrs := make([]*grovecorev1alpha1.PodCliqueTemplateSpec, len(cliques))
+	for i := range cliques {
+		cliquePtrs[i] = &cliques[i]
+	}
+	pcs := &grovecorev1alpha1.PodCliqueSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+		},
+		Spec: grovecorev1alpha1.PodCliqueSetSpec{
+			Replicas: 1,
+			Template: grovecorev1alpha1.PodCliqueSetTemplateSpec{
+				Cliques:                      cliquePtrs,
+				PodCliqueScalingGroupConfigs: pcsgConfigs,
+			},
+		},
+	}
+	if generationHash != "" {
+		pcs.Status.CurrentGenerationHash = &generationHash
+	}
+	return pcs
+}

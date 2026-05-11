@@ -120,3 +120,40 @@ func ExtractScalingGroupNameFromPCSGFQN(pcsgFQN string, pcsNameReplica ResourceN
 	prefix := fmt.Sprintf("%s-%d-", pcsNameReplica.Name, pcsNameReplica.Replica)
 	return pcsgFQN[len(prefix):]
 }
+
+// GeneratePodGangName generates a PodGang name for a PodCliqueSet replica.
+// The name encodes the PCS replica index, the update event (via the PodCliqueSet generation
+// hash), and the creation sequence within that update (via createdPodGangCount).
+//
+// Format: <pcsName>-<replicaIndex>-<pcsGenerationHash>-<createdPodGangCount>
+//
+// This is the unified PodGang naming convention and applies to all update strategies
+// including Coherent and RollingRecreate, as well as initial deployment. Over time,
+// the legacy BasePodGang and ScaledPodGang naming conventions
+// (GenerateBasePodGangName, CreatePodGangNameFromPCSGFQN) will be retired in favour
+// of this scheme.
+//
+// createdPodGangCount must be the value of PodCliqueSetStatus.PodGangCounter[replicaIndex]
+// at the time of PodGang creation (before incrementing). pcsGenerationHash must not
+// be empty; callers should ensure CurrentGenerationHash is set before calling this function.
+func GeneratePodGangName(pcsName string, replicaIndex int32, pcsGenerationHash string, createdPodGangCount int32) string {
+	return fmt.Sprintf("%s-%d-%s-%d", pcsName, replicaIndex, pcsGenerationHash, createdPodGangCount)
+}
+
+// GenerateScaledPodGangName generates the name of a Scaled-PodGang minted by the
+// PodCliqueScalingGroup reconciler in steady state. It carries the PodCliqueSet generation
+// hash so Scaled-PGs minted under one generation are distinct from those minted under another,
+// which keeps the names stable across the boundary of a future coherent update.
+//
+// Format: <pcsName>-<pcsReplicaIndex>-<pcsGenerationHash>-<pcsgConfigName>-<scaledPodGangIndex>
+//
+// pcsGenerationHash must not be empty.
+func GenerateScaledPodGangName(pcsName string, pcsReplicaIndex int32, pcsGenerationHash string, pcsgConfigName string, scaledPodGangIndex int) string {
+	return fmt.Sprintf("%s-%d-%s-%s-%d", pcsName, pcsReplicaIndex, pcsGenerationHash, pcsgConfigName, scaledPodGangIndex)
+}
+
+// GeneratePodGangMapName generates a PodGangMap resource name for a PodCliqueSet replica.
+// One PodGangMap exists per PodCliqueSet replica, named <pcs-name>-<pcs-replica-index>.
+func GeneratePodGangMapName(pcsNameReplica ResourceNameReplica) string {
+	return fmt.Sprintf("%s-%d", pcsNameReplica.Name, pcsNameReplica.Replica)
+}

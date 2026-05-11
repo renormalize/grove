@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strconv"
 
+	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	apicommonconstants "github.com/ai-dynamo/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/internal/clustertopology"
@@ -48,6 +49,10 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pc
 	err := r.mutateReplicas(ctx, logger, pcs)
 	if err != nil {
 		return ctrlcommon.ReconcileWithErrors("failed to mutate replicas status", err)
+	}
+
+	if err = r.mutatePodGangCounter(ctx, pcs); err != nil {
+		return ctrlcommon.ReconcileWithErrors("failed to mutate PodGangCounter status", err)
 	}
 
 	// Update TopologyLevelsUnavailable condition based on TAS config and ClusterTopologyBinding
@@ -126,7 +131,7 @@ func (r *Reconciler) computeAvailableAndUpdatedReplicas(ctx context.Context, log
 	// Fetch all PCSGs for this PCS, then drop any stray PCSGs (not part of the spec) using O(1)
 	// set lookup. slices.DeleteFunc compacts in-place; safe here because the slice came from a
 	// fresh fetch and isn't aliased.
-	pcsgs, err := componentutils.GetPCSGsForPCS(ctx, r.client, pcsObjectKey)
+	pcsgs, err := componentutils.ListPCSGsForPCS(ctx, r.client, pcsObjectKey)
 	if err != nil {
 		return stats, err
 	}
@@ -146,13 +151,18 @@ func (r *Reconciler) computeAvailableAndUpdatedReplicas(ctx context.Context, log
 	})
 
 	// Group both resources by PCS replica index
-	standalonePCLQsByReplica := componentutils.GroupPCLQsByPCSReplicaIndex(standalonePCLQs)
-	pcsgsByReplica := componentutils.GroupPCSGsByPCSReplicaIndex(pcsgs)
+	standalonePCLQsByReplica, err := componentutils.GroupPCLQsByPCSReplicaIndex(standalonePCLQs)
+	if err != nil {
+		return pcsReplicaStats{}, err
+	}
+	pcsgsByReplica, err := componentutils.GroupPCSGsByPCSReplicaIndex(pcsgs)
+	if err != nil {
+		return pcsReplicaStats{}, err
+	}
 
 	for replicaIndex := 0; replicaIndex < int(pcs.Spec.Replicas); replicaIndex++ {
-		replicaIndexStr := strconv.Itoa(replicaIndex)
-		replicaStandalonePCLQs := standalonePCLQsByReplica[replicaIndexStr]
-		replicaPCSGs := pcsgsByReplica[replicaIndexStr]
+		replicaStandalonePCLQs := standalonePCLQsByReplica[replicaIndex]
+		replicaPCSGs := pcsgsByReplica[replicaIndex]
 		expectedPCSGCount := len(expectedPCSGFQNsPerPCSReplica[replicaIndex])
 		expectedPCLQCount := len(expectedStandAlonePCLQFQNsPerPCSReplica[replicaIndex])
 
@@ -256,6 +266,36 @@ func (r *Reconciler) computePCSGsStatus(pcsGenerationHash *string, expectedPCSGs
 	})
 
 	return
+}
+
+// mutatePodGangCounter updates PodGangCounter by counting PodGangMap entries
+// matching the current generation hash per PCS replica.
+func (r *Reconciler) mutatePodGangCounter(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet) error {
+	if pcs.Status.CurrentGenerationHash == nil {
+		return nil
+	}
+	pcsGenerationHash := *pcs.Status.CurrentGenerationHash
+	podGangCounter := make(map[string]int32, pcs.Spec.Replicas)
+
+	for pcsReplicaIndex := range int(pcs.Spec.Replicas) {
+		pgmName := apicommon.GeneratePodGangMapName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: pcsReplicaIndex})
+		pgm, err := componentutils.GetPodGangMap(ctx, r.client, pgmName, pcs.Namespace)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return fmt.Errorf("failed to get PodGangMap %s: %w", pgmName, err)
+		}
+		count := int32(len(componentutils.FilterPodGangMapEntriesByGenerationHash(pgm.Spec.Entries, pcsGenerationHash)))
+		if count > 0 {
+			podGangCounter[strconv.Itoa(pcsReplicaIndex)] = count
+		}
+	}
+
+	if len(podGangCounter) > 0 {
+		pcs.Status.PodGangCounter = podGangCounter
+	}
+	return nil
 }
 
 func (r *Reconciler) mutateTopologyLevelUnavailableConditions(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet) error {
