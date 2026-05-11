@@ -120,3 +120,30 @@ func ExtractScalingGroupNameFromPCSGFQN(pcsgFQN string, pcsNameReplica ResourceN
 	prefix := fmt.Sprintf("%s-%d-", pcsNameReplica.Name, pcsNameReplica.Replica)
 	return pcsgFQN[len(prefix):]
 }
+
+// podGangNameShortHashLength is the number of characters taken from the PodCliqueSet
+// generation hash when constructing a PodGang name. 5 characters provides sufficient
+// collision resistance across iterations of a single update for a given PCS replica.
+const podGangNameShortHashLength = 5
+
+// GeneratePodGangName generates a PodGang name for a PodCliqueSet replica.
+// The name encodes the PCS replica index, the update event (via a short prefix of
+// the PodCliqueSet generation hash), and the creation sequence within that update
+// (via createdPodGangCount).
+//
+// Format: <pcsName>-<replicaIndex>-<shortHash>-<createdPodGangCount>
+// where shortHash is the first 5 characters of pcsGenerationHash.
+//
+// This is the unified PodGang naming convention and applies to all update strategies
+// including Coherent and RollingRecreate, as well as initial deployment. Over time,
+// the legacy BasePodGang and ScaledPodGang naming conventions
+// (GenerateBasePodGangName, CreatePodGangNameFromPCSGFQN) will be retired in favour
+// of this scheme.
+//
+// createdPodGangCount must be the value of PodGangReplicaState.CreatedPodGangCount
+// at the time of PodGang creation (before incrementing). pcsGenerationHash must not
+// be empty; callers should ensure CurrentGenerationHash is set before calling this function.
+func GeneratePodGangName(pcsName string, replicaIndex int32, pcsGenerationHash string, createdPodGangCount int32) string {
+	shortHash := pcsGenerationHash[:podGangNameShortHashLength]
+	return fmt.Sprintf("%s-%d-%s-%d", pcsName, replicaIndex, shortHash, createdPodGangCount)
+}
