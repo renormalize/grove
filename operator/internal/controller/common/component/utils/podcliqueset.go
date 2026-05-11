@@ -22,9 +22,9 @@ import (
 
 	"github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
-
 	"github.com/samber/lo"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -38,20 +38,28 @@ func GetExpectedPCSGFQNsForPCS(pcs *grovecorev1alpha1.PodCliqueSet) []string {
 func GetPodCliqueFQNsForPCSNotInPCSG(pcs *grovecorev1alpha1.PodCliqueSet) []string {
 	pclqFQNs := make([]string, 0, int(pcs.Spec.Replicas)*len(pcs.Spec.Template.Cliques))
 	for pcsReplicaIndex := range int(pcs.Spec.Replicas) {
-		pclqFQNs = append(pclqFQNs, GetPodCliqueFQNsForPCSReplicaNotInPCSG(pcs, pcsReplicaIndex)...)
+		pclqFQNs = append(pclqFQNs, GetStandalonePCLQFQNs(pcs, pcsReplicaIndex)...)
 	}
 	return pclqFQNs
 }
 
-// GetPodCliqueFQNsForPCSReplicaNotInPCSG computes the FQNs for all PodCliques for a PCS replica which are not part of any PCSG.
-func GetPodCliqueFQNsForPCSReplicaNotInPCSG(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex int) []string {
-	pclqNames := make([]string, 0, len(pcs.Spec.Template.Cliques))
+// GetStandalonePCLQFQNSet returns a set of fully-qualified names of all standalone PodCliques
+// for a given PCS replica. A standalone PodClique is one whose name does not appear in any
+// PodCliqueScalingGroupConfig.CliqueNames in the PCS template.
+func GetStandalonePCLQFQNSet(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex int) sets.Set[string] {
+	fqns := sets.New[string]()
 	for _, pclqTemplateSpec := range pcs.Spec.Template.Cliques {
 		if isStandalonePCLQ(pcs, pclqTemplateSpec.Name) {
-			pclqNames = append(pclqNames, common.GeneratePodCliqueName(common.ResourceNameReplica{Name: pcs.Name, Replica: pcsReplicaIndex}, pclqTemplateSpec.Name))
+			fqns.Insert(common.GeneratePodCliqueName(common.ResourceNameReplica{Name: pcs.Name, Replica: pcsReplicaIndex}, pclqTemplateSpec.Name))
 		}
 	}
-	return pclqNames
+	return fqns
+}
+
+// GetStandalonePCLQFQNs returns the fully-qualified names of all standalone PodCliques
+// for a given PCS replica as a slice. See GetStandalonePCLQFQNSet for the definition of standalone.
+func GetStandalonePCLQFQNs(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex int) []string {
+	return GetStandalonePCLQFQNSet(pcs, pcsReplicaIndex).UnsortedList()
 }
 
 // isStandalonePCLQ checks if the PodClique is managed by PodCliqueSet or not
@@ -121,6 +129,21 @@ func IsAutoUpdateStrategy(pcs *grovecorev1alpha1.PodCliqueSet) bool {
 	return pcs.Spec.UpdateStrategy == nil || pcs.Spec.UpdateStrategy.Type != grovecorev1alpha1.OnDeleteStrategy
 }
 
+// IsCoherentStrategy returns true when the PodCliqueSet update strategy is Coherent.
+func IsCoherentStrategy(pcs *grovecorev1alpha1.PodCliqueSet) bool {
+	if pcs == nil {
+		return false
+	}
+	return pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.CoherentStrategy
+}
+
+// IsCoherentUpdateInProgress returns true when a Coherent update has been initiated and not yet completed.
+func IsCoherentUpdateInProgress(pcs *grovecorev1alpha1.PodCliqueSet) bool {
+	return IsCoherentStrategy(pcs) &&
+		pcs.Status.CoherentUpdateProgress != nil &&
+		pcs.Status.CoherentUpdateProgress.UpdateEndedAt == nil
+}
+
 // GetExpectedPCLQNamesGroupByOwner returns the expected unqualified PodClique names which are either owned by PodCliqueSet or PodCliqueScalingGroup.
 func GetExpectedPCLQNamesGroupByOwner(pcs *grovecorev1alpha1.PodCliqueSet) (expectedPCLQNamesForPCS []string, expectedPCLQNamesForPCSG []string) {
 	pcsgConfigs := pcs.Spec.Template.PodCliqueScalingGroupConfigs
@@ -150,7 +173,7 @@ func GetExpectedPCSGFQNsPerPCSReplica(pcs *grovecorev1alpha1.PodCliqueSet) map[i
 func GetExpectedStandAlonePCLQFQNsPerPCSReplica(pcs *grovecorev1alpha1.PodCliqueSet) map[int][]string {
 	pclqFQNsByPCSReplica := make(map[int][]string)
 	for pcsReplicaIndex := range int(pcs.Spec.Replicas) {
-		pclqFQNsByPCSReplica[pcsReplicaIndex] = GetPodCliqueFQNsForPCSReplicaNotInPCSG(pcs, pcsReplicaIndex)
+		pclqFQNsByPCSReplica[pcsReplicaIndex] = GetStandalonePCLQFQNs(pcs, pcsReplicaIndex)
 	}
 	return pclqFQNsByPCSReplica
 }

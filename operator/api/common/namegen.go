@@ -147,3 +147,9 @@ func GeneratePodGangName(pcsName string, replicaIndex int32, pcsGenerationHash s
 	shortHash := pcsGenerationHash[:podGangNameShortHashLength]
 	return fmt.Sprintf("%s-%d-%s-%d", pcsName, replicaIndex, shortHash, createdPodGangCount)
 }
+
+// GeneratePodGangMapName generates a PodGangMap resource name for a PodCliqueSet replica.
+// One PodGangMap exists per PodCliqueSet replica, named <pcs-name>-<pcs-replica-index>.
+func GeneratePodGangMapName(pcsNameReplica ResourceNameReplica) string {
+	return fmt.Sprintf("%s-%d", pcsNameReplica.Name, pcsNameReplica.Replica)
+}

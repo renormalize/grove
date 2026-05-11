@@ -35,7 +35,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -141,7 +140,7 @@ func (r *Reconciler) initUpdateProgress(ctx context.Context, pcs *grovecorev1alp
 	}
 	// OnDelete strategy sets UpdateEndedAt too, since we do not know when all the pods will manually be deleted, and gang termination is disabled when an update is in progress
 	if pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategy {
-		pcs.Status.UpdateProgress.UpdateEndedAt = ptr.To(metav1.Now())
+		pcs.Status.UpdateProgress.UpdateEndedAt = new(metav1.Now())
 	}
 	pcs.Status.UpdatedReplicas = 0
 	pcs.Status.CurrentGenerationHash = &newGenerationHash
@@ -275,8 +274,10 @@ func (r *Reconciler) recordIncompleteReconcile(ctx context.Context, logger logr.
 // are processed in order to respect cross-group dependencies.
 func getKindSyncGroups() [][]component.Kind {
 	return [][]component.Kind{
-		// G1: RBAC + static per-PCS infra (Service, HPA targets by name so no ordering
+		// G0: RBAC + static per-PCS infra (Service, HPA targets by name so no ordering
 		// vs PodClique/PCSG needed, ComputeDomain/ResourceClaim are independent add-ons).
+		// PodGangMap is computed here — it has no dependency on any other component, and
+		// must be ready before PodCliqueSetReplica (G1) and PodClique/PCSG/PodGang (G2) read it.
 		{
 			component.KindServiceAccount,
 			component.KindRole,
@@ -284,17 +285,20 @@ func getKindSyncGroups() [][]component.Kind {
 			component.KindServiceAccountTokenSecret,
 			component.KindHeadlessService,
 			component.KindHorizontalPodAutoscaler,
-			component.KindPodCliqueSetReplica,
 			component.KindComputeDomain,
 			component.KindResourceClaim,
+			component.KindPodGangMap,
 		},
-		// G2: PodClique must exist before PodGang can reference their pods.
+		// G1: PodCliqueSetReplica orchestrates replica deletion and rolling updates; it reads
+		// PodGangMap (for Coherent updates) so must run after G0.
+		{
+			component.KindPodCliqueSetReplica,
+		},
+		// G2: PodClique, PCSG, and PodGang run concurrently. PodGang reads existing PodClique/Pod
+		// state from the API server (persisted from prior reconciles) — no same-reconcile ordering
+		// dependency between them. PCSG creates its own PodCliques via a separate reconciler.
 		{
 			component.KindPodClique,
-		},
-		// G3: PCSG and PodGang run concurrently — PCSG creates its own PodCliques via a
-		// separate reconciler, and PodGang reads existing PodClique/Pod state.
-		{
 			component.KindPodCliqueScalingGroup,
 			component.KindPodGang,
 		},

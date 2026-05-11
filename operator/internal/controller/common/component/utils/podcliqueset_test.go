@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -306,6 +307,123 @@ func TestIsAutoUpdateStrategy(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.expected, IsAutoUpdateStrategy(tc.pcs))
+		})
+	}
+}
+
+func TestIsCoherentStrategy(t *testing.T) {
+	tests := []struct {
+		name     string
+		pcs      *grovecorev1alpha1.PodCliqueSet
+		expected bool
+	}{
+		{
+			name:     "nil_pcs",
+			pcs:      nil,
+			expected: false,
+		},
+		{
+			name: "nil_update_strategy_is_not_coherent",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{},
+			},
+			expected: false,
+		},
+		{
+			name: "rolling_recreate_is_not_coherent",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.RollingRecreateStrategy},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "coherent_is_coherent",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, IsCoherentStrategy(tc.pcs))
+		})
+	}
+}
+
+func TestIsCoherentUpdateInProgress(t *testing.T) {
+	tests := []struct {
+		name     string
+		pcs      *grovecorev1alpha1.PodCliqueSet
+		expected bool
+	}{
+		{
+			name:     "nil_pcs",
+			pcs:      nil,
+			expected: false,
+		},
+		{
+			name: "coherent_strategy_no_progress",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "coherent_strategy_update_in_progress",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy},
+				},
+				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					CoherentUpdateProgress: &grovecorev1alpha1.CoherentUpdateProgress{
+						UpdateStartedAt: metav1.Now(),
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "coherent_strategy_update_ended",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy},
+				},
+				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					CoherentUpdateProgress: &grovecorev1alpha1.CoherentUpdateProgress{
+						UpdateStartedAt: metav1.Now(),
+						UpdateEndedAt:   ptr.To(metav1.Now()),
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "rolling_recreate_with_coherent_progress_is_not_coherent_in_progress",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.RollingRecreateStrategy},
+				},
+				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					CoherentUpdateProgress: &grovecorev1alpha1.CoherentUpdateProgress{
+						UpdateStartedAt: metav1.Now(),
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, IsCoherentUpdateInProgress(tc.pcs))
 		})
 	}
 }

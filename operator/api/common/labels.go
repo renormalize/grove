@@ -88,6 +88,8 @@ const (
 	// LabelComponentNameResourceClaim is the label key representing the component name
 	// for a DRA ResourceClaim managed by the resource sharing subsystem.
 	LabelComponentNameResourceClaim = "resource-claim"
+	// LabelComponentNamePodGangMap is the label key representing the component name for a PodGangMap resource.
+	LabelComponentNamePodGangMap = "pcs-podgangmap"
 )
 
 // GetDefaultLabelsForPodCliqueSetManagedResources gets the default labels for resources managed by PodCliqueSet.
