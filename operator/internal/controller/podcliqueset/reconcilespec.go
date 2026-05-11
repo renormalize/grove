@@ -26,6 +26,7 @@ import (
 	"github.com/ai-dynamo/grove/operator/internal/constants"
 	ctrlcommon "github.com/ai-dynamo/grove/operator/internal/controller/common"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
+	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	ctrlutils "github.com/ai-dynamo/grove/operator/internal/controller/utils"
 	"github.com/ai-dynamo/grove/operator/internal/utils"
 	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
@@ -133,17 +134,22 @@ func (r *Reconciler) setGenerationHashAndUpdateStatus(ctx context.Context, pcs *
 	return nil
 }
 
-// initUpdateProgress initializes a new rolling update by resetting progress tracking.
+// initUpdateProgress initializes a new update by resetting progress tracking for the active strategy.
 func (r *Reconciler) initUpdateProgress(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, pcsObjectName, newGenerationHash string) error {
-	pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
-		UpdateStartedAt: metav1.Now(),
-	}
-	// OnDelete strategy sets UpdateEndedAt too, since we do not know when all the pods will manually be deleted, and gang termination is disabled when an update is in progress
-	if pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategy {
-		pcs.Status.UpdateProgress.UpdateEndedAt = new(metav1.Now())
+	if componentutils.IsCoherentStrategy(pcs) {
+		pcs.Status.CoherentUpdateProgress = &grovecorev1alpha1.CoherentUpdateProgress{
+			UpdateStartedAt: metav1.Now(),
+		}
+	} else {
+		pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+			UpdateStartedAt: metav1.Now(),
+		}
+		// OnDelete strategy sets UpdateEndedAt too, since we do not know when all the pods will manually be deleted, and gang termination is disabled when an update is in progress
+		if pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategy {
+			pcs.Status.UpdateProgress.UpdateEndedAt = new(metav1.Now())
+		}
 	}
 	pcs.Status.UpdatedReplicas = 0
-	pcs.Status.CurrentGenerationHash = &newGenerationHash
 	if err := r.setGenerationHashAndUpdateStatus(ctx, pcs, pcsObjectName, newGenerationHash); err != nil {
 		return fmt.Errorf("could not set UpdateProgress for PodCliqueSet: %v: %w", client.ObjectKeyFromObject(pcs), err)
 	}
