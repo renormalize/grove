@@ -107,10 +107,10 @@ func TestExtractScalingGroupNameFromPCSGFQN(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ExtractScalingGroupNameFromPCSGFQN(tt.pcsgName, tt.pcsNameReplica)
-			assert.Equal(t, tt.expected, result)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := ExtractScalingGroupNameFromPCSGFQN(tc.pcsgName, tc.pcsNameReplica)
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -138,10 +138,10 @@ func TestGenerateBasePodGangName(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := GenerateBasePodGangName(tt.pcsNameReplica)
-			assert.Equal(t, tt.expected, result)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GenerateBasePodGangName(tc.pcsNameReplica)
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -205,10 +205,10 @@ func TestGeneratePodGangNameForPodCliqueOwnedByPodCliqueSet(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := GeneratePodGangNameForPodCliqueOwnedByPodCliqueSet(pcs, tt.pcsReplicaIndex)
-			assert.Equal(t, tt.expectedPodGangName, result)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GeneratePodGangNameForPodCliqueOwnedByPodCliqueSet(pcs, tc.pcsReplicaIndex)
+			assert.Equal(t, tc.expectedPodGangName, result)
 		})
 	}
 }
@@ -272,10 +272,10 @@ func TestGeneratePodGangNameForPodCliqueOwnedByPCSG(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := GeneratePodGangNameForPodCliqueOwnedByPCSG(pcs, tt.pcsReplicaIndex, tt.pcsg, tt.pcsgReplicaIndex)
-			assert.Equal(t, tt.expectedPodGangName, result)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GeneratePodGangNameForPodCliqueOwnedByPCSG(pcs, tc.pcsReplicaIndex, tc.pcsg, tc.pcsgReplicaIndex)
+			assert.Equal(t, tc.expectedPodGangName, result)
 		})
 	}
 }
@@ -307,10 +307,10 @@ func TestCreatePodGangNameFromPCSGFQN(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := CreatePodGangNameFromPCSGFQN(tt.pcsgFQN, tt.pcsgReplicaIndex)
-			assert.Equal(t, tt.expected, result)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := CreatePodGangNameFromPCSGFQN(tc.pcsgFQN, tc.pcsgReplicaIndex)
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
