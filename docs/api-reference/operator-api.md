@@ -13,6 +13,7 @@
 - [PodClique](#podclique)
 - [PodCliqueScalingGroup](#podcliquescalinggroup)
 - [PodCliqueSet](#podcliqueset)
+- [PodGangMap](#podgangmap)
 
 
 
@@ -108,6 +109,47 @@ _Appears in:_
 | `observedGeneration` _integer_ | ObservedGeneration is the most recent generation observed by the controller. |  |  |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#condition-v1-meta) array_ | Conditions represents the latest available observations of the ClusterTopologyBinding. |  |  |
 | `schedulerTopologyStatuses` _[SchedulerTopologyStatus](#schedulertopologystatus) array_ | SchedulerTopologyStatuses reports whether each scheduler backend's topology<br />resource is in sync with this ClusterTopologyBinding. |  |  |
+
+
+#### CoherentReplicaUpdateProgress
+
+
+
+CoherentReplicaUpdateProgress captures the progress of a coherent update for a single
+PodCliqueSet replica. The coherent strategy updates replicas one at a time, advancing only
+after all PodGangs created in the current iteration become available.
+
+
+
+_Appears in:_
+- [CoherentUpdateProgress](#coherentupdateprogress)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `replicaIndex` _integer_ | ReplicaIndex is the index of the PodCliqueSet replica being updated. |  |  |
+| `updateStartedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateStartedAt is the time at which the coherent update started for this replica. |  |  |
+| `updateEndedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateEndedAt is the time at which this replica completed its coherent update.<br />Nil while the update is still in progress. |  |  |
+| `inFlightPodGangs` _string array_ | InFlightPodGangs are the names of all PodGangs created in the current iteration.<br />The orchestrator waits for all of them to become available before advancing to the<br />next iteration. This field is purely for observability — PodGangMap is the source<br />of truth for pod-to-PodGang assignment. |  |  |
+| `errorMessage` _string_ | ErrorMessage captures the reason the update of this replica is stalled or failing, if any. |  |  |
+
+
+#### CoherentUpdateProgress
+
+
+
+CoherentUpdateProgress captures the overall progress of a coherent update across all replicas
+of a PodCliqueSet.
+
+
+
+_Appears in:_
+- [PodCliqueSetStatus](#podcliquesetstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `updateStartedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateStartedAt is the time at which the coherent update started. |  |  |
+| `updateEndedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateEndedAt is the time at which all replicas completed their coherent update.<br />Nil while the update is still in progress. |  |  |
+| `currentlyUpdating` _[CoherentReplicaUpdateProgress](#coherentreplicaupdateprogress) array_ | CurrentlyUpdating tracks per-replica update progress for replicas currently being updated. |  |  |
 
 
 #### ErrorCode
@@ -493,6 +535,8 @@ _Appears in:_
 | `podGangStatuses` _[PodGangStatus](#podgangstatus) array_ | PodGangStatuses captures the status for all the PodGang's that are part of the PodCliqueSet. |  |  |
 | `currentGenerationHash` _string_ | CurrentGenerationHash is a hash value generated out of a collection of fields in a PodCliqueSet.<br />Since only a subset of fields is taken into account when generating the hash, not every change in the PodCliqueSetSpec will<br />be accounted for when generating this hash value. A field in PodCliqueSetSpec is included if a change to it triggers<br />a rolling recreate of PodCliques and/or PodCliqueScalingGroups.<br />Only if this value is not nil and the newly computed hash value is different from the persisted CurrentGenerationHash value<br />then an update needs to be triggered. |  |  |
 | `updateProgress` _[PodCliqueSetUpdateProgress](#podcliquesetupdateprogress)_ | UpdateProgress represents the progress of an update. |  |  |
+| `coherentUpdateProgress` _[CoherentUpdateProgress](#coherentupdateprogress)_ | CoherentUpdateProgress represents the progress of a coherent update.<br />Only set when the update strategy is Coherent and an update is in progress. |  |  |
+| `podGangState` _[PodGangReplicaState](#podgangreplicastate) array_ | PodGangState tracks the PodGang creation counter per PodCliqueSet replica.<br />One entry per replica. The counter resets at the start of each new update and<br />increments once per PodGang created — during an update as well as for scale-out<br />events between updates. Never decremented, including on PodCliqueScalingGroup<br />scale-in. Combined with the generation hash segment in the PodGang name, it<br />ensures unique PodGang names across all iterations within a single update. |  |  |
 
 
 #### PodCliqueSetTemplateSpec
@@ -559,7 +603,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `type` _[UpdateStrategyType](#updatestrategytype)_ | Type indicates the type of update strategy.<br />This strategy applies uniformly to both standalone PodCliques and<br />PodCliqueScalingGroups within the PodCliqueSet.<br />Default is RollingRecreate. | RollingRecreate | Enum: [RollingRecreate OnDelete] <br /> |
+| `type` _[UpdateStrategyType](#updatestrategytype)_ | Type indicates the type of update strategy.<br />This strategy applies uniformly to both standalone PodCliques and<br />PodCliqueScalingGroups within the PodCliqueSet.<br />Default is Coherent. | Coherent | Enum: [Coherent RollingRecreate OnDelete] <br /> |
 
 
 #### PodCliqueSpec
@@ -652,6 +696,46 @@ _Appears in:_
 | `readyPodsSelectedToUpdate` _[PodsSelectedToUpdate](#podsselectedtoupdate)_ | ReadyPodsSelectedToUpdate captures the pod names of ready Pods that are either currently being updated or have<br />been previously updated. This field is only set for auto update strategies where Grove orchestrates Pod deletions.<br />For the OnDelete strategy this field is not set, because Pod replacement is initiated by user-driven Pod deletions. |  |  |
 
 
+#### PodGangMap
+
+
+
+PodGangMap is the desired-state mapping between PodGangs and their constituent
+PodClique and PodCliqueScalingGroup pod counts for a single PodCliqueSet replica.
+One PodGangMap resource exists per PodCliqueSet replica, named <pcs-name>-<replica-index>.
+It is created and reconciled exclusively by the PodGangMap component in the PodCliqueSet
+reconciler, before any PodGang, PodClique, or PodCliqueScalingGroup components run.
+All other components read it and act on it; none write to it.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `grove.io/v1alpha1` | | |
+| `kind` _string_ | `PodGangMap` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[PodGangMapSpec](#podgangmapspec)_ | Spec defines the desired PodGang-to-pod-count mapping for this PodCliqueSet replica. |  |  |
+
+
+#### PodGangMapSpec
+
+
+
+PodGangMapSpec defines the desired PodGang composition for a PodCliqueSet replica.
+
+
+
+_Appears in:_
+- [PodGangMap](#podgangmap)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `podCliqueSetReplicaIndex` _integer_ | PodCliqueSetReplicaIndex is the index of the PodCliqueSet replica this map belongs to. |  |  |
+| `tuples` _[PodGangTuple](#podgangtuple) array_ | Tuples is the ordered list of desired PodGangs for this PodCliqueSet replica.<br />Each tuple corresponds to one PodGang and specifies its pod and replica counts. |  |  |
+
+
 #### PodGangPhase
 
 _Underlying type:_ _string_
@@ -673,6 +757,30 @@ _Appears in:_
 | `Succeeded` | PodGangSucceeded indicates that all the pods in a PodGang have succeeded.<br />This is a terminal state and is typically used for batch jobs.<br /> |
 
 
+#### PodGangReplicaState
+
+
+
+PodGangReplicaState tracks the PodGang creation counter for a single PodCliqueSet replica.
+The counter resets to zero at the start of each new update and increments once per PodGang
+created — during an update as well as for scale-out events between updates. Combined with
+the generation hash in the PodGang name, it guarantees unique PodGang names across all
+iterations within a single update.
+The counter is never decremented — not even when PodCliqueScalingGroup replicas are scaled
+in and their PodGangs are deleted. It is a monotonically increasing name-generation seed;
+whether a previously created PodGang still exists is irrelevant to it.
+
+
+
+_Appears in:_
+- [PodCliqueSetStatus](#podcliquesetstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `replicaIndex` _integer_ | ReplicaIndex is the index of the PodCliqueSet replica this state belongs to. |  |  |
+| `createdPodGangCount` _integer_ | CreatedPodGangCount is the number of PodGangs created for this replica since the<br />last update started. Reset to zero at the start of each new update; incremented<br />for both update iterations and scale-out events. Never decremented. |  |  |
+
+
 #### PodGangStatus
 
 
@@ -689,6 +797,25 @@ _Appears in:_
 | `name` _string_ | Name is the name of the PodGang. |  |  |
 | `phase` _[PodGangPhase](#podgangphase)_ | Phase is the current phase of the PodGang. |  | Enum: [Pending Starting Running Failed Succeeded] <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#condition-v1-meta) array_ | Conditions represents the latest available observations of the PodGang by its controller. |  |  |
+
+
+#### PodGangTuple
+
+
+
+PodGangTuple describes the desired composition of a single PodGang.
+
+
+
+_Appears in:_
+- [PodGangMapSpec](#podgangmapspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the name of the PodGang this tuple corresponds to. |  |  |
+| `podCliqueSetGenerationHash` _string_ | PodCliqueSetGenerationHash is the PodCliqueSet generation hash that pods in this PodGang<br />must match. Used by PodClique and PodCliqueScalingGroup reconcilers to create pods at the<br />correct spec version and to distinguish old pods from new pods during a coherent update. |  |  |
+| `podCliques` _object (keys:string, values:integer)_ | PodCliques maps standalone PodClique name to the number of pods that belong to this PodGang.<br />Only standalone PodCliques (not owned by a PodCliqueScalingGroup) are listed here.<br />PodCliques owned by a PodCliqueScalingGroup derive their PodGang association via<br />PodCliqueScalingGroups below. |  |  |
+| `podCliqueScalingGroups` _object (keys:string, values:integer)_ | PodCliqueScalingGroups maps PodCliqueScalingGroup name to the number of replicas of that<br />PodCliqueScalingGroup that belong to this PodGang. A PodClique reconciler for a<br />PodCliqueScalingGroup-owned PodClique uses this field to find its target PodGang by looking<br />up its owning PodCliqueScalingGroup name here. |  |  |
 
 
 #### PodsSelectedToUpdate
@@ -881,15 +1008,16 @@ _Underlying type:_ _string_
 UpdateStrategyType defines the type of update strategy for PodCliqueSet.
 
 _Validation:_
-- Enum: [RollingRecreate OnDelete]
+- Enum: [Coherent RollingRecreate OnDelete]
 
 _Appears in:_
 - [PodCliqueSetUpdateStrategy](#podcliquesetupdatestrategy)
 
 | Field | Description |
 | --- | --- |
-| `RollingRecreate` | RollingRecreateStrategy indicates that replicas will be progressively<br />deleted and recreated one at a time, when templates change. This applies to<br />both pods (for standalone PodCliques) and replicas of PodCliqueScalingGroups.<br />RollingRecreateStrategy qualifies as an auto update strategy in Grove since<br />it handles the orchestration entirely by itself.<br />This is the default update strategy.<br /> |
-| `OnDelete` | OnDeleteStrategy indicates that replicas will only be updated when<br />they are manually deleted. Changes to templates do not automatically<br />trigger replica deletions.<br /> |
+| `Coherent` | CoherentStrategy indicates that replicas will be updated in Minimal Viable Units —<br />MinAvailable replicas of each updated standalone PodClique plus MinAvailable replicas of each<br />updated PodCliqueScalingGroup — scheduled atomically as a new PodGang. This guarantees<br />that pods forming a minimum-viable serving unit are always version-compatible.<br />This is the default update strategy.<br /> |
+| `RollingRecreate` | RollingRecreateStrategy indicates that replicas will be progressively deleted and recreated<br />one at a time when templates change. This applies to both pods (for standalone PodCliques)<br />and replicas of PodCliqueScalingGroups.<br /> |
+| `OnDelete` | OnDeleteStrategy indicates that replicas will only be updated when they are manually deleted.<br />Changes to templates do not automatically trigger replica deletions.<br /> |
 
 
 
