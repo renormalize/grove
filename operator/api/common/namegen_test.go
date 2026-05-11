@@ -373,3 +373,8 @@ func TestGeneratePodGangName(t *testing.T) {
 		})
 	}
 }
+
+func TestGeneratePodGangMapName(t *testing.T) {
+	pcsNameReplica := ResourceNameReplica{Name: "my-pcs", Replica: 0}
+	assert.Equal(t, "my-pcs-0", GeneratePodGangMapName(pcsNameReplica))
+}

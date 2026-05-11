@@ -251,7 +251,7 @@ func (pri *pcsReplicaInfo) computeUpdateProgress(pcs *grovecorev1alpha1.PodCliqu
 		}
 	}
 	pri.updateProgress = replicaUpdateProgress{
-		done: updatedPCLQs == len(componentutils.GetPodCliqueFQNsForPCSReplicaNotInPCSG(pcs, pri.replicaIndex)) &&
+		done: updatedPCLQs == len(componentutils.GetStandalonePCLQFQNs(pcs, pri.replicaIndex)) &&
 			updatedPCSGs == len(pcs.Spec.Template.PodCliqueScalingGroupConfigs),
 	}
 }
