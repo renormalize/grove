@@ -314,3 +314,62 @@ func TestCreatePodGangNameFromPCSGFQN(t *testing.T) {
 		})
 	}
 }
+
+func TestGeneratePodGangName(t *testing.T) {
+	tests := []struct {
+		name                string
+		pcsName             string
+		replicaIndex        int32
+		pcsGenerationHash   string
+		createdPodGangCount int32
+		expected            string
+	}{
+		{
+			name:                "first PodGang in first update",
+			pcsName:             "my-pcs",
+			replicaIndex:        0,
+			pcsGenerationHash:   "abc123def456",
+			createdPodGangCount: 0,
+			expected:            "my-pcs-0-abc12-0",
+		},
+		{
+			name:                "second PodGang in same update",
+			pcsName:             "my-pcs",
+			replicaIndex:        0,
+			pcsGenerationHash:   "abc123def456",
+			createdPodGangCount: 1,
+			expected:            "my-pcs-0-abc12-1",
+		},
+		{
+			name:                "different replica index",
+			pcsName:             "my-pcs",
+			replicaIndex:        2,
+			pcsGenerationHash:   "abc123def456",
+			createdPodGangCount: 0,
+			expected:            "my-pcs-2-abc12-0",
+		},
+		{
+			name:                "hash exactly 5 chars",
+			pcsName:             "my-pcs",
+			replicaIndex:        0,
+			pcsGenerationHash:   "abc12",
+			createdPodGangCount: 0,
+			expected:            "my-pcs-0-abc12-0",
+		},
+		{
+			name:                "different PCS name with higher count",
+			pcsName:             "inference-workload",
+			replicaIndex:        1,
+			pcsGenerationHash:   "xyz99abcdef",
+			createdPodGangCount: 3,
+			expected:            "inference-workload-1-xyz99-3",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GeneratePodGangName(tc.pcsName, tc.replicaIndex, tc.pcsGenerationHash, tc.createdPodGangCount)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
