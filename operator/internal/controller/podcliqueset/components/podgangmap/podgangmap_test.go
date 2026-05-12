@@ -187,9 +187,8 @@ func TestComputeEntries_CoherentUpdateInProgressReturnsNil(t *testing.T) {
 	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{
 		Type: grovecorev1alpha1.CoherentStrategy,
 	}
-	pcs.Status.CoherentUpdateProgress = &grovecorev1alpha1.CoherentUpdateProgress{
+	pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
 		UpdateStartedAt: metav1.Now(),
-		UpdateEndedAt:   nil,
 	}
 
 	r := &_resource{}

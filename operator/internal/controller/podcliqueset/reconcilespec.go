@@ -137,7 +137,7 @@ func (r *Reconciler) setGenerationHashAndUpdateStatus(ctx context.Context, pcs *
 // initUpdateProgress initializes a new update by resetting progress tracking for the active strategy.
 func (r *Reconciler) initUpdateProgress(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, pcsObjectName, newGenerationHash string) error {
 	if componentutils.IsCoherentStrategy(pcs) {
-		pcs.Status.CoherentUpdateProgress = &grovecorev1alpha1.CoherentUpdateProgress{
+		pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
 			UpdateStartedAt: metav1.Now(),
 		}
 	} else {

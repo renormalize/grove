@@ -383,7 +383,7 @@ func TestIsCoherentUpdateInProgress(t *testing.T) {
 					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy},
 				},
 				Status: grovecorev1alpha1.PodCliqueSetStatus{
-					CoherentUpdateProgress: &grovecorev1alpha1.CoherentUpdateProgress{
+					UpdateProgress: &grovecorev1alpha1.PodCliqueSetUpdateProgress{
 						UpdateStartedAt: metav1.Now(),
 					},
 				},
@@ -397,7 +397,7 @@ func TestIsCoherentUpdateInProgress(t *testing.T) {
 					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy},
 				},
 				Status: grovecorev1alpha1.PodCliqueSetStatus{
-					CoherentUpdateProgress: &grovecorev1alpha1.CoherentUpdateProgress{
+					UpdateProgress: &grovecorev1alpha1.PodCliqueSetUpdateProgress{
 						UpdateStartedAt: metav1.Now(),
 						UpdateEndedAt:   ptr.To(metav1.Now()),
 					},
@@ -406,13 +406,13 @@ func TestIsCoherentUpdateInProgress(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "rolling_recreate_with_coherent_progress_is_not_coherent_in_progress",
+			name: "rolling_recreate_with_update_progress_is_not_coherent_in_progress",
 			pcs: &grovecorev1alpha1.PodCliqueSet{
 				Spec: grovecorev1alpha1.PodCliqueSetSpec{
 					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.RollingRecreateStrategy},
 				},
 				Status: grovecorev1alpha1.PodCliqueSetStatus{
-					CoherentUpdateProgress: &grovecorev1alpha1.CoherentUpdateProgress{
+					UpdateProgress: &grovecorev1alpha1.PodCliqueSetUpdateProgress{
 						UpdateStartedAt: metav1.Now(),
 					},
 				},

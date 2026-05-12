@@ -10826,68 +10826,6 @@ spec:
                   have MinAvailableBreached condition = False.
                 format: int32
                 type: integer
-              coherentUpdateProgress:
-                description: |-
-                  CoherentUpdateProgress represents the progress of a coherent update.
-                  Only set when the update strategy is Coherent and an update is in progress.
-                properties:
-                  currentlyUpdating:
-                    description: CurrentlyUpdating tracks per-replica update progress
-                      for replicas currently being updated.
-                    items:
-                      description: |-
-                        CoherentReplicaUpdateProgress captures the progress of a coherent update for a single
-                        PodCliqueSet replica. The coherent strategy updates replicas one at a time, advancing only
-                        after all PodGangs created in the current iteration become available.
-                      properties:
-                        errorMessage:
-                          description: ErrorMessage captures the reason the update
-                            of this replica is stalled or failing, if any.
-                          type: string
-                        inFlightPodGangs:
-                          description: |-
-                            InFlightPodGangs are the names of all PodGangs created in the current iteration.
-                            The orchestrator waits for all of them to become available before advancing to the
-                            next iteration. This field is purely for observability — PodGangMap is the source
-                            of truth for pod-to-PodGang assignment.
-                          items:
-                            type: string
-                          type: array
-                        replicaIndex:
-                          description: ReplicaIndex is the index of the PodCliqueSet
-                            replica being updated.
-                          format: int32
-                          type: integer
-                        updateEndedAt:
-                          description: |-
-                            UpdateEndedAt is the time at which this replica completed its coherent update.
-                            Nil while the update is still in progress.
-                          format: date-time
-                          type: string
-                        updateStartedAt:
-                          description: UpdateStartedAt is the time at which the coherent
-                            update started for this replica.
-                          format: date-time
-                          type: string
-                      required:
-                      - replicaIndex
-                      - updateStartedAt
-                      type: object
-                    type: array
-                  updateEndedAt:
-                    description: |-
-                      UpdateEndedAt is the time at which all replicas completed their coherent update.
-                      Nil while the update is still in progress.
-                    format: date-time
-                    type: string
-                  updateStartedAt:
-                    description: UpdateStartedAt is the time at which the coherent
-                      update started.
-                    format: date-time
-                    type: string
-                required:
-                - updateStartedAt
-                type: object
               conditions:
                 description: Conditions represents the latest available observations
                   of the PodCliqueSet by its controller.
@@ -10997,9 +10935,9 @@ spec:
                   type: integer
                 description: |-
                   PodGangCounter tracks the number of PodGangs created per PodCliqueSet replica.
-                  Key is the stringified replica index; value is the creation count for that replica.
+                  Key is the stringified replica index; value is the creation count of PodGangs for that replica.
                   The counter resets to zero at the start of each new update and increments once per
-                  PodGang created — during an update as well as for scale-out events between updates.
+                  PodGang create — during an update as well as for scale-out events between updates.
                   It is never decremented, including on PodCliqueScalingGroup scale-in. Combined with
                   the generation hash segment in the PodGang name, it ensures unique PodGang names
                   across all iterations within a single update.
@@ -11107,6 +11045,18 @@ spec:
                       description: PodCliqueSetReplicaUpdateProgress captures the
                         progress of an update for a specific PodCliqueSet replica.
                       properties:
+                        errorMessage:
+                          description: ErrorMessage captures the reason the update
+                            of this replica is stalled or failing, if any.
+                          type: string
+                        inFlightPodGangs:
+                          description: |-
+                            InFlightPodGangs are the names of PodGangs that are part of the current update
+                            iteration for this replica. The orchestrator waits for all of them to become
+                            available before advancing to the next iteration.
+                          items:
+                            type: string
+                          type: array
                         replicaIndex:
                           description: ReplicaIndex is the replica index of the PodCliqueSet
                             that is being updated.

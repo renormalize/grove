@@ -46,7 +46,7 @@ A single unified PodGang type — **MPG** — computed from the MVU template, na
 
 Where:
 - `short-generationhash` is a truncated prefix (5 chars) of `pcs.Status.CurrentGenerationHash` — encodes *which update* the MPG belongs to; 5 chars provides sufficient collision resistance within a single PCS's update history (27^5 ≈ 14.3M possible values)
-- `createdPodGangCount-1` is `PodGangState[replicaIndex].CreatedPodGangCount - 1` at the time the PodGang is created — the count is incremented after creation, so the name uses the pre-increment value
+- `createdPodGangCount-1` is `PodGangCounter[replicaIndex] - 1` at the time the PodGang is created — the count is incremented after creation, so the name uses the pre-increment value
 
 This avoids any global monotonic growth. Names are meaningful (you can tell from the name which update event and which MVU iteration created the PodGang), and the iteration count is bounded by `ceil(max(old_standalone_pclq_pods / MinAvailable_pclq, old_pcsg_replicas / MinAvailable_pcsg))` — a small number tied to the PCS replica count, not something that grows over the lifetime of the PCS.
 
@@ -71,35 +71,24 @@ MPG composition depends on which PCLQs/PCSGs are actually updated (the "update s
 
 ### Counter storage
 
-`CreatedPodGangCount` is a **per-replica, always-present** counter stored in `PodCliqueSetStatus` — outside the update boundary so it is available for scale-out events even when no update is in progress:
+`PodGangCounter` is a **per-replica, always-present** counter stored in `PodCliqueSetStatus` — outside the update boundary so it is available for scale-out events even when no update is in progress:
 
 ```go
-// PodGangReplicaState tracks the persistent PodGang creation counter for a single PCS replica.
-// Always present (one entry per replica); survives across updates and scale-out events.
-type PodGangReplicaState struct {
-    ReplicaIndex        int32 `json:"replicaIndex"`
-    // CreatedPodGangCount is the total number of PodGangs ever created for this replica.
-    // Used to derive the next PodGang name. Never resets — monotonically increasing.
-    CreatedPodGangCount int32 `json:"createdPodGangCount"`
-}
+// PodGangCounter tracks the number of PodGangs created per PodCliqueSet replica.
+// Key is the stringified replica index; value is the creation count for that replica.
+PodGangCounter map[string]int32 `json:"podGangCounter,omitempty"`
 ```
 
-Stored in `PodCliqueSetStatus` as:
-```go
-PodGangState []PodGangReplicaState `json:"podGangState,omitempty"`
-```
-
-`CoherentReplicaUpdateProgress` no longer carries `CreatedPodGangCount` — it reads/increments from `PodGangState` directly:
+`PodCliqueSetReplicaUpdateProgress` carries `InFlightPodGangs` and `ErrorMessage` — used by both Coherent and RollingRecreate strategies. It reads/increments from `PodGangCounter` directly:
 
 ```go
-type CoherentReplicaUpdateProgress struct {
-    ReplicaIndex    int32        `json:"replicaIndex"`
-    UpdateStartedAt metav1.Time  `json:"updateStartedAt"`
-    UpdateEndedAt  *metav1.Time `json:"updateEndedAt,omitempty"`
-    // InFlightPodGangs are the names of all PodGangs for the current round (one non-tail MPG +
-    // zero or more tail-MPGs). The orchestrator waits for all of them to become available before
-    // proceeding to the next round. They may not yet exist or may exist but not yet be available.
-    // Purely observability — PodGangMap is the source of truth for pod/PodGang assignment.
+type PodCliqueSetReplicaUpdateProgress struct {
+    ReplicaIndex     int32        `json:"replicaIndex"`
+    UpdateStartedAt  metav1.Time  `json:"updateStartedAt"`
+    UpdateEndedAt   *metav1.Time `json:"updateEndedAt,omitempty"`
+    // InFlightPodGangs are the names of PodGangs that are part of the current update
+    // iteration for this replica. The orchestrator waits for all of them to become
+    // available before advancing to the next iteration.
     InFlightPodGangs []string `json:"inFlightPodGangs,omitempty"`
     // ErrorMessage captures the reason the update of this replica is failing or stalled, if any.
     ErrorMessage *string `json:"errorMessage,omitempty"`
@@ -164,7 +153,7 @@ type PodGangEntry struct {
 On every reconcile, the `PodGangMap` component computes the desired entries from:
 - `pcs.Spec` — structural template (which PCLQs, which PCSGs, `MinAvailable` values)
 - Live PCLQ/PCSG resources — actual current replica counts (reflecting any scale-out/in)
-- `pcs.Status.CoherentUpdateProgress` — which replica is being updated, which MPGs exist so far
+- `pcs.Status.UpdateProgress` — which replica is being updated, which MPGs exist so far
 
 #### Case 1: Existing PCS (BPG/SPG topology, no update in progress)
 
@@ -185,7 +174,7 @@ Entries reflect the partially-updated state:
 - Current iteration MPG entry (from `InFlightPodGangs`), `podCliqueSetGenerationHash: new`, `topologyAnchor: "pcs"`
 - Tail-MPG entries if applicable, `topologyAnchor: "pcsg"`
 
-On each reconcile, counts are recomputed from live PCLQ/PCSG resources + `CoherentUpdateProgress` — a concurrent scale-out/in is automatically reflected on the next reconcile.
+On each reconcile, counts are recomputed from live PCLQ/PCSG resources + `UpdateProgress` — a concurrent scale-out/in is automatically reflected on the next reconcile.
 
 #### Case 4: RollingRecreate update in progress
 
@@ -215,36 +204,15 @@ This eliminates the 1:N label-patching problem: `grove.io/podgang` is set correc
 1. Add `CoherentStrategy UpdateStrategyType = "Coherent"` constant.
 2. Update kubebuilder enum validation: `+kubebuilder:validation:Enum={RollingRecreate,Coherent,OnDelete}`.
 3. Add to `PodCliqueSetStatus`:
-   - `CoherentUpdateProgress *CoherentUpdateProgress`
-   - `PodGangState []PodGangReplicaState` — always-present per-replica PodGang counter
-4. Define new types:
+   - `PodGangCounter map[string]int32` — per-replica PodGang creation counter (key = stringified replica index)
+4. Add to `PodCliqueSetReplicaUpdateProgress`:
 ```go
-// PodGangReplicaState tracks the persistent PodGang creation counter for a single PCS replica.
-type PodGangReplicaState struct {
-    ReplicaIndex        int32 `json:"replicaIndex"`
-    // CreatedPodGangCount is the total number of PodGangs ever created for this replica.
-    // Used to derive the next PodGang name. Never resets — monotonically increasing.
-    CreatedPodGangCount int32 `json:"createdPodGangCount"`
-}
-
-type CoherentUpdateProgress struct {
-    UpdateStartedAt   metav1.Time                     `json:"updateStartedAt"`
-    UpdateEndedAt    *metav1.Time                    `json:"updateEndedAt,omitempty"`
-    CurrentlyUpdating []CoherentReplicaUpdateProgress `json:"currentlyUpdating,omitempty"`
-}
-
-type CoherentReplicaUpdateProgress struct {
-    ReplicaIndex    int32        `json:"replicaIndex"`
-    UpdateStartedAt metav1.Time  `json:"updateStartedAt"`
-    UpdateEndedAt  *metav1.Time `json:"updateEndedAt,omitempty"`
-    // InFlightPodGangs are the names of all PodGangs for the current round (one non-tail MPG +
-    // zero or more tail-MPGs). The orchestrator waits for all of them to become available before
-    // proceeding to the next round. They may not yet exist or may exist but not yet be available.
-    // Purely observability — PodGangMap is the source of truth for pod/PodGang assignment.
+    // InFlightPodGangs are the names of PodGangs that are part of the current update
+    // iteration for this replica. The orchestrator waits for all of them to become
+    // available before advancing to the next iteration.
     InFlightPodGangs []string `json:"inFlightPodGangs,omitempty"`
     // ErrorMessage captures the reason the update of this replica is failing or stalled, if any.
     ErrorMessage *string `json:"errorMessage,omitempty"`
-}
 ```
 
 #### 1b — PodGangMap CRD (`operator/api/core/v1alpha1/podgangmap.go`) — new file
@@ -287,7 +255,7 @@ type PodGangEntry struct {
 
 1. **Keep** `GenerateBasePodGangName()`, `CreatePodGangNameFromPCSGFQN()`, `GeneratePodGangNameForPodCliqueOwnedByPodCliqueSet()`, `GeneratePodGangNameForPodCliqueOwnedByPCSG()` — still used for BPG/SPG topology (existing PCS, no active update).
 2. **Add** `GeneratePodGangName(pcsName string, replicaIndex int, shortGenerationHash string, createdPodGangCount int) string` — returns `<pcsName>-<replicaIndex>-<shortGenerationHash>-<createdPodGangCount-1>`.
-   - Caller passes the current `PodGangState[replicaIndex].CreatedPodGangCount` value (pre-increment); function subtracts 1 to form the name suffix
+   - Caller passes the current `PodGangCounter[replicaIndex]` value (pre-increment); function subtracts 1 to form the name suffix
    - `CurrentGenerationHash` must always be set (on creation and every spec change) so this function is always callable
 
 **Files:** `operator/api/common/namegen.go`, `operator/api/common/namegen_test.go`
@@ -351,13 +319,12 @@ Replace BPG+SPG computation with `PodGangMap`-driven computation:
 In `initUpdateProgress()` (line 138), add a Coherent branch:
 ```go
 if pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.CoherentStrategy {
-    pcs.Status.CoherentUpdateProgress = &grovecorev1alpha1.CoherentUpdateProgress{
+    pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
         UpdateStartedAt: metav1.Now(),
     }
     pcs.Status.UpdatedReplicas = 0
     pcs.Status.CurrentGenerationHash = &newGenerationHash
     return r.setGenerationHashAndUpdateStatus(ctx, pcs, pcsObjectName, newGenerationHash)
-    // Do NOT set UpdateProgress — that is RollingRecreate-specific.
 }
 ```
 
@@ -390,8 +357,8 @@ New helper functions (replace old `isAutoUpdateInProgress`):
 func isCoherentUpdateInProgress(pcs *grovecorev1alpha1.PodCliqueSet) bool {
     return pcs.Spec.UpdateStrategy != nil &&
         pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.CoherentStrategy &&
-        pcs.Status.CoherentUpdateProgress != nil &&
-        pcs.Status.CoherentUpdateProgress.UpdateEndedAt == nil
+        pcs.Status.UpdateProgress != nil &&
+        pcs.Status.UpdateProgress.UpdateEndedAt == nil
 }
 
 func isRollingRecreateUpdateInProgress(pcs *grovecorev1alpha1.PodCliqueSet) bool {
@@ -403,7 +370,7 @@ func isRollingRecreateUpdateInProgress(pcs *grovecorev1alpha1.PodCliqueSet) bool
 
 #### `orchestrateCoherentUpdate` algorithm (`coherentupdate.go`)
 
-The orchestrator's sole responsibility is state machine progression — it computes the takedown set and updates `CoherentUpdateProgress` in status. Pod creation and PodGang creation are driven by PCLQ/PCSG reconcilers and the PodGang component reading `PodGangMap`. The `PodGangMap` component recomputes entries on every reconcile reflecting the orchestrator's current progress.
+The orchestrator's sole responsibility is state machine progression — it computes the takedown set and updates `UpdateProgress` in status. Pod creation and PodGang creation are driven by PCLQ/PCSG reconcilers and the PodGang component reading `PodGangMap`. The `PodGangMap` component recomputes entries on every reconcile reflecting the orchestrator's current progress.
 
 Per reconcile iteration:
 ```
@@ -423,7 +390,7 @@ orchestrateCoherentUpdate(pcs, pcsIndicesToTerminate):
              replicasPending[] // replicas that still have pods at the old generation hash
                                // and need to go through the takedown+MPG creation cycle
 
-  2. if currentlyUpdating replica is set in CoherentUpdateProgress:
+  2. if currentlyUpdating replica is set in UpdateProgress:
        check if InFlightPodGangs are all available
          (each PodGroup in each PodGang has >= MinReplicas ready pods)
        if not available: requeue
@@ -443,18 +410,18 @@ orchestrateCoherentUpdate(pcs, pcsIndicesToTerminate):
                // orchestrator waits for every one of them (normal MPG + tail-MPGs) to become
                // available before advancing to the next iteration.
                delete old pods in the takedown set
-               update InFlightPodGangs in CoherentUpdateProgress with all PodGang names for this iteration
+               update InFlightPodGangs in UpdateProgress with all PodGang names for this iteration
                // CreatedPodGangCount increments once per PodGang created — not once per iteration.
                // A normal iteration creates 1 MPG (count +1). The final tail iteration creates
                // N tail-MPGs simultaneously (count +N). GeneratePodGangName is called once per
                // PodGang using the pre-increment value, then count is incremented before the next call.
-               increment PodGangState[replicaIndex].CreatedPodGangCount by number of PodGangs created this iteration, patch status, requeue
+               increment PodGangCounter[replicaIndex] by number of PodGangs created this iteration, patch status, requeue
 
   3. if no currentlyUpdating: pick next replica from replicasPending (lowest index first)
-       set CoherentUpdateProgress.CurrentlyUpdating entry, patch status, requeue
+       set UpdateProgress.CurrentlyUpdating entry, patch status, requeue
 
   4. if replicasPending empty AND no currentlyUpdating:
-       set CoherentUpdateProgress.UpdateEndedAt → update complete
+       set UpdateProgress.UpdateEndedAt → update complete
 ```
 
 #### Take-down set computation
@@ -592,7 +559,7 @@ Run `make generate manifests`. Check `operator/internal/webhook` for any strateg
 
 | File | Change |
 |---|---|
-| `operator/api/core/v1alpha1/podcliqueset.go` | Add `CoherentStrategy`, `CoherentUpdateProgress`, `CoherentReplicaUpdateProgress`, `PodGangReplicaState` types; add `PodGangState` and `CoherentUpdateProgress` to `PodCliqueSetStatus` |
+| `operator/api/core/v1alpha1/podcliqueset.go` | Add `CoherentStrategy` constant; add `PodGangCounter` to `PodCliqueSetStatus`; add `InFlightPodGangs` and `ErrorMessage` to `PodCliqueSetReplicaUpdateProgress` |
 | `operator/api/core/v1alpha1/podgangmap.go` | **New** — `PodGangMap`, `PodGangMapSpec`, `PodGangEntry` CRD types |
 | `operator/api/common/namegen.go` | Keep old BPG/SPG name functions; add `GeneratePodGangName` |
 | `operator/api/common/namegen_test.go` | Add tests for `GeneratePodGangName` |

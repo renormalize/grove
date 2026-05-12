@@ -107,10 +107,6 @@ type PodCliqueSetStatus struct {
 	CurrentGenerationHash *string `json:"currentGenerationHash,omitempty"`
 	// UpdateProgress represents the progress of an update.
 	UpdateProgress *PodCliqueSetUpdateProgress `json:"updateProgress,omitempty"`
-	// CoherentUpdateProgress represents the progress of a coherent update.
-	// Only set when the update strategy is Coherent and an update is in progress.
-	// +optional
-	CoherentUpdateProgress *CoherentUpdateProgress `json:"coherentUpdateProgress,omitempty"`
 	// PodGangCounter tracks the number of PodGangs created per PodCliqueSet replica.
 	// Key is the stringified replica index; value is the creation count of PodGangs for that replica.
 	// The counter resets to zero at the start of each new update and increments once per
@@ -203,38 +199,9 @@ type PodCliqueSetReplicaUpdateProgress struct {
 	// running the latest specification.
 	// +optional
 	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
-}
-
-// CoherentUpdateProgress captures the overall progress of a coherent update across all replicas
-// of a PodCliqueSet.
-type CoherentUpdateProgress struct {
-	// UpdateStartedAt is the time at which the coherent update started.
-	UpdateStartedAt metav1.Time `json:"updateStartedAt"`
-	// UpdateEndedAt is the time at which all replicas completed their coherent update.
-	// Nil while the update is still in progress.
-	// +optional
-	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
-	// CurrentlyUpdating tracks per-replica update progress for replicas currently being updated.
-	// +optional
-	CurrentlyUpdating []CoherentReplicaUpdateProgress `json:"currentlyUpdating,omitempty"`
-}
-
-// CoherentReplicaUpdateProgress captures the progress of a coherent update for a single
-// PodCliqueSet replica. The coherent strategy updates replicas one at a time, advancing only
-// after all PodGangs created in the current iteration become available.
-type CoherentReplicaUpdateProgress struct {
-	// ReplicaIndex is the index of the PodCliqueSet replica being updated.
-	ReplicaIndex int32 `json:"replicaIndex"`
-	// UpdateStartedAt is the time at which the coherent update started for this replica.
-	UpdateStartedAt metav1.Time `json:"updateStartedAt"`
-	// UpdateEndedAt is the time at which this replica completed its coherent update.
-	// Nil while the update is still in progress.
-	// +optional
-	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
-	// InFlightPodGangs are the names of all PodGangs created in the current iteration.
-	// The orchestrator waits for all of them to become available before advancing to the
-	// next iteration. This field is purely for observability — PodGangMap is the source
-	// of truth for pod-to-PodGang assignment.
+	// InFlightPodGangs are the names of PodGangs that are part of the current update
+	// iteration for this replica. The orchestrator waits for all of them to become
+	// available before advancing to the next iteration.
 	// +optional
 	InFlightPodGangs []string `json:"inFlightPodGangs,omitempty"`
 	// ErrorMessage captures the reason the update of this replica is stalled or failing, if any.
