@@ -140,7 +140,7 @@ const podGangNameShortHashLength = 5
 // (GenerateBasePodGangName, CreatePodGangNameFromPCSGFQN) will be retired in favour
 // of this scheme.
 //
-// createdPodGangCount must be the value of PodGangReplicaState.CreatedPodGangCount
+// createdPodGangCount must be the value of PodCliqueSetStatus.PodGangCounter[replicaIndex]
 // at the time of PodGang creation (before incrementing). pcsGenerationHash must not
 // be empty; callers should ensure CurrentGenerationHash is set before calling this function.
 func GeneratePodGangName(pcsName string, replicaIndex int32, pcsGenerationHash string, createdPodGangCount int32) string {
