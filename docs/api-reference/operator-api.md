@@ -530,7 +530,7 @@ _Appears in:_
 | `updatedReplicas` _integer_ | UpdatedReplicas is the number of replicas that have been updated to the desired revision of the PodCliqueSet. | 0 |  |
 | `availableReplicas` _integer_ | AvailableReplicas is the number of PodCliqueSet replicas that are available.<br />A PodCliqueSet replica is considered available when all standalone PodCliques within that replica<br />have MinAvailableBreached condition = False AND all PodCliqueScalingGroups (PCSG) within that replica<br />have MinAvailableBreached condition = False. | 0 |  |
 | `hpaPodSelector` _string_ | Selector is the label selector that determines which pods are part of the PodGang.<br />PodGang is a unit of scale and this selector is used by HPA to scale the PodGang based on metrics captured for<br />the pods that match this selector. |  |  |
-| `podGangStatuses` _[PodGangStatus](#podgangstatus) array_ | PodGangStatuses captures the status for all the PodGang's that are part of the PodCliqueSet. |  |  |
+| `podGangStatuses` _[PodGangStatus](#podgangstatus) array_ | PodGangStatuses captures the status for all the PodGang's that are part of the PodCliqueSet.<br />Deprecated: Status of the PodGang should be captured as part of the PodGang resource.<br />This field is not been set today and will be removed in the future. |  |  |
 | `currentGenerationHash` _string_ | CurrentGenerationHash is a hash value generated out of a collection of fields in a PodCliqueSet.<br />Since only a subset of fields is taken into account when generating the hash, not every change in the PodCliqueSetSpec will<br />be accounted for when generating this hash value. A field in PodCliqueSetSpec is included if a change to it triggers<br />a rolling recreate of PodCliques and/or PodCliqueScalingGroups.<br />Only if this value is not nil and the newly computed hash value is different from the persisted CurrentGenerationHash value<br />then an update needs to be triggered. |  |  |
 | `updateProgress` _[PodCliqueSetUpdateProgress](#podcliquesetupdateprogress)_ | UpdateProgress represents the progress of an update. |  |  |
 | `coherentUpdateProgress` _[CoherentUpdateProgress](#coherentupdateprogress)_ | CoherentUpdateProgress represents the progress of a coherent update.<br />Only set when the update strategy is Coherent and an update is in progress. |  |  |
@@ -694,16 +694,33 @@ _Appears in:_
 | `readyPodsSelectedToUpdate` _[PodsSelectedToUpdate](#podsselectedtoupdate)_ | ReadyPodsSelectedToUpdate captures the pod names of ready Pods that are either currently being updated or have<br />been previously updated. This field is only set for auto update strategies where Grove orchestrates Pod deletions.<br />For the OnDelete strategy this field is not set, because Pod replacement is initiated by user-driven Pod deletions. |  |  |
 
 
+#### PodGangEntry
+
+
+
+PodGangEntry describes the desired composition of a single PodGang.
+
+
+
+_Appears in:_
+- [PodGangMapSpec](#podgangmapspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the name of the PodGang this entry corresponds to. |  |  |
+| `podCliqueSetGenerationHash` _string_ | PodCliqueSetGenerationHash is the PodCliqueSet generation hash that pods in this PodGang<br />must match. Used by PodClique and PodCliqueScalingGroup reconcilers to create pods at the<br />correct spec version and to distinguish old pods from new pods during a coherent update. |  |  |
+| `topologyAnchor` _[TopologyAnchor](#topologyanchor)_ | TopologyAnchor determines how topology constraints are assigned to the PodGang<br />derived from this entry. |  | Enum: [pcs pcsg] <br /> |
+| `podCliques` _object (keys:string, values:integer)_ | PodCliques maps standalone PodClique name to the number of pods that belong to this PodGang.<br />Only standalone PodCliques (not owned by a PodCliqueScalingGroup) are listed here.<br />PodCliques owned by a PodCliqueScalingGroup derive their PodGang association via<br />PodCliqueScalingGroups below. |  |  |
+| `podCliqueScalingGroups` _object (keys:string, values:integer)_ | PodCliqueScalingGroups maps PodCliqueScalingGroup name to the number of replicas of that<br />PodCliqueScalingGroup that belong to this PodGang. A PodClique reconciler for a<br />PodCliqueScalingGroup-owned PodClique uses this field to find its target PodGang by looking<br />up its owning PodCliqueScalingGroup name here. |  |  |
+
+
 #### PodGangMap
 
 
 
 PodGangMap is the desired-state mapping between PodGangs and their constituent
 PodClique and PodCliqueScalingGroup pod counts for a single PodCliqueSet replica.
-One PodGangMap resource exists per PodCliqueSet replica, named <pcs-name>-<replica-index>.
-It is created and reconciled exclusively by the PodGangMap component in the PodCliqueSet
-reconciler, before any PodGang, PodClique, or PodCliqueScalingGroup components run.
-All other components read it and act on it; none write to it.
+One PodGangMap resource exists per PodCliqueSet replica, named <pcs-name>-<pcs-replica-index>.
 
 
 
@@ -731,7 +748,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `podCliqueSetReplicaIndex` _integer_ | PodCliqueSetReplicaIndex is the index of the PodCliqueSet replica this map belongs to. |  |  |
-| `tuples` _[PodGangTuple](#podgangtuple) array_ | Tuples is the ordered list of desired PodGangs for this PodCliqueSet replica.<br />Each tuple corresponds to one PodGang and specifies its pod and replica counts. |  |  |
+| `entries` _[PodGangEntry](#podgangentry) array_ | Entries is the ordered list of desired PodGangs for this PodCliqueSet replica.<br />Each entry corresponds to one PodGang and specifies its pod and replica counts. |  |  |
 
 
 #### PodGangPhase
@@ -739,6 +756,7 @@ _Appears in:_
 _Underlying type:_ _string_
 
 PodGangPhase represents the phase of a PodGang.
+Deprecated
 
 _Validation:_
 - Enum: [Pending Starting Running Failed Succeeded]
@@ -784,6 +802,7 @@ _Appears in:_
 
 
 PodGangStatus defines the status of a PodGang.
+Deprecated
 
 
 
@@ -795,25 +814,6 @@ _Appears in:_
 | `name` _string_ | Name is the name of the PodGang. |  |  |
 | `phase` _[PodGangPhase](#podgangphase)_ | Phase is the current phase of the PodGang. |  | Enum: [Pending Starting Running Failed Succeeded] <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#condition-v1-meta) array_ | Conditions represents the latest available observations of the PodGang by its controller. |  |  |
-
-
-#### PodGangTuple
-
-
-
-PodGangTuple describes the desired composition of a single PodGang.
-
-
-
-_Appears in:_
-- [PodGangMapSpec](#podgangmapspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `name` _string_ | Name is the name of the PodGang this tuple corresponds to. |  |  |
-| `podCliqueSetGenerationHash` _string_ | PodCliqueSetGenerationHash is the PodCliqueSet generation hash that pods in this PodGang<br />must match. Used by PodClique and PodCliqueScalingGroup reconcilers to create pods at the<br />correct spec version and to distinguish old pods from new pods during a coherent update. |  |  |
-| `podCliques` _object (keys:string, values:integer)_ | PodCliques maps standalone PodClique name to the number of pods that belong to this PodGang.<br />Only standalone PodCliques (not owned by a PodCliqueScalingGroup) are listed here.<br />PodCliques owned by a PodCliqueScalingGroup derive their PodGang association via<br />PodCliqueScalingGroups below. |  |  |
-| `podCliqueScalingGroups` _object (keys:string, values:integer)_ | PodCliqueScalingGroups maps PodCliqueScalingGroup name to the number of replicas of that<br />PodCliqueScalingGroup that belong to this PodGang. A PodClique reconciler for a<br />PodCliqueScalingGroup-owned PodClique uses this field to find its target PodGang by looking<br />up its owning PodCliqueScalingGroup name here. |  |  |
 
 
 #### PodsSelectedToUpdate
@@ -930,6 +930,35 @@ _Appears in:_
 | `inSync` _boolean_ | InSync is true when the scheduler backend topology levels match the ClusterTopology levels. |  |  |
 | `schedulerBackendTopologyObservedGeneration` _integer_ | SchedulerBackendTopologyObservedGeneration is the generation of the backend topology<br />resource that was last compared. Zero if the resource was not found. |  |  |
 | `message` _string_ | Message provides detail when InSync is false. |  |  |
+
+
+#### TopologyAnchor
+
+_Underlying type:_ _string_
+
+TopologyAnchor determines how multi-level topology constraints (PCS, PCSG, PCLQ) are
+mapped onto a PodGang resource derived from this entry.
+
+PodGang resources support topology constraints at three levels:
+  - PodGang.Spec.TopologyConstraint: broadest scope, applies to all PodGroups
+  - PodGang.Spec.TopologyConstraintGroupConfigs: intermediate scope, groups PodGroups
+    belonging to the same PCSG replica under a shared PCSG-level constraint
+  - PodGang.Spec.PodGroups[].TopologyConstraint: narrowest scope, per-PodClique constraint
+
+TopologyAnchor controls which source constraint populates the PodGang-level field and
+whether TopologyConstraintGroupConfigs are emitted. PodGroup-level constraints are always
+derived from the PodClique template and are unaffected by this field.
+
+_Validation:_
+- Enum: [pcs pcsg]
+
+_Appears in:_
+- [PodGangEntry](#podgangentry)
+
+| Field | Description |
+| --- | --- |
+| `pcs` | TopologyAnchorPCS indicates the PodGang is anchored to the PodCliqueSet. The PCS-level<br />topology constraint is used as the PodGang-level constraint, and PCSG-level constraints<br />are emitted as TopologyConstraintGroupConfigs grouping each PCSG replica's PodCliques.<br /> |
+| `pcsg` | TopologyAnchorPCSG indicates the PodGang represents a single PodCliqueScalingGroup replica<br />that is not anchored to the PodCliqueSet. The PCSG-level topology constraint is promoted<br />to the PodGang-level constraint. No TopologyConstraintGroupConfigs are emitted since the<br />entire PodGang IS the PCSG replica — a subgroup constraint would be redundant.<br /> |
 
 
 #### TopologyConstraint

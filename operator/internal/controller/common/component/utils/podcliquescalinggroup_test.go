@@ -205,3 +205,62 @@ func TestIsPCSGUpdateComplete(t *testing.T) {
 		})
 	}
 }
+
+func TestFindScalingGroupConfigByFQN(t *testing.T) {
+	pcs := &grovecorev1alpha1.PodCliqueSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-pcs"},
+		Spec: grovecorev1alpha1.PodCliqueSetSpec{
+			Replicas: 2,
+			Template: grovecorev1alpha1.PodCliqueSetTemplateSpec{
+				PodCliqueScalingGroupConfigs: []grovecorev1alpha1.PodCliqueScalingGroupConfig{
+					{Name: "sg-alpha", Replicas: ptr.To(int32(3)), MinAvailable: ptr.To(int32(1))},
+					{Name: "sg-beta", Replicas: ptr.To(int32(2)), MinAvailable: ptr.To(int32(1))},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name           string
+		pcsgFQN        string
+		expectedConfig string
+	}{
+		{
+			name:           "matches first config for replica 0",
+			pcsgFQN:        "my-pcs-0-sg-alpha",
+			expectedConfig: "sg-alpha",
+		},
+		{
+			name:           "matches second config for replica 0",
+			pcsgFQN:        "my-pcs-0-sg-beta",
+			expectedConfig: "sg-beta",
+		},
+		{
+			name:           "matches first config for replica 1",
+			pcsgFQN:        "my-pcs-1-sg-alpha",
+			expectedConfig: "sg-alpha",
+		},
+		{
+			name:           "returns nil for non-existent FQN",
+			pcsgFQN:        "my-pcs-0-sg-gamma",
+			expectedConfig: "",
+		},
+		{
+			name:           "returns nil for FQN with out-of-range replica",
+			pcsgFQN:        "my-pcs-5-sg-alpha",
+			expectedConfig: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := FindScalingGroupConfigByFQN(pcs, tc.pcsgFQN)
+			if tc.expectedConfig == "" {
+				assert.Nil(t, result)
+			} else {
+				assert.NotNil(t, result)
+				assert.Equal(t, tc.expectedConfig, result.Name)
+			}
+		})
+	}
+}

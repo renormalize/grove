@@ -50,21 +50,52 @@ type PodGangMapList struct {
 type PodGangMapSpec struct {
 	// PodCliqueSetReplicaIndex is the index of the PodCliqueSet replica this map belongs to.
 	PodCliqueSetReplicaIndex int32 `json:"podCliqueSetReplicaIndex"`
-	// Tuples is the ordered list of desired PodGangs for this PodCliqueSet replica.
-	// Each tuple corresponds to one PodGang and specifies its pod and replica counts.
+	// Entries is the ordered list of desired PodGangs for this PodCliqueSet replica.
+	// Each entry corresponds to one PodGang and specifies its pod and replica counts.
 	// +listType=map
 	// +listMapKey=name
-	Tuples []PodGangTuple `json:"tuples"`
+	Entries []PodGangEntry `json:"entries"`
 }
 
-// PodGangTuple describes the desired composition of a single PodGang.
-type PodGangTuple struct {
-	// Name is the name of the PodGang this tuple corresponds to.
+// TopologyAnchor determines how multi-level topology constraints (PCS, PCSG, PCLQ) are
+// mapped onto a PodGang resource derived from this entry.
+//
+// PodGang resources support topology constraints at three levels:
+//   - PodGang.Spec.TopologyConstraint: broadest scope, applies to all PodGroups
+//   - PodGang.Spec.TopologyConstraintGroupConfigs: intermediate scope, groups PodGroups
+//     belonging to the same PCSG replica under a shared PCSG-level constraint
+//   - PodGang.Spec.PodGroups[].TopologyConstraint: narrowest scope, per-PodClique constraint
+//
+// TopologyAnchor controls which source constraint populates the PodGang-level field and
+// whether TopologyConstraintGroupConfigs are emitted. PodGroup-level constraints are always
+// derived from the PodClique template and are unaffected by this field.
+//
+// +kubebuilder:validation:Enum=pcs;pcsg
+type TopologyAnchor string
+
+const (
+	// TopologyAnchorPCS indicates the PodGang is anchored to the PodCliqueSet. The PCS-level
+	// topology constraint is used as the PodGang-level constraint, and PCSG-level constraints
+	// are emitted as TopologyConstraintGroupConfigs grouping each PCSG replica's PodCliques.
+	TopologyAnchorPCS TopologyAnchor = "pcs"
+	// TopologyAnchorPCSG indicates the PodGang represents a single PodCliqueScalingGroup replica
+	// that is not anchored to the PodCliqueSet. The PCSG-level topology constraint is promoted
+	// to the PodGang-level constraint. No TopologyConstraintGroupConfigs are emitted since the
+	// entire PodGang IS the PCSG replica — a subgroup constraint would be redundant.
+	TopologyAnchorPCSG TopologyAnchor = "pcsg"
+)
+
+// PodGangEntry describes the desired composition of a single PodGang.
+type PodGangEntry struct {
+	// Name is the name of the PodGang this entry corresponds to.
 	Name string `json:"name"`
 	// PodCliqueSetGenerationHash is the PodCliqueSet generation hash that pods in this PodGang
 	// must match. Used by PodClique and PodCliqueScalingGroup reconcilers to create pods at the
 	// correct spec version and to distinguish old pods from new pods during a coherent update.
 	PodCliqueSetGenerationHash string `json:"podCliqueSetGenerationHash"`
+	// TopologyAnchor determines how topology constraints are assigned to the PodGang
+	// derived from this entry.
+	TopologyAnchor TopologyAnchor `json:"topologyAnchor"`
 	// PodCliques maps standalone PodClique name to the number of pods that belong to this PodGang.
 	// Only standalone PodCliques (not owned by a PodCliqueScalingGroup) are listed here.
 	// PodCliques owned by a PodCliqueScalingGroup derive their PodGang association via

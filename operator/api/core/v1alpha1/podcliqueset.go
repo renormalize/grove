@@ -95,6 +95,8 @@ type PodCliqueSetStatus struct {
 	// the pods that match this selector.
 	Selector *string `json:"hpaPodSelector,omitempty"`
 	// PodGangStatuses captures the status for all the PodGang's that are part of the PodCliqueSet.
+	// Deprecated: Status of the PodGang should be captured as part of the PodGang resource.
+	// This field is not been set today and will be removed in the future.
 	PodGangStatutes []PodGangStatus `json:"podGangStatuses,omitempty"`
 	// CurrentGenerationHash is a hash value generated out of a collection of fields in a PodCliqueSet.
 	// Since only a subset of fields is taken into account when generating the hash, not every change in the PodCliqueSetSpec will
@@ -516,6 +518,7 @@ const (
 )
 
 // PodGangStatus defines the status of a PodGang.
+// Deprecated
 type PodGangStatus struct {
 	// Name is the name of the PodGang.
 	Name string `json:"name"`
@@ -527,6 +530,7 @@ type PodGangStatus struct {
 
 // PodGangPhase represents the phase of a PodGang.
 // +kubebuilder:validation:Enum={Pending,Starting,Running,Failed,Succeeded}
+// Deprecated
 type PodGangPhase string
 
 const (
