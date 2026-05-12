@@ -83,18 +83,9 @@ spec:
                         PodCliques owned by a PodCliqueScalingGroup derive their PodGang association via
                         PodCliqueScalingGroups below.
                       type: object
-                    topologyAnchor:
-                      description: |-
-                        TopologyAnchor determines how topology constraints are assigned to the PodGang
-                        derived from this entry.
-                      enum:
-                      - pcs
-                      - pcsg
-                      type: string
                   required:
                   - name
                   - podCliqueSetGenerationHash
-                  - topologyAnchor
                   type: object
                 type: array
                 x-kubernetes-list-map-keys:

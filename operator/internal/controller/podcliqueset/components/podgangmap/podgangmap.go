@@ -243,7 +243,6 @@ func (r _resource) buildBaseAndScaledPodGangEntries(pcs *grovecorev1alpha1.PodCl
 		{
 			Name:                       bpgName,
 			PodCliqueSetGenerationHash: generationHash,
-			TopologyAnchor:             grovecorev1alpha1.TopologyAnchorPCS,
 			PodCliques:                 bpgPodCliques,
 			PodCliqueScalingGroups:     bpgPCSGs,
 		},
@@ -260,7 +259,6 @@ func (r _resource) buildBaseAndScaledPodGangEntries(pcs *grovecorev1alpha1.PodCl
 			entries = append(entries, grovecorev1alpha1.PodGangEntry{
 				Name:                       spgName,
 				PodCliqueSetGenerationHash: generationHash,
-				TopologyAnchor:             grovecorev1alpha1.TopologyAnchorPCSG,
 				PodCliqueScalingGroups:     map[string]int32{pcsg.Name: 1},
 			})
 		}

@@ -182,7 +182,7 @@ func (r _resource) buildPodGangInfoFromEntry(sc *syncContext, pcsReplicaIndex in
 	}
 	pg.pclqs = append(pg.pclqs, pcsgPCLQs...)
 	pg.pcsgTopologyConstraints = pcsgConstraints
-	pg.topologyConstraint = resolvePodGangTopologyConstraint(sc, pgEntry)
+	pg.topologyConstraint = createTopologyPackConstraint(sc, client.ObjectKeyFromObject(sc.pcs), sc.pcs.Spec.Template.TopologyConstraint)
 
 	return pg, nil
 }
@@ -239,36 +239,17 @@ func buildPCLQInfosAndTopologyConstraintsForPCSGs(sc *syncContext, pcsReplicaInd
 				pclqs = append(pclqs, pi)
 				pclqFQNs = append(pclqFQNs, pclqFQN)
 			}
-			if pgEntry.TopologyAnchor == grovecorev1alpha1.TopologyAnchorPCS {
-				pcsgTopologyConstraint := createTopologyPackConstraint(sc, types.NamespacedName{Namespace: sc.pcs.Namespace, Name: pcsgFQN}, pcsgConfig.TopologyConstraint)
-				if pcsgTopologyConstraint != nil {
-					pcsgConstraints = append(pcsgConstraints, groveschedulerv1alpha1.TopologyConstraintGroupConfig{
-						Name:               fmt.Sprintf("%s-%d", pcsgFQN, replicaIdx),
-						PodGroupNames:      pclqFQNs,
-						TopologyConstraint: pcsgTopologyConstraint,
-					})
-				}
+			pcsgTopologyConstraint := createTopologyPackConstraint(sc, types.NamespacedName{Namespace: sc.pcs.Namespace, Name: pcsgFQN}, pcsgConfig.TopologyConstraint)
+			if pcsgTopologyConstraint != nil {
+				pcsgConstraints = append(pcsgConstraints, groveschedulerv1alpha1.TopologyConstraintGroupConfig{
+					Name:               fmt.Sprintf("%s-%d", pcsgFQN, replicaIdx),
+					PodGroupNames:      pclqFQNs,
+					TopologyConstraint: pcsgTopologyConstraint,
+				})
 			}
 		}
 	}
 	return pclqs, pcsgConstraints, nil
-}
-
-// resolvePodGangTopologyConstraint determines the PodGang-level topology constraint based on TopologyAnchor.
-func resolvePodGangTopologyConstraint(sc *syncContext, pgEntry grovecorev1alpha1.PodGangEntry) *groveschedulerv1alpha1.TopologyConstraint {
-	var tc *groveschedulerv1alpha1.TopologyConstraint
-	if grovecorev1alpha1.TopologyAnchorPCSG == pgEntry.TopologyAnchor {
-		for pcsgFQN := range pgEntry.PodCliqueScalingGroups {
-			pcsgConfig := componentutils.FindScalingGroupConfigByFQN(sc.pcs, pcsgFQN)
-			if pcsgConfig != nil && pcsgConfig.TopologyConstraint != nil {
-				tc = createTopologyPackConstraint(sc, types.NamespacedName{Namespace: sc.pcs.Namespace, Name: pcsgFQN}, pcsgConfig.TopologyConstraint)
-			}
-		}
-	}
-	if tc == nil {
-		tc = createTopologyPackConstraint(sc, client.ObjectKeyFromObject(sc.pcs), sc.pcs.Spec.Template.TopologyConstraint)
-	}
-	return tc
 }
 
 // createTopologyPackConstraint creates a TopologyPackConstraint based on the sync context and provided parameters for a resource.

@@ -111,42 +111,22 @@ type PodGangMapSpec struct {
     Entries                  []PodGangEntry `json:"entries"`
 }
 
-// TopologyAnchor determines how multi-level topology constraints (PCS, PCSG, PCLQ) are
-// mapped onto a PodGang resource derived from this entry.
-//
-// PodGang resources support topology constraints at three levels:
-//   - PodGang.Spec.TopologyConstraint: broadest scope, applies to all PodGroups
-//   - PodGang.Spec.TopologyConstraintGroupConfigs: intermediate scope, groups PodGroups
-//     belonging to the same PCSG replica under a shared PCSG-level constraint
-//   - PodGang.Spec.PodGroups[].TopologyConstraint: narrowest scope, per-PodClique constraint
-//
-// TopologyAnchor controls which source constraint populates the PodGang-level field and
-// whether TopologyConstraintGroupConfigs are emitted. PodGroup-level constraints are always
-// derived from the PodClique template and are unaffected by this field.
-type TopologyAnchor string
-
-const (
-    // TopologyAnchorPCS indicates the PodGang represents a PCS-anchored unit (e.g., a
-    // BasePodGang or an MVUPodGang). The PCS-level topology constraint is used as the
-    // PodGang-level constraint, and PCSG-level constraints are emitted as
-    // TopologyConstraintGroupConfigs grouping each PCSG replica's PodCliques.
-    TopologyAnchorPCS TopologyAnchor = "pcs"
-    // TopologyAnchorPCSG indicates the PodGang represents a single PCSG replica that is
-    // not anchored to the PCS (e.g., a ScaledPodGang or a Tail-PodGang). The PCSG-level
-    // topology constraint is promoted to the PodGang-level constraint. No
-    // TopologyConstraintGroupConfigs are emitted since the entire PodGang IS the PCSG
-    // replica — a sub-group constraint would be redundant.
-    TopologyAnchorPCSG TopologyAnchor = "pcsg"
-)
-
 type PodGangEntry struct {
     Name                       string         `json:"name"`
     PodCliqueSetGenerationHash string         `json:"podCliqueSetGenerationHash"`
-    TopologyAnchor             TopologyAnchor `json:"topologyAnchor"`
     PodCliques                 map[string]int `json:"podCliques,omitempty"`
     PodCliqueScalingGroups     map[string]int `json:"podCliqueScalingGroups,omitempty"`
 }
 ```
+
+#### Topology constraint mapping
+
+Topology constraints on PodGang resources are mapped uniformly for all PodGang types (BPG, SPG, MPG, Tail-PG):
+- **PodGang.Spec.TopologyConstraint** → always derived from the PCS-level constraint
+- **PodGang.Spec.TopologyConstraintGroupConfigs** → always derived from PCSG-level constraints (one group per PCSG replica in the entry)
+- **PodGang.Spec.PodGroups[].TopologyConstraint** → always derived from the PCLQ-level constraint
+
+No `TopologyAnchor` field is needed — the mapping is consistent regardless of PodGang type.
 
 ### PodGangMap computation
 
@@ -158,21 +138,21 @@ On every reconcile, the `PodGangMap` component computes the desired entries from
 #### Case 1: Existing PCS (BPG/SPG topology, no update in progress)
 
 Entries derived purely from `pcs.Spec` + live PCLQ/PCSG resources matching BPG/SPG convention:
-- One entry named `<pcs-name>-<replica>` (BPG): `{topologyAnchor: "pcs", podCliqueSetGenerationHash: current, all standalone PCLQs at full replica count, all PCSGs at MinAvailable replicas}`
-- One entry per PCSG replica above `MinAvailable` named `<pcsg-fqn>-<scaled-index>` (SPG): `{topologyAnchor: "pcsg", podCliqueSetGenerationHash: current, that PCSG: 1}`
+- One entry named `<pcs-name>-<replica>` (BPG): `{podCliqueSetGenerationHash: current, all standalone PCLQs at full replica count, all PCSGs at MinAvailable replicas}`
+- One entry per PCSG replica above `MinAvailable` named `<pcsg-fqn>-<scaled-index>` (SPG): `{podCliqueSetGenerationHash: current, that PCSG: 1}`
 
 #### Case 2: New PCS (MPG topology, no update in progress)
 
 Entries computed from `pcs.Spec` + live PCLQ/PCSG resources using MVU composition rules:
-- One entry per MPG named via `GeneratePodGangName`, composition per the Unification rules section, `topologyAnchor: "pcs"`
+- One entry per MPG named via `GeneratePodGangName`, composition per the Unification rules section
 
 #### Case 3: Coherent update in progress
 
 Entries reflect the partially-updated state:
-- Old BPG/SPG entries with decremented counts (remaining old pods not yet taken down), `podCliqueSetGenerationHash: old`, original `topologyAnchor`
-- Already-created MPG entries from previous iterations, `podCliqueSetGenerationHash: new`, `topologyAnchor: "pcs"`
-- Current iteration MPG entry (from `InFlightPodGangs`), `podCliqueSetGenerationHash: new`, `topologyAnchor: "pcs"`
-- Tail-MPG entries if applicable, `topologyAnchor: "pcsg"`
+- Old BPG/SPG entries with decremented counts (remaining old pods not yet taken down), `podCliqueSetGenerationHash: old`
+- Already-created MPG entries from previous iterations, `podCliqueSetGenerationHash: new`
+- Current iteration MPG entry (from `InFlightPodGangs`), `podCliqueSetGenerationHash: new`
+- Tail-MPG entries if applicable
 
 On each reconcile, counts are recomputed from live PCLQ/PCSG resources + `UpdateProgress` — a concurrent scale-out/in is automatically reflected on the next reconcile.
 
@@ -229,17 +209,9 @@ type PodGangMapSpec struct {
     Entries                  []PodGangEntry `json:"entries"`
 }
 
-type TopologyAnchor string
-
-const (
-    TopologyAnchorPCS  TopologyAnchor = "pcs"
-    TopologyAnchorPCSG TopologyAnchor = "pcsg"
-)
-
 type PodGangEntry struct {
     Name                       string         `json:"name"`
     PodCliqueSetGenerationHash string         `json:"podCliqueSetGenerationHash"`
-    TopologyAnchor             TopologyAnchor `json:"topologyAnchor"`
     PodCliques                 map[string]int `json:"podCliques,omitempty"`
     PodCliqueScalingGroups     map[string]int `json:"podCliqueScalingGroups,omitempty"`
 }
@@ -270,10 +242,10 @@ New component responsible for computing and reconciling `PodGangMap` resources. 
 
 Computes desired entries based on PCS state:
 
-- **Case 1 (existing BPG/SPG, no update):** derive BPG/SPG-convention entries from `pcs.Spec` + live PCLQ/PCSG replica counts. BPG entry gets `TopologyAnchorPCS`, SPG entries get `TopologyAnchorPCSG`.
-- **Case 2 (MPG topology, no update):** derive MPG-convention entries from `pcs.Spec` + live PCLQ/PCSG replica counts using MVU composition rules. MPG entries get `TopologyAnchorPCS`, Tail-PG entries get `TopologyAnchorPCSG`.
-- **Case 3 (Coherent update in progress):** old entries with decremented counts + new MPG entries from `InFlightPodGangs` + current iteration MPG entry. Old entries retain their original anchor; new MPG entries get `TopologyAnchorPCS`; Tail-PG entries get `TopologyAnchorPCSG`.
-- **Case 4 (RollingRecreate update):** same structure as steady-state, `PodCliqueSetGenerationHash` updated to new PCS generation hash. Anchors unchanged.
+- **Case 1 (existing BPG/SPG, no update):** derive BPG/SPG-convention entries from `pcs.Spec` + live PCLQ/PCSG replica counts.
+- **Case 2 (MPG topology, no update):** derive MPG-convention entries from `pcs.Spec` + live PCLQ/PCSG replica counts using MVU composition rules.
+- **Case 3 (Coherent update in progress):** old entries with decremented counts + new MPG entries from `InFlightPodGangs` + current iteration MPG entry.
+- **Case 4 (RollingRecreate update):** same structure as steady-state, `PodCliqueSetGenerationHash` updated to new PCS generation hash.
 
 The component creates/updates the `PodGangMap` resource for each PCS replica. On scale-out, a new `PodGangMap` is created for the new replica. On scale-in, the `PodGangMap` for the removed replica is deleted.
 
@@ -298,10 +270,9 @@ Replace BPG+SPG computation with `PodGangMap`-driven computation:
 **Replace with:** `computeExpectedPodGangs(ctx, sc)` reads `PodGangMap` per replica and delegates to `buildPodGangInfoFromEntry()` which is decomposed into:
 
 - `buildStandalonePCLQInfos(sc, pcsReplicaIndex, entry) []pclqInfo` — builds pclqInfo entries for standalone PodCliques referenced in the entry.
-- `buildPCLQInfosAndTopologyConstraintsForPCSGs(sc, pcsReplicaIndex, entry, pcsgReplicaOffset) ([]pclqInfo, []TopologyConstraintGroupConfig, error)` — builds PCSG-owned pclqInfo entries and TopologyConstraintGroupConfigs. Emits sub-group constraints only when `entry.TopologyAnchor == TopologyAnchorPCS`.
-- `resolvePodGangTopologyConstraint(sc, entry) *TopologyConstraint` — switches on `entry.TopologyAnchor`:
-  - `TopologyAnchorPCS`: uses PCS-level topology constraint
-  - `TopologyAnchorPCSG`: promotes PCSG topology to PodGang level, falling back to PCS-level if PCSG has none
+- `buildPCLQInfosAndTopologyConstraintsForPCSGs(sc, pcsReplicaIndex, entry, pcsgReplicaOffset) ([]pclqInfo, []TopologyConstraintGroupConfig, error)` — builds PCSG-owned pclqInfo entries and TopologyConstraintGroupConfigs. Always emits sub-group constraints for PCSG members.
+
+PodGang-level topology is always set to the PCS-level constraint directly in `buildPodGangInfoFromEntry` — no separate resolution function needed.
 
 `getExcessPodGangNames()` requires explicit consideration for the Coherent update case. Since `PodGangMap` under Coherent represents a progressive desired state (not a complete one), a PodGang that is no longer in the current `PodGangMap` entries does not immediately mean it is excess — it may still hold pods being drained by the orchestrator. The rule is:
 
