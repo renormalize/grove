@@ -111,14 +111,15 @@ type PodCliqueSetStatus struct {
 	// Only set when the update strategy is Coherent and an update is in progress.
 	// +optional
 	CoherentUpdateProgress *CoherentUpdateProgress `json:"coherentUpdateProgress,omitempty"`
-	// PodGangState tracks the PodGang creation counter per PodCliqueSet replica.
-	// One entry per replica. The counter resets at the start of each new update and
-	// increments once per PodGang created — during an update as well as for scale-out
-	// events between updates. Never decremented, including on PodCliqueScalingGroup
-	// scale-in. Combined with the generation hash segment in the PodGang name, it
-	// ensures unique PodGang names across all iterations within a single update.
+	// PodGangCounter tracks the number of PodGangs created per PodCliqueSet replica.
+	// Key is the stringified replica index; value is the creation count of PodGangs for that replica.
+	// The counter resets to zero at the start of each new update and increments once per
+	// PodGang create — during an update as well as for scale-out events between updates.
+	// It is never decremented, including on PodCliqueScalingGroup scale-in. Combined with
+	// the generation hash segment in the PodGang name, it ensures unique PodGang names
+	// across all iterations within a single update.
 	// +optional
-	PodGangState []PodGangReplicaState `json:"podGangState,omitempty"`
+	PodGangCounter map[string]int32 `json:"podGangCounter,omitempty"`
 }
 
 // UpdateStrategyType defines the type of update strategy for PodCliqueSet.
@@ -202,23 +203,6 @@ type PodCliqueSetReplicaUpdateProgress struct {
 	// running the latest specification.
 	// +optional
 	UpdateEndedAt *metav1.Time `json:"updateEndedAt,omitempty"`
-}
-
-// PodGangReplicaState tracks the PodGang creation counter for a single PodCliqueSet replica.
-// The counter resets to zero at the start of each new update and increments once per PodGang
-// created — during an update as well as for scale-out events between updates. Combined with
-// the generation hash in the PodGang name, it guarantees unique PodGang names across all
-// iterations within a single update.
-// The counter is never decremented — not even when PodCliqueScalingGroup replicas are scaled
-// in and their PodGangs are deleted. It is a monotonically increasing name-generation seed;
-// whether a previously created PodGang still exists is irrelevant to it.
-type PodGangReplicaState struct {
-	// ReplicaIndex is the index of the PodCliqueSet replica this state belongs to.
-	ReplicaIndex int32 `json:"replicaIndex"`
-	// CreatedPodGangCount is the number of PodGangs created for this replica since the
-	// last update started. Reset to zero at the start of each new update; incremented
-	// for both update iterations and scale-out events. Never decremented.
-	CreatedPodGangCount int32 `json:"createdPodGangCount"`
 }
 
 // CoherentUpdateProgress captures the overall progress of a coherent update across all replicas

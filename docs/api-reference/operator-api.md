@@ -534,7 +534,7 @@ _Appears in:_
 | `currentGenerationHash` _string_ | CurrentGenerationHash is a hash value generated out of a collection of fields in a PodCliqueSet.<br />Since only a subset of fields is taken into account when generating the hash, not every change in the PodCliqueSetSpec will<br />be accounted for when generating this hash value. A field in PodCliqueSetSpec is included if a change to it triggers<br />a rolling recreate of PodCliques and/or PodCliqueScalingGroups.<br />Only if this value is not nil and the newly computed hash value is different from the persisted CurrentGenerationHash value<br />then an update needs to be triggered. |  |  |
 | `updateProgress` _[PodCliqueSetUpdateProgress](#podcliquesetupdateprogress)_ | UpdateProgress represents the progress of an update. |  |  |
 | `coherentUpdateProgress` _[CoherentUpdateProgress](#coherentupdateprogress)_ | CoherentUpdateProgress represents the progress of a coherent update.<br />Only set when the update strategy is Coherent and an update is in progress. |  |  |
-| `podGangState` _[PodGangReplicaState](#podgangreplicastate) array_ | PodGangState tracks the PodGang creation counter per PodCliqueSet replica.<br />One entry per replica. The counter resets at the start of each new update and<br />increments once per PodGang created — during an update as well as for scale-out<br />events between updates. Never decremented, including on PodCliqueScalingGroup<br />scale-in. Combined with the generation hash segment in the PodGang name, it<br />ensures unique PodGang names across all iterations within a single update. |  |  |
+| `podGangCounter` _object (keys:string, values:integer)_ | PodGangCounter tracks the number of PodGangs created per PodCliqueSet replica.<br />Key is the stringified replica index; value is the creation count for that replica.<br />The counter resets to zero at the start of each new update and increments once per<br />PodGang created — during an update as well as for scale-out events between updates.<br />It is never decremented, including on PodCliqueScalingGroup scale-in. Combined with<br />the generation hash segment in the PodGang name, it ensures unique PodGang names<br />across all iterations within a single update. |  |  |
 
 
 #### PodCliqueSetTemplateSpec
@@ -771,30 +771,6 @@ _Appears in:_
 | `Running` | PodGangRunning indicates that the all the pods in a PodGang are running.<br /> |
 | `Failed` | PodGangFailed indicates that one or more pods in a PodGang have failed.<br />This is a terminal state and is typically used for batch jobs.<br /> |
 | `Succeeded` | PodGangSucceeded indicates that all the pods in a PodGang have succeeded.<br />This is a terminal state and is typically used for batch jobs.<br /> |
-
-
-#### PodGangReplicaState
-
-
-
-PodGangReplicaState tracks the PodGang creation counter for a single PodCliqueSet replica.
-The counter resets to zero at the start of each new update and increments once per PodGang
-created — during an update as well as for scale-out events between updates. Combined with
-the generation hash in the PodGang name, it guarantees unique PodGang names across all
-iterations within a single update.
-The counter is never decremented — not even when PodCliqueScalingGroup replicas are scaled
-in and their PodGangs are deleted. It is a monotonically increasing name-generation seed;
-whether a previously created PodGang still exists is irrelevant to it.
-
-
-
-_Appears in:_
-- [PodCliqueSetStatus](#podcliquesetstatus)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `replicaIndex` _integer_ | ReplicaIndex is the index of the PodCliqueSet replica this state belongs to. |  |  |
-| `createdPodGangCount` _integer_ | CreatedPodGangCount is the number of PodGangs created for this replica since the<br />last update started. Reset to zero at the start of each new update; incremented<br />for both update iterations and scale-out events. Never decremented. |  |  |
 
 
 #### PodGangStatus
