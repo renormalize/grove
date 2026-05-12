@@ -27,6 +27,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// FindScalingGroupConfigByFQN finds the PodCliqueScalingGroupConfig whose generated FQN matches pcsgFQN
+// for any PCS replica. Returns nil if not found.
+func FindScalingGroupConfigByFQN(pcs *grovecorev1alpha1.PodCliqueSet, pcsgFQN string) *grovecorev1alpha1.PodCliqueScalingGroupConfig {
+	for i, pcsgConfig := range pcs.Spec.Template.PodCliqueScalingGroupConfigs {
+		for replicaIndex := range int(pcs.Spec.Replicas) {
+			if apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex}, pcsgConfig.Name) == pcsgFQN {
+				return &pcs.Spec.Template.PodCliqueScalingGroupConfigs[i]
+			}
+		}
+	}
+	return nil
+}
+
 // FindScalingGroupConfigForClique searches through the scaling group configurations to find
 // the one that contains the specified clique name in its CliqueNames list.
 //

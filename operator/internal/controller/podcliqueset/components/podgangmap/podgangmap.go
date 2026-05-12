@@ -115,17 +115,17 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcs *grovecorev
 			return pclq.Labels[apicommon.LabelPodCliqueSetReplicaIndex] == strconv.Itoa(int(replicaIndex))
 		})
 
-		tuples, err := r.computeTuples(pcs, int(replicaIndex), pcsgsForReplica, pclqsForReplica)
+		entries, err := r.computeEntries(pcs, int(replicaIndex), pcsgsForReplica, pclqsForReplica)
 		if err != nil {
 			return groveerr.WrapError(err,
 				errCodeSyncPodGangMap,
 				component.OperationSync,
-				fmt.Sprintf("Error computing tuples for PodGangMap %s: %v", pgmName, client.ObjectKeyFromObject(pcs)),
+				fmt.Sprintf("Error computing entries for PodGangMap %s: %v", pgmName, client.ObjectKeyFromObject(pcs)),
 			)
 		}
 		pgm := emptyPodGangMap(client.ObjectKey{Namespace: pcs.Namespace, Name: pgmName})
 		if _, err := controllerutil.CreateOrPatch(ctx, r.client, pgm, func() error {
-			return r.buildResource(pgm, pcs, int(replicaIndex), tuples)
+			return r.buildResource(pgm, pcs, int(replicaIndex), entries)
 		}); err != nil {
 			return groveerr.WrapError(err,
 				errCodeSyncPodGangMap,
@@ -170,38 +170,38 @@ func (r _resource) Delete(ctx context.Context, logger logr.Logger, pcsObjMeta me
 	return nil
 }
 
-// computeTuples returns the desired PodGangTuples for one PodCliqueSet replica.
+// computeEntries returns the desired PodGangEntries for one PodCliqueSet replica.
 //
-// For non-Coherent strategies (RollingRecreate, OnDelete, nil), tuples are computed
-// from pcs.Spec and live PCLQ/PCSG state: one BasePodGang tuple covering all standalone
-// PCLQs and the first MinAvailable replicas of each PCSG, plus one ScaledPodGang tuple
+// For non-Coherent strategies (RollingRecreate, OnDelete, nil), entries are computed
+// from pcs.Spec and live PCLQ/PCSG state: one BasePodGang entry covering all standalone
+// PCLQs and the first MinAvailable replicas of each PCSG, plus one ScaledPodGang entry
 // per PCSG replica beyond MinAvailable. pcs.Status.CurrentGenerationHash is always
 // up-to-date at this point (set by initUpdateProgress before Sync runs), so the same
 // code path handles both steady-state and update-in-progress cases.
 //
-// TODO: For the Coherent strategy, tuple computation is not yet implemented in this commit.
-func (r _resource) computeTuples(pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup, pclqs []grovecorev1alpha1.PodClique) ([]grovecorev1alpha1.PodGangTuple, error) {
+// TODO: For the Coherent strategy, entry computation is not yet implemented in this commit.
+func (r _resource) computeEntries(pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup, pclqs []grovecorev1alpha1.PodClique) ([]grovecorev1alpha1.PodGangEntry, error) {
 	switch {
 	case componentutils.IsCoherentUpdateInProgress(pcs):
-		// TODO(coherent-updates): compute partial tuples from InFlightPodGangs.
+		// TODO(coherent-updates): compute partial entries from InFlightPodGangs.
 		return nil, nil
 	case componentutils.IsCoherentStrategy(pcs):
-		// TODO(coherent-updates): compute MPG-convention tuples from MVU rules.
+		// TODO(coherent-updates): compute MPG-convention entries from MVU rules.
 		return nil, nil
 	default:
-		// RollingRecreate, OnDelete, or nil strategy — all use the same BasePodGang/ScaledPodGang tuple structure.
-		tuples, err := r.buildBaseAndScaledPodGangTuples(pcs, replicaIndex, pcsgs, pclqs)
+		// RollingRecreate, OnDelete, or nil strategy — all use the same BasePodGang/ScaledPodGang entry structure.
+		entries, err := r.buildBaseAndScaledPodGangEntries(pcs, replicaIndex, pcsgs, pclqs)
 		if err != nil {
 			return nil, err
 		}
-		return tuples, nil
+		return entries, nil
 	}
 }
 
-// buildBaseAndScaledPodGangTuples builds the BasePodGang tuple and ScaledPodGang tuples for one PodCliqueSet replica.
-// One BasePodGang tuple covers all standalone PodCliques and the first MinAvailable replicas of each PCSG.
-// One ScaledPodGang tuple is added per PCSG replica beyond MinAvailable.
-func (r _resource) buildBaseAndScaledPodGangTuples(pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, existingPCSGs []grovecorev1alpha1.PodCliqueScalingGroup, existingPCLQs []grovecorev1alpha1.PodClique) ([]grovecorev1alpha1.PodGangTuple, error) {
+// buildBaseAndScaledPodGangEntries builds the BasePodGang entry and ScaledPodGang entries for one PodCliqueSet replica.
+// One BasePodGang entry covers all standalone PodCliques and the first MinAvailable replicas of each PCSG.
+// One ScaledPodGang entry is added per PCSG replica beyond MinAvailable.
+func (r _resource) buildBaseAndScaledPodGangEntries(pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, existingPCSGs []grovecorev1alpha1.PodCliqueScalingGroup, existingPCLQs []grovecorev1alpha1.PodClique) ([]grovecorev1alpha1.PodGangEntry, error) {
 	if pcs.Status.CurrentGenerationHash == nil {
 		return nil, fmt.Errorf("PodCliqueSet %s/%s has no CurrentGenerationHash set in status", pcs.Namespace, pcs.Name)
 	}
@@ -215,7 +215,7 @@ func (r _resource) buildBaseAndScaledPodGangTuples(pcs *grovecorev1alpha1.PodCli
 		existingReplicasByPCLQ[pclq.Name] = pclq.Spec.Replicas
 	}
 
-	// BasePodGang tuple: standalone PCLQs at their live replica count (falling back to template if not yet created).
+	// BasePodGang entry: standalone PCLQs at their live replica count (falling back to template if not yet created).
 	standalonePCLQFQNSet := componentutils.GetStandalonePCLQFQNSet(pcs, replicaIndex)
 	bpgPodCliques := make(map[string]int32, standalonePCLQFQNSet.Len())
 	for _, cliqueTemplate := range pcs.Spec.Template.Cliques {
@@ -231,7 +231,7 @@ func (r _resource) buildBaseAndScaledPodGangTuples(pcs *grovecorev1alpha1.PodCli
 		bpgPodCliques[pclqFQN] = replicas
 	}
 
-	// BasePodGang tuple: each PCSG contributes MinAvailable replicas.
+	// BasePodGang entry: each PCSG contributes MinAvailable replicas.
 	bpgPCSGs := make(map[string]int32)
 	for _, pcsg := range existingPCSGs {
 		if pcsg.Spec.MinAvailable != nil {
@@ -239,16 +239,17 @@ func (r _resource) buildBaseAndScaledPodGangTuples(pcs *grovecorev1alpha1.PodCli
 		}
 	}
 
-	tuples := []grovecorev1alpha1.PodGangTuple{
+	entries := []grovecorev1alpha1.PodGangEntry{
 		{
 			Name:                       bpgName,
 			PodCliqueSetGenerationHash: generationHash,
+			TopologyAnchor:             grovecorev1alpha1.TopologyAnchorPCS,
 			PodCliques:                 bpgPodCliques,
 			PodCliqueScalingGroups:     bpgPCSGs,
 		},
 	}
 
-	// ScaledPodGang tuples: one per PCSG replica beyond MinAvailable.
+	// ScaledPodGang entries: one per PCSG replica beyond MinAvailable.
 	for _, pcsg := range existingPCSGs {
 		if pcsg.Spec.MinAvailable == nil {
 			continue
@@ -256,19 +257,20 @@ func (r _resource) buildBaseAndScaledPodGangTuples(pcs *grovecorev1alpha1.PodCli
 		minAvailable := *pcsg.Spec.MinAvailable
 		for scaledIndex := range pcsg.Spec.Replicas - minAvailable {
 			spgName := apicommon.CreatePodGangNameFromPCSGFQN(pcsg.Name, int(scaledIndex))
-			tuples = append(tuples, grovecorev1alpha1.PodGangTuple{
+			entries = append(entries, grovecorev1alpha1.PodGangEntry{
 				Name:                       spgName,
 				PodCliqueSetGenerationHash: generationHash,
+				TopologyAnchor:             grovecorev1alpha1.TopologyAnchorPCSG,
 				PodCliqueScalingGroups:     map[string]int32{pcsg.Name: 1},
 			})
 		}
 	}
 
-	return tuples, nil
+	return entries, nil
 }
 
-// buildResource configures the PodGangMap with the desired tuples.
-func (r _resource) buildResource(pgm *grovecorev1alpha1.PodGangMap, pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, tuples []grovecorev1alpha1.PodGangTuple) error {
+// buildResource configures the PodGangMap with the desired entries.
+func (r _resource) buildResource(pgm *grovecorev1alpha1.PodGangMap, pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, entries []grovecorev1alpha1.PodGangEntry) error {
 	if err := controllerutil.SetControllerReference(pcs, pgm, r.scheme); err != nil {
 		return groveerr.WrapError(err,
 			errCodeSyncPodGangMap,
@@ -278,7 +280,7 @@ func (r _resource) buildResource(pgm *grovecorev1alpha1.PodGangMap, pcs *groveco
 	}
 	pgm.Labels = getLabels(pcs.Name, replicaIndex)
 	pgm.Spec.PodCliqueSetReplicaIndex = int32(replicaIndex)
-	pgm.Spec.Tuples = tuples
+	pgm.Spec.Entries = entries
 	return nil
 }
 

@@ -119,66 +119,90 @@ One `PodGangMap` resource per PCS replica, named `<pcs-name>-<pcs-replica-index>
 ```go
 type PodGangMapSpec struct {
     PodCliqueSetReplicaIndex int32          `json:"podCliqueSetReplicaIndex"`
-    Tuples                   []PodGangTuple `json:"tuples"`
+    Entries                  []PodGangEntry `json:"entries"`
 }
 
-type PodGangTuple struct {
-    // Name is the PodGang name this tuple corresponds to.
-    Name string `json:"name"`
-    // PodCliqueSetGenerationHash is the PCS generation hash of pods that should belong to this tuple.
-    // Used by PCLQ/PCSG reconcilers to create pods with the correct spec version.
-    PodCliqueSetGenerationHash string `json:"podCliqueSetGenerationHash"`
-    // PodCliques maps standalone PCLQ name to the number of pods that belong to this PodGang.
-    PodCliques map[string]int `json:"podCliques,omitempty"`
-    // PodCliqueScalingGroups maps PCSG name to the number of PCSG replicas that belong to this PodGang.
-    PodCliqueScalingGroups map[string]int `json:"podCliqueScalingGroups,omitempty"`
+// TopologyAnchor determines how multi-level topology constraints (PCS, PCSG, PCLQ) are
+// mapped onto a PodGang resource derived from this entry.
+//
+// PodGang resources support topology constraints at three levels:
+//   - PodGang.Spec.TopologyConstraint: broadest scope, applies to all PodGroups
+//   - PodGang.Spec.TopologyConstraintGroupConfigs: intermediate scope, groups PodGroups
+//     belonging to the same PCSG replica under a shared PCSG-level constraint
+//   - PodGang.Spec.PodGroups[].TopologyConstraint: narrowest scope, per-PodClique constraint
+//
+// TopologyAnchor controls which source constraint populates the PodGang-level field and
+// whether TopologyConstraintGroupConfigs are emitted. PodGroup-level constraints are always
+// derived from the PodClique template and are unaffected by this field.
+type TopologyAnchor string
+
+const (
+    // TopologyAnchorPCS indicates the PodGang represents a PCS-anchored unit (e.g., a
+    // BasePodGang or an MVUPodGang). The PCS-level topology constraint is used as the
+    // PodGang-level constraint, and PCSG-level constraints are emitted as
+    // TopologyConstraintGroupConfigs grouping each PCSG replica's PodCliques.
+    TopologyAnchorPCS TopologyAnchor = "pcs"
+    // TopologyAnchorPCSG indicates the PodGang represents a single PCSG replica that is
+    // not anchored to the PCS (e.g., a ScaledPodGang or a Tail-PodGang). The PCSG-level
+    // topology constraint is promoted to the PodGang-level constraint. No
+    // TopologyConstraintGroupConfigs are emitted since the entire PodGang IS the PCSG
+    // replica — a sub-group constraint would be redundant.
+    TopologyAnchorPCSG TopologyAnchor = "pcsg"
+)
+
+type PodGangEntry struct {
+    Name                       string         `json:"name"`
+    PodCliqueSetGenerationHash string         `json:"podCliqueSetGenerationHash"`
+    TopologyAnchor             TopologyAnchor `json:"topologyAnchor"`
+    PodCliques                 map[string]int `json:"podCliques,omitempty"`
+    PodCliqueScalingGroups     map[string]int `json:"podCliqueScalingGroups,omitempty"`
 }
 ```
 
 ### PodGangMap computation
 
-On every reconcile, the `PodGangMap` component computes the desired tuples from:
+On every reconcile, the `PodGangMap` component computes the desired entries from:
 - `pcs.Spec` — structural template (which PCLQs, which PCSGs, `MinAvailable` values)
 - Live PCLQ/PCSG resources — actual current replica counts (reflecting any scale-out/in)
 - `pcs.Status.CoherentUpdateProgress` — which replica is being updated, which MPGs exist so far
 
 #### Case 1: Existing PCS (BPG/SPG topology, no update in progress)
 
-Tuples derived purely from `pcs.Spec` + live PCLQ/PCSG resources matching BPG/SPG convention:
-- One tuple named `<pcs-name>-<replica>` (BPG): `{podCliqueSetGenerationHash: current, all standalone PCLQs at full replica count, all PCSGs at MinAvailable replicas}`
-- One tuple per PCSG replica above `MinAvailable` named `<pcsg-fqn>-<scaled-index>` (SPG): `{podCliqueSetGenerationHash: current, that PCSG: 1}`
+Entries derived purely from `pcs.Spec` + live PCLQ/PCSG resources matching BPG/SPG convention:
+- One entry named `<pcs-name>-<replica>` (BPG): `{topologyAnchor: "pcs", podCliqueSetGenerationHash: current, all standalone PCLQs at full replica count, all PCSGs at MinAvailable replicas}`
+- One entry per PCSG replica above `MinAvailable` named `<pcsg-fqn>-<scaled-index>` (SPG): `{topologyAnchor: "pcsg", podCliqueSetGenerationHash: current, that PCSG: 1}`
 
 #### Case 2: New PCS (MPG topology, no update in progress)
 
-Tuples computed from `pcs.Spec` + live PCLQ/PCSG resources using MVU composition rules:
-- One tuple per MPG named via `GeneratePodGangName`, composition per the Unification rules section
+Entries computed from `pcs.Spec` + live PCLQ/PCSG resources using MVU composition rules:
+- One entry per MPG named via `GeneratePodGangName`, composition per the Unification rules section, `topologyAnchor: "pcs"`
 
 #### Case 3: Coherent update in progress
 
-Tuples reflect the partially-updated state:
-- Old BPG/SPG tuples with decremented counts (remaining old pods not yet taken down), `podCliqueSetGenerationHash: old`
-- Already-created MPG tuples from previous iterations, `podCliqueSetGenerationHash: new`
-- Current iteration MPG tuple (from `InFlightPodGangs`), `podCliqueSetGenerationHash: new`
-- Tail-MPG tuples if applicable
+Entries reflect the partially-updated state:
+- Old BPG/SPG entries with decremented counts (remaining old pods not yet taken down), `podCliqueSetGenerationHash: old`, original `topologyAnchor`
+- Already-created MPG entries from previous iterations, `podCliqueSetGenerationHash: new`, `topologyAnchor: "pcs"`
+- Current iteration MPG entry (from `InFlightPodGangs`), `podCliqueSetGenerationHash: new`, `topologyAnchor: "pcs"`
+- Tail-MPG entries if applicable, `topologyAnchor: "pcsg"`
 
 On each reconcile, counts are recomputed from live PCLQ/PCSG resources + `CoherentUpdateProgress` — a concurrent scale-out/in is automatically reflected on the next reconcile.
 
 #### Case 4: RollingRecreate update in progress
 
-Tuples remain structurally identical to steady-state (same PodGang names, same counts). Only `PodCliqueSetGenerationHash` is updated to the new PCS generation hash when the update is initiated. PCLQ/PCSG reconcilers see the hash change and replace pods in-place within the same PodGang.
+Entries remain structurally identical to steady-state (same PodGang names, same counts). Only `PodCliqueSetGenerationHash` is updated to the new PCS generation hash when the update is initiated. PCLQ/PCSG reconcilers see the hash change and replace pods in-place within the same PodGang.
 
 ### How PCLQ reconciler uses PodGangMap
 
-For each tuple referencing this PCLQ:
-1. Count existing pods that have matching `PodCliqueSetGenerationHash` AND `grove.io/podgang` label matching this tuple's `Name`
-2. Create delta pods (up to the tuple's count) with `grove.io/podgang: <tupleName>` and scheduling gate set at creation time — no post-creation patching needed
-3. If a pod is evicted and the tuple's quota is already satisfied by surviving pods → do not create a replacement
+For each entry referencing this PCLQ:
+1. Count existing pods that have matching `PodCliqueSetGenerationHash` AND `grove.io/podgang` label matching this entry's `Name`
+2. Create delta pods (up to the entry's count) with `grove.io/podgang: <entryName>` and scheduling gate set at creation time — no post-creation patching needed
+3. If a pod is evicted and the entry's quota is already satisfied by surviving pods → do not create a replacement
 
 This eliminates the 1:N label-patching problem: `grove.io/podgang` is set correctly at pod creation time, not patched afterwards.
 
 ### How PodGang component uses PodGangMap
 
-`computeExpectedPodGangs` reads `PodGangMap` tuples directly — one PodGang per tuple name. No name derivation logic needed in the sync flow itself. `getExcessPodGangNames()` is unchanged — old BPGs/SPGs become excess once their tuple is removed from `PodGangMap` (i.e. all their pods have moved to MPG tuples).
+`computeExpectedPodGangs` reads `PodGangMap` entries directly — one PodGang per entry name. No name derivation logic needed in the sync flow itself. `getExcessPodGangNames()` is unchanged — old BPGs/SPGs become excess once their entry is removed from `PodGangMap` (i.e. all their pods have moved to MPG entries).
 
 ---
 
@@ -234,14 +258,22 @@ type PodGangMap struct {
 
 type PodGangMapSpec struct {
     PodCliqueSetReplicaIndex int32          `json:"podCliqueSetReplicaIndex"`
-    Tuples                   []PodGangTuple `json:"tuples"`
+    Entries                  []PodGangEntry `json:"entries"`
 }
 
-type PodGangTuple struct {
-    Name                   string         `json:"name"`
+type TopologyAnchor string
+
+const (
+    TopologyAnchorPCS  TopologyAnchor = "pcs"
+    TopologyAnchorPCSG TopologyAnchor = "pcsg"
+)
+
+type PodGangEntry struct {
+    Name                       string         `json:"name"`
     PodCliqueSetGenerationHash string         `json:"podCliqueSetGenerationHash"`
-    PodCliques             map[string]int `json:"podCliques,omitempty"`
-    PodCliqueScalingGroups map[string]int `json:"podCliqueScalingGroups,omitempty"`
+    TopologyAnchor             TopologyAnchor `json:"topologyAnchor"`
+    PodCliques                 map[string]int `json:"podCliques,omitempty"`
+    PodCliqueScalingGroups     map[string]int `json:"podCliqueScalingGroups,omitempty"`
 }
 ```
 
@@ -266,22 +298,22 @@ type PodGangTuple struct {
 
 New component responsible for computing and reconciling `PodGangMap` resources. Runs **before** PodGang, PCLQ, and PCSG components in the PCS reconcile loop.
 
-#### `computeTuples(pcs, existingPCLQs, existingPCSGs) []PodGangTuple`
+#### `computeEntries(pcs, existingPCLQs, existingPCSGs) []PodGangEntry`
 
-Computes desired tuples based on PCS state:
+Computes desired entries based on PCS state:
 
-- **Case 1 (existing BPG/SPG, no update):** derive BPG/SPG-convention tuples from `pcs.Spec` + live PCLQ/PCSG replica counts
-- **Case 2 (MPG topology, no update):** derive MPG-convention tuples from `pcs.Spec` + live PCLQ/PCSG replica counts using MVU composition rules
-- **Case 3 (Coherent update in progress):** old tuples with decremented counts + new MPG tuples from `InFlightPodGangs` + current iteration MPG tuple
-- **Case 4 (RollingRecreate update):** same structure as steady-state, `PodCliqueSetGenerationHash` updated to new PCS generation hash
+- **Case 1 (existing BPG/SPG, no update):** derive BPG/SPG-convention entries from `pcs.Spec` + live PCLQ/PCSG replica counts. BPG entry gets `TopologyAnchorPCS`, SPG entries get `TopologyAnchorPCSG`.
+- **Case 2 (MPG topology, no update):** derive MPG-convention entries from `pcs.Spec` + live PCLQ/PCSG replica counts using MVU composition rules. MPG entries get `TopologyAnchorPCS`, Tail-PG entries get `TopologyAnchorPCSG`.
+- **Case 3 (Coherent update in progress):** old entries with decremented counts + new MPG entries from `InFlightPodGangs` + current iteration MPG entry. Old entries retain their original anchor; new MPG entries get `TopologyAnchorPCS`; Tail-PG entries get `TopologyAnchorPCSG`.
+- **Case 4 (RollingRecreate update):** same structure as steady-state, `PodCliqueSetGenerationHash` updated to new PCS generation hash. Anchors unchanged.
 
 The component creates/updates the `PodGangMap` resource for each PCS replica. On scale-out, a new `PodGangMap` is created for the new replica. On scale-in, the `PodGangMap` for the removed replica is deleted.
 
 #### Desired state semantics per scenario
 
 - **RollingRecreate update:** `PodGangMap` always reflects the **complete desired state** — the full set of PodGangs that should exist with the new `PodCliqueSetGenerationHash`. PCLQ/PCSG reconcilers replace pods in-place within the same PodGangs.
-- **Regular reconcile (no update, includes scale-out/in):** `PodGangMap` reflects the **complete desired state** — adjusts pod counts per PCLQ/PCSG in each existing tuple to reflect current replica counts, and adds/removes tuples for new/removed replicas. Always self-consistent.
-- **Coherent update:** `PodGangMap` reflects only the **desired state for the current iteration** — one MVU at a time. It is not a complete desired end-state but a stepwise approximation that advances each time the orchestrator moves to the next iteration. Old tuples are decremented as pods are taken down; new MPG tuples are added one round at a time.
+- **Regular reconcile (no update, includes scale-out/in):** `PodGangMap` reflects the **complete desired state** — adjusts pod counts per PCLQ/PCSG in each existing entry to reflect current replica counts, and adds/removes entries for new/removed replicas. Always self-consistent.
+- **Coherent update:** `PodGangMap` reflects only the **desired state for the current iteration** — one MVU at a time. It is not a complete desired end-state but a stepwise approximation that advances each time the orchestrator moves to the next iteration. Old entries are decremented as pods are taken down; new MPG entries are added one round at a time.
 
 This distinction is important: consumers of `PodGangMap` (PodGang, PCLQ, PCSG components) always treat it as the authoritative desired state, but under Coherent updates they should expect it to change each iteration rather than converging in a single reconcile.
 
@@ -293,16 +325,19 @@ This distinction is important: consumers of `PodGangMap` (PodGang, PCLQ, PCSG co
 
 Replace BPG+SPG computation with `PodGangMap`-driven computation:
 
-**Remove:** `buildExpectedBasePodGangForPCSReplicas()`, `buildExpectedBasePodGangForPCSReplica()`, `buildExpectedScaledPodGangsForPCSG()`, `doBuildExpectedScaledPodGangForPCSG()`, `buildStandalonePCLQInfosForBasePodGang()`, `buildPCSGPackConstraintsAndPCLQsForBasePodGang()`, `doBuildBasePodGangPCLQsAndPCSGPackConstraints()`.
+**Remove:** `buildExpectedBasePodGangForPCSReplicas()`, `buildExpectedBasePodGangForPCSReplica()`, `buildExpectedScaledPodGangsForPCSG()`, `doBuildExpectedScaledPodGangForPCSG()`, `buildStandalonePCLQInfosForBasePodGang()`, `buildPCSGPackConstraintsAndPCLQsForBasePodGang()`, `doBuildBasePodGangPCLQsAndPCSGPackConstraints()`, `buildPodCliqueInfo()`, `determinePodCliqueReplicas()`, `determinePCSGReplicas()`.
 
-**Replace with:** `buildExpectedPodGangsForPCSReplica(sc *syncContext, pcsReplica int) ([]*podGangInfo, error)`:
-- Fetch `PodGangMap` for this replica (named `<pcs-name>-<pcsReplica>`)
-- For each tuple in `PodGangMap.Spec.Tuples`: build a `podGangInfo` with the tuple's name and composition
-- Return the resulting `[]*podGangInfo`
+**Replace with:** `computeExpectedPodGangs(ctx, sc)` reads `PodGangMap` per replica and delegates to `buildPodGangInfoFromEntry()` which is decomposed into:
 
-`getExcessPodGangNames()` requires explicit consideration for the Coherent update case. Since `PodGangMap` under Coherent represents a progressive desired state (not a complete one), a PodGang that is no longer in the current `PodGangMap` tuples does not immediately mean it is excess — it may still hold pods being drained by the orchestrator. The rule is:
+- `buildStandalonePCLQInfos(sc, pcsReplicaIndex, entry) []pclqInfo` — builds pclqInfo entries for standalone PodCliques referenced in the entry.
+- `buildPCLQInfosAndTopologyConstraintsForPCSGs(sc, pcsReplicaIndex, entry, pcsgReplicaOffset) ([]pclqInfo, []TopologyConstraintGroupConfig, error)` — builds PCSG-owned pclqInfo entries and TopologyConstraintGroupConfigs. Emits sub-group constraints only when `entry.TopologyAnchor == TopologyAnchorPCS`.
+- `resolvePodGangTopologyConstraint(sc, entry) *TopologyConstraint` — switches on `entry.TopologyAnchor`:
+  - `TopologyAnchorPCS`: uses PCS-level topology constraint
+  - `TopologyAnchorPCSG`: promotes PCSG topology to PodGang level, falling back to PCS-level if PCSG has none
 
-- A PodGang is excess if and only if it is **not present in the current `PodGangMap` tuples AND has no pod references** (i.e. all its pods have been moved to new MPGs or deleted). This prevents premature deletion of old BPGs/SPGs mid-drain.
+`getExcessPodGangNames()` requires explicit consideration for the Coherent update case. Since `PodGangMap` under Coherent represents a progressive desired state (not a complete one), a PodGang that is no longer in the current `PodGangMap` entries does not immediately mean it is excess — it may still hold pods being drained by the orchestrator. The rule is:
+
+- A PodGang is excess if and only if it is **not present in the current `PodGangMap` entries AND has no pod references** (i.e. all its pods have been moved to new MPGs or deleted). This prevents premature deletion of old BPGs/SPGs mid-drain.
 - Under RollingRecreate and steady-state reconciles, `PodGangMap` always represents the complete desired state, so the standard excess check (not in expected set) applies directly.
 
 `getExcessPodGangNames()` must be updated to enforce this condition for the Coherent case: check pod references before marking a PodGang as excess.
@@ -368,7 +403,7 @@ func isRollingRecreateUpdateInProgress(pcs *grovecorev1alpha1.PodCliqueSet) bool
 
 #### `orchestrateCoherentUpdate` algorithm (`coherentupdate.go`)
 
-The orchestrator's sole responsibility is state machine progression — it computes the takedown set and updates `CoherentUpdateProgress` in status. Pod creation and PodGang creation are driven by PCLQ/PCSG reconcilers and the PodGang component reading `PodGangMap`. The `PodGangMap` component recomputes tuples on every reconcile reflecting the orchestrator's current progress.
+The orchestrator's sole responsibility is state machine progression — it computes the takedown set and updates `CoherentUpdateProgress` in status. Pod creation and PodGang creation are driven by PCLQ/PCSG reconcilers and the PodGang component reading `PodGangMap`. The `PodGangMap` component recomputes entries on every reconcile reflecting the orchestrator's current progress.
 
 Per reconcile iteration:
 ```
@@ -393,7 +428,7 @@ orchestrateCoherentUpdate(pcs, pcsIndicesToTerminate):
          (each PodGroup in each PodGang has >= MinReplicas ready pods)
        if not available: requeue
          // Scale-in during this wait is safe. PodGangMap recomputes on the next reconcile
-         // and reduces the tuple's pod count; the PCLQ reconciler deletes the excess pod.
+         // and reduces the entry's pod count; the PCLQ reconciler deletes the excess pod.
          // The availability check uses MinReplicas from the PodGang spec (set at creation
          // time from pclq.Spec.MinAvailable, which is immutable), so the threshold is still
          // correct even if the replica count dropped. The takedown set is always recomputed
@@ -401,9 +436,9 @@ orchestrateCoherentUpdate(pcs, pcsIndicesToTerminate):
        if available:
          check if all old pods for this replica are gone (iteration complete for this replica)
          if complete: set UpdateEndedAt on replica progress entry, clear currentlyUpdating
-         else: compute next takedown set from PodGangMap tuples for the next iteration
+         else: compute next takedown set from PodGangMap entries for the next iteration
                // Next iteration may produce one normal MPG + zero or more Tail-MPGs.
-               // The take-down set is the union of old pods displaced across ALL those tuples.
+               // The take-down set is the union of old pods displaced across ALL those entries.
                // InFlightPodGangs captures all PodGang names for this iteration so the
                // orchestrator waits for every one of them (normal MPG + tail-MPGs) to become
                // available before advancing to the next iteration.
@@ -423,32 +458,32 @@ orchestrateCoherentUpdate(pcs, pcsIndicesToTerminate):
 ```
 
 #### Take-down set computation
-The take-down set is derived from the PodGangMap tuples computed for the current iteration,
+The take-down set is derived from the PodGangMap entries computed for the current iteration,
 not independently re-derived from `MinAvailable`. The PodGangMap component decides the MPG
 composition for this iteration (one normal MPG + zero or more Tail-MPGs), and the orchestrator
-reads those tuples to know exactly how many old pods per PCLQ/PCSG to displace.
+reads those entries to know exactly how many old pods per PCLQ/PCSG to displace.
 
-- The PodGangMap component computes all PodGang tuples for the current iteration:
-  - **Normal iteration** (enough old pods remain to fill a complete MVU): one normal MPG tuple only — exactly `MinAvailable` pods per updated standalone PCLQ + `MinAvailable` PCSG replicas. One MPG is created per iteration until a complete MVU can no longer be formed.
-  - **Final tail iteration** (remaining old pods are fewer than a full MVU): all remaining old pods form one or more Tail-MPG tuples, all created simultaneously in a single iteration. There is no gate between tail-MPGs and the preceding normal MPG — they are scheduled independently as their own gangs.
-- Take-down set = union of old pods/PCSG-replicas being displaced across **all** tuples in this iteration
+- The PodGangMap component computes all PodGang entries for the current iteration:
+  - **Normal iteration** (enough old pods remain to fill a complete MVU): one normal MPG entry only — exactly `MinAvailable` pods per updated standalone PCLQ + `MinAvailable` PCSG replicas. One MPG is created per iteration until a complete MVU can no longer be formed.
+  - **Final tail iteration** (remaining old pods are fewer than a full MVU): all remaining old pods form one or more Tail-MPG entries, all created simultaneously in a single iteration. There is no gate between tail-MPGs and the preceding normal MPG — they are scheduled independently as their own gangs.
+- Take-down set = union of old pods/PCSG-replicas being displaced across **all** entries in this iteration
 - Old pods are selected pending-first, then scheduled, to minimise scheduler disruption
-- The orchestrator reads pod counts directly from the PodGangMap tuples — it does not re-read `MinAvailable` independently
+- The orchestrator reads pod counts directly from the PodGangMap entries — it does not re-read `MinAvailable` independently
 
 #### Identifying takedown candidates
 A pod is a takedown candidate based on the PodGang it is associated with (via its `grove.io/podgang` label):
 
-1. Look up the pod's `grove.io/podgang` label → PodGang name → find the matching tuple in PodGangMap by `tuple.Name`
-2. If `tuple.PodCliqueSetGenerationHash == newHash` AND `tuple.Name` is NOT in `InFlightPodGangs`
+1. Look up the pod's `grove.io/podgang` label → PodGang name → find the matching entry in PodGangMap by `entry.Name`
+2. If `entry.PodCliqueSetGenerationHash == newHash` AND `entry.Name` is NOT in `InFlightPodGangs`
    → pod is associated with an already-completed MPG (e.g. MPG-0 when MPG-1 is being created) → **exclude**
-3. If `tuple.Name` IS in `InFlightPodGangs`
+3. If `entry.Name` IS in `InFlightPodGangs`
    → pod is associated with the current in-flight batch → **exclude**
-4. If `tuple.PodCliqueSetGenerationHash == oldHash`
+4. If `entry.PodCliqueSetGenerationHash == oldHash`
    → old pod not yet displaced → **takedown candidate**
 
 This means `InFlightPodGangs` serves a dual purpose: it is observability for the user AND the mechanism
 the orchestrator uses to distinguish "current batch" from "already completed MPGs". The PodGangMap component
-must write the next iteration's tuples before the orchestrator computes the takedown set.
+must write the next iteration's entries before the orchestrator computes the takedown set.
 
 #### Tail-MPG naming and scheduling
 All tail-MPGs in the final iteration are named via `GeneratePodGangName` — `CreatedPodGangCount` is
@@ -480,25 +515,25 @@ if pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1
 In `prepareSyncFlow`, after fetching the PCLQ, fetch the `PodGangMap` for this PCS replica. The pod creation
 logic differs based on whether the PCLQ is standalone or owned by a PCSG:
 
-**Standalone PCLQ** — look up by PCLQ name in `tuple.PodCliques`:
-1. Find the tuple where `tuple.PodCliques` contains this PCLQ's name
-2. Count existing pods with `grove.io/podgang == tuple.Name` AND `PodCliqueSetGenerationHash == tuple.PodCliqueSetGenerationHash` (idempotency guard — handles requeues where some pods were already created)
-3. Create delta pods up to `tuple.PodCliques[pclqName]` with `grove.io/podgang: <tuple.Name>` set at creation time and scheduling gate set
-4. Tuple quota is a hard ceiling — do not use `spec.replicas` as the creation driver (see eviction note below)
+**Standalone PCLQ** — look up by PCLQ name in `entry.PodCliques`:
+1. Find the entry where `entry.PodCliques` contains this PCLQ's name
+2. Count existing pods with `grove.io/podgang == entry.Name` AND `PodCliqueSetGenerationHash == entry.PodCliqueSetGenerationHash` (idempotency guard — handles requeues where some pods were already created)
+3. Create delta pods up to `entry.PodCliques[pclqName]` with `grove.io/podgang: <entry.Name>` set at creation time and scheduling gate set
+4. Entry quota is a hard ceiling — do not use `spec.replicas` as the creation driver (see eviction note below)
 
-**PCSG-owned PCLQ** — look up by owning PCSG name in `tuple.PodCliqueScalingGroups`:
-1. Find the tuple where `tuple.PodCliqueScalingGroups` contains the owning PCSG's name
-2. Count existing pods with `grove.io/podgang == tuple.Name` AND `PodCliqueSetGenerationHash == tuple.PodCliqueSetGenerationHash` (same idempotency guard)
-3. Create delta pods up to `spec.replicas` (always all pods — the PCSG decides replica granularity, not the PCLQ) with `grove.io/podgang: <tuple.Name>` set at creation time and scheduling gate set
-4. No tuple quota ceiling here — `spec.replicas` is always the target for PCSG-owned PCLQs
+**PCSG-owned PCLQ** — look up by owning PCSG name in `entry.PodCliqueScalingGroups`:
+1. Find the entry where `entry.PodCliqueScalingGroups` contains the owning PCSG's name
+2. Count existing pods with `grove.io/podgang == entry.Name` AND `PodCliqueSetGenerationHash == entry.PodCliqueSetGenerationHash` (same idempotency guard)
+3. Create delta pods up to `spec.replicas` (always all pods — the PCSG decides replica granularity, not the PCLQ) with `grove.io/podgang: <entry.Name>` set at creation time and scheduling gate set
+4. No entry quota ceiling here — `spec.replicas` is always the target for PCSG-owned PCLQs
 
-This replaces the current logic of inheriting `grove.io/podgang` from the PCLQ resource label — pods now get the label directly from the `PodGangMap` tuple at creation time. The `PodCliqueScalingGroups` map in the tuple is sufficient for PCSG-owned PCLQ association — there is no need to enumerate PCSG-owned PCLQs explicitly in `PodCliques`.
+This replaces the current logic of inheriting `grove.io/podgang` from the PCLQ resource label — pods now get the label directly from the `PodGangMap` entry at creation time. The `PodCliqueScalingGroups` map in the entry is sufficient for PCSG-owned PCLQ association — there is no need to enumerate PCSG-owned PCLQs explicitly in `PodCliques`.
 
-**Important (standalone PCLQs only):** Under Coherent updates, the tuple quota is a hard ceiling on pod
+**Important (standalone PCLQs only):** Under Coherent updates, the entry quota is a hard ceiling on pod
 creation. Consider this scenario: the orchestrator takes down 2 old pods of PCLQ `F` to place them into
-MPG-1 (tuple count = 2). Before the PCLQ reconciler reacts, a third old pod of `F` is evicted due to node
-failure. The PCLQ reconciler must still only create 2 new pods (matching the MPG-1 tuple quota), not 3.
-The evicted old pod is intentionally not replaced — there is no PodGangMap tuple that accommodates a
+MPG-1 (entry count = 2). Before the PCLQ reconciler reacts, a third old pod of `F` is evicted due to node
+failure. The PCLQ reconciler must still only create 2 new pods (matching the MPG-1 entry quota), not 3.
+The evicted old pod is intentionally not replaced — there is no PodGangMap entry that accommodates a
 new-spec pod for it, and creating one would leave it without a PodGang association. It will be accounted
 for in a subsequent iteration when the orchestrator advances the takedown set.
 
@@ -518,7 +553,7 @@ Same 3-line guard as Step 7a.
 
 #### 8b — Pod sync: read PodGangMap
 
-Same pattern as Step 7b — PCSG reconciler reads `PodGangMap` tuples to determine how many PCSG replicas belong to each PodGang and creates them with correct `grove.io/podgang` label at creation time.
+Same pattern as Step 7b — PCSG reconciler reads `PodGangMap` entries to determine how many PCSG replicas belong to each PodGang and creates them with correct `grove.io/podgang` label at creation time.
 
 ---
 
@@ -558,7 +593,7 @@ Run `make generate manifests`. Check `operator/internal/webhook` for any strateg
 | File | Change |
 |---|---|
 | `operator/api/core/v1alpha1/podcliqueset.go` | Add `CoherentStrategy`, `CoherentUpdateProgress`, `CoherentReplicaUpdateProgress`, `PodGangReplicaState` types; add `PodGangState` and `CoherentUpdateProgress` to `PodCliqueSetStatus` |
-| `operator/api/core/v1alpha1/podgangmap.go` | **New** — `PodGangMap`, `PodGangMapSpec`, `PodGangTuple` CRD types |
+| `operator/api/core/v1alpha1/podgangmap.go` | **New** — `PodGangMap`, `PodGangMapSpec`, `PodGangEntry` CRD types |
 | `operator/api/common/namegen.go` | Keep old BPG/SPG name functions; add `GeneratePodGangName` |
 | `operator/api/common/namegen_test.go` | Add tests for `GeneratePodGangName` |
 | `operator/internal/controller/podcliqueset/components/podgangmap/podgangmap.go` | **New** — `PodGangMap` component; computes and reconciles `PodGangMap` resources |

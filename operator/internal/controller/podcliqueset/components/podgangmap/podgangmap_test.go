@@ -28,22 +28,22 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-func TestBuildBaseAndScaledPodGangTuples_ErrorWhenGenerationHashNotSet(t *testing.T) {
+func TestBuildBaseAndScaledPodGangEntries_ErrorWhenGenerationHashNotSet(t *testing.T) {
 	// CurrentGenerationHash not set → error.
 	pcs := newTestPCS("my-pcs", "", []grovecorev1alpha1.PodCliqueTemplateSpec{
 		{Name: "prefill", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 2}},
 	}, nil)
 
 	r := &_resource{}
-	tuples, err := r.buildBaseAndScaledPodGangTuples(pcs, 0, nil, nil)
+	entries, err := r.buildBaseAndScaledPodGangEntries(pcs, 0, nil, nil)
 
 	require.Error(t, err)
-	assert.Nil(t, tuples)
+	assert.Nil(t, entries)
 }
 
-func TestBuildBaseAndScaledPodGangTuples_StandaloneOnly(t *testing.T) {
+func TestBuildBaseAndScaledPodGangEntries_StandaloneOnly(t *testing.T) {
 	// PCS with 2 standalone PCLQs, no PCSGs. Live PCLQs match template replicas.
-	// Expect: one BasePodGang tuple with both PCLQs, no ScaledPodGang tuples.
+	// Expect: one BasePodGang entry with both PCLQs, no ScaledPodGang entries.
 	pcs := newTestPCS("my-pcs", "abc12xyz", []grovecorev1alpha1.PodCliqueTemplateSpec{
 		{Name: "prefill", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 2}},
 		{Name: "decode", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 4}},
@@ -54,11 +54,11 @@ func TestBuildBaseAndScaledPodGangTuples_StandaloneOnly(t *testing.T) {
 	}
 
 	r := &_resource{}
-	tuples, err := r.buildBaseAndScaledPodGangTuples(pcs, 0, nil, livePCLQs)
+	entries, err := r.buildBaseAndScaledPodGangEntries(pcs, 0, nil, livePCLQs)
 
 	require.NoError(t, err)
-	assert.Len(t, tuples, 1)
-	basePodGang := tuples[0]
+	assert.Len(t, entries, 1)
+	basePodGang := entries[0]
 	assert.Equal(t, "my-pcs-0", basePodGang.Name)
 	assert.Equal(t, "abc12xyz", basePodGang.PodCliqueSetGenerationHash)
 	assert.Equal(t, int32(2), basePodGang.PodCliques["my-pcs-0-prefill"])
@@ -66,9 +66,9 @@ func TestBuildBaseAndScaledPodGangTuples_StandaloneOnly(t *testing.T) {
 	assert.Empty(t, basePodGang.PodCliqueScalingGroups)
 }
 
-func TestBuildBaseAndScaledPodGangTuples_LiveReplicaCountTakesPrecedence(t *testing.T) {
+func TestBuildBaseAndScaledPodGangEntries_LiveReplicaCountTakesPrecedence(t *testing.T) {
 	// Live PCLQ has a different replica count than the template (e.g. scaled directly).
-	// Expect: BasePodGang tuple uses live replica count, not template.
+	// Expect: BasePodGang entry uses live replica count, not template.
 	pcs := newTestPCS("my-pcs", "abc12xyz", []grovecorev1alpha1.PodCliqueTemplateSpec{
 		{Name: "prefill", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 2}},
 	}, nil)
@@ -77,31 +77,31 @@ func TestBuildBaseAndScaledPodGangTuples_LiveReplicaCountTakesPrecedence(t *test
 	}
 
 	r := &_resource{}
-	tuples, err := r.buildBaseAndScaledPodGangTuples(pcs, 0, nil, livePCLQs)
+	entries, err := r.buildBaseAndScaledPodGangEntries(pcs, 0, nil, livePCLQs)
 
 	require.NoError(t, err)
-	assert.Len(t, tuples, 1)
-	assert.Equal(t, int32(5), tuples[0].PodCliques["my-pcs-0-prefill"])
+	assert.Len(t, entries, 1)
+	assert.Equal(t, int32(5), entries[0].PodCliques["my-pcs-0-prefill"])
 }
 
-func TestBuildBaseAndScaledPodGangTuples_FallsBackToTemplateWhenPCLQNotYetCreated(t *testing.T) {
+func TestBuildBaseAndScaledPodGangEntries_FallsBackToTemplateWhenPCLQNotYetCreated(t *testing.T) {
 	// No live PCLQs (first reconcile before PCLQ component runs).
-	// Expect: BasePodGang tuple uses template replica count as fallback.
+	// Expect: BasePodGang entry uses template replica count as fallback.
 	pcs := newTestPCS("my-pcs", "abc12xyz", []grovecorev1alpha1.PodCliqueTemplateSpec{
 		{Name: "prefill", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 3}},
 	}, nil)
 
 	r := &_resource{}
-	tuples, err := r.buildBaseAndScaledPodGangTuples(pcs, 0, nil, nil)
+	entries, err := r.buildBaseAndScaledPodGangEntries(pcs, 0, nil, nil)
 
 	require.NoError(t, err)
-	assert.Len(t, tuples, 1)
-	assert.Equal(t, int32(3), tuples[0].PodCliques["my-pcs-0-prefill"])
+	assert.Len(t, entries, 1)
+	assert.Equal(t, int32(3), entries[0].PodCliques["my-pcs-0-prefill"])
 }
 
-func TestBuildBaseAndScaledPodGangTuples_WithPCSGNoScaling(t *testing.T) {
+func TestBuildBaseAndScaledPodGangEntries_WithPCSGNoScaling(t *testing.T) {
 	// PCS with one standalone PCLQ and one PCSG whose Replicas == MinAvailable.
-	// Expect: one BasePodGang tuple (standalone PCLQ + PCSG at MinAvailable), no ScaledPodGang tuples.
+	// Expect: one BasePodGang entry (standalone PCLQ + PCSG at MinAvailable), no ScaledPodGang entries.
 	pcs := newTestPCS("my-pcs", "abc12xyz",
 		[]grovecorev1alpha1.PodCliqueTemplateSpec{
 			{Name: "prefill", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 2}},
@@ -117,11 +117,11 @@ func TestBuildBaseAndScaledPodGangTuples_WithPCSGNoScaling(t *testing.T) {
 	}
 
 	r := &_resource{}
-	tuples, err := r.buildBaseAndScaledPodGangTuples(pcs, 0, []grovecorev1alpha1.PodCliqueScalingGroup{pcsg}, livePCLQs)
+	entries, err := r.buildBaseAndScaledPodGangEntries(pcs, 0, []grovecorev1alpha1.PodCliqueScalingGroup{pcsg}, livePCLQs)
 
 	require.NoError(t, err)
-	assert.Len(t, tuples, 1)
-	basePodGang := tuples[0]
+	assert.Len(t, entries, 1)
+	basePodGang := entries[0]
 	assert.Equal(t, "my-pcs-0", basePodGang.Name)
 	assert.Equal(t, int32(2), basePodGang.PodCliques["my-pcs-0-prefill"])
 	// "decode" is owned by PCSG — must not appear in PodCliques.
@@ -130,8 +130,8 @@ func TestBuildBaseAndScaledPodGangTuples_WithPCSGNoScaling(t *testing.T) {
 	assert.Equal(t, int32(2), basePodGang.PodCliqueScalingGroups["my-pcs-0-sga"])
 }
 
-func TestBuildBaseAndScaledPodGangTuples_WithPCSGScaledBeyondMinAvailable(t *testing.T) {
-	// PCSG with Replicas=5, MinAvailable=3 → 1 BasePodGang tuple + 2 ScaledPodGang tuples.
+func TestBuildBaseAndScaledPodGangEntries_WithPCSGScaledBeyondMinAvailable(t *testing.T) {
+	// PCSG with Replicas=5, MinAvailable=3 → 1 BasePodGang entry + 2 ScaledPodGang entries.
 	pcs := newTestPCS("my-pcs", "abc12xyz",
 		[]grovecorev1alpha1.PodCliqueTemplateSpec{
 			{Name: "decode", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 4}},
@@ -143,28 +143,28 @@ func TestBuildBaseAndScaledPodGangTuples_WithPCSGScaledBeyondMinAvailable(t *tes
 	pcsg := newPCSG("my-pcs-0-sga", 5, 3)
 
 	r := &_resource{}
-	tuples, err := r.buildBaseAndScaledPodGangTuples(pcs, 0, []grovecorev1alpha1.PodCliqueScalingGroup{pcsg}, nil)
+	entries, err := r.buildBaseAndScaledPodGangEntries(pcs, 0, []grovecorev1alpha1.PodCliqueScalingGroup{pcsg}, nil)
 
 	require.NoError(t, err)
 	// 1 BasePodGang + 2 ScaledPodGangs (replicas 3 and 4 beyond MinAvailable=3)
-	assert.Len(t, tuples, 3)
+	assert.Len(t, entries, 3)
 
-	basePodGang := tuples[0]
+	basePodGang := entries[0]
 	assert.Equal(t, "my-pcs-0", basePodGang.Name)
 	assert.Equal(t, int32(3), basePodGang.PodCliqueScalingGroups["my-pcs-0-sga"])
 
-	scaledPodGang0 := tuples[1]
+	scaledPodGang0 := entries[1]
 	assert.Equal(t, "my-pcs-0-sga-0", scaledPodGang0.Name)
 	assert.Equal(t, int32(1), scaledPodGang0.PodCliqueScalingGroups["my-pcs-0-sga"])
 	assert.Empty(t, scaledPodGang0.PodCliques)
 
-	scaledPodGang1 := tuples[2]
+	scaledPodGang1 := entries[2]
 	assert.Equal(t, "my-pcs-0-sga-1", scaledPodGang1.Name)
 	assert.Equal(t, int32(1), scaledPodGang1.PodCliqueScalingGroups["my-pcs-0-sga"])
 }
 
-func TestBuildBaseAndScaledPodGangTuples_GenerationHashPropagated(t *testing.T) {
-	// Verify the generation hash appears on every tuple.
+func TestBuildBaseAndScaledPodGangEntries_GenerationHashPropagated(t *testing.T) {
+	// Verify the generation hash appears on every entry.
 	pcs := newTestPCS("my-pcs", "hashval99",
 		[]grovecorev1alpha1.PodCliqueTemplateSpec{
 			{Name: "prefill", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 1}},
@@ -174,14 +174,14 @@ func TestBuildBaseAndScaledPodGangTuples_GenerationHashPropagated(t *testing.T) 
 	}
 
 	r := &_resource{}
-	tuples, err := r.buildBaseAndScaledPodGangTuples(pcs, 0, nil, livePCLQs)
+	entries, err := r.buildBaseAndScaledPodGangEntries(pcs, 0, nil, livePCLQs)
 
 	require.NoError(t, err)
-	assert.Len(t, tuples, 1)
-	assert.Equal(t, "hashval99", tuples[0].PodCliqueSetGenerationHash)
+	assert.Len(t, entries, 1)
+	assert.Equal(t, "hashval99", entries[0].PodCliqueSetGenerationHash)
 }
 
-func TestComputeTuples_CoherentUpdateInProgressReturnsNil(t *testing.T) {
+func TestComputeEntries_CoherentUpdateInProgressReturnsNil(t *testing.T) {
 	// Coherent update in progress → TODO path returns nil (stub).
 	pcs := newTestPCS("my-pcs", "abc12xyz", nil, nil)
 	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{
@@ -193,12 +193,12 @@ func TestComputeTuples_CoherentUpdateInProgressReturnsNil(t *testing.T) {
 	}
 
 	r := &_resource{}
-	tuples, err := r.computeTuples(pcs, 0, nil, nil)
+	entries, err := r.computeEntries(pcs, 0, nil, nil)
 	require.NoError(t, err)
-	assert.Nil(t, tuples)
+	assert.Nil(t, entries)
 }
 
-func TestComputeTuples_CoherentNoUpdateReturnsNil(t *testing.T) {
+func TestComputeEntries_CoherentNoUpdateReturnsNil(t *testing.T) {
 	// Coherent strategy, no update in progress → TODO path returns nil (stub).
 	pcs := newTestPCS("my-pcs", "abc12xyz", nil, nil)
 	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{
@@ -206,13 +206,13 @@ func TestComputeTuples_CoherentNoUpdateReturnsNil(t *testing.T) {
 	}
 
 	r := &_resource{}
-	tuples, err := r.computeTuples(pcs, 0, nil, nil)
+	entries, err := r.computeEntries(pcs, 0, nil, nil)
 	require.NoError(t, err)
-	assert.Nil(t, tuples)
+	assert.Nil(t, entries)
 }
 
-func TestComputeTuples_OnDeleteUsesBasePodGangTuples(t *testing.T) {
-	// OnDelete strategy uses the same BasePodGang/ScaledPodGang tuple structure as RollingRecreate.
+func TestComputeEntries_OnDeleteUsesBasePodGangEntries(t *testing.T) {
+	// OnDelete strategy uses the same BasePodGang/ScaledPodGang entry structure as RollingRecreate.
 	pcs := newTestPCS("my-pcs", "abc12xyz", []grovecorev1alpha1.PodCliqueTemplateSpec{
 		{Name: "prefill", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 2}},
 	}, nil)
@@ -224,12 +224,12 @@ func TestComputeTuples_OnDeleteUsesBasePodGangTuples(t *testing.T) {
 	}
 
 	r := &_resource{}
-	tuples, err := r.computeTuples(pcs, 0, nil, livePCLQs)
+	entries, err := r.computeEntries(pcs, 0, nil, livePCLQs)
 
 	require.NoError(t, err)
-	assert.Len(t, tuples, 1)
-	assert.Equal(t, "my-pcs-0", tuples[0].Name)
-	assert.Equal(t, int32(2), tuples[0].PodCliques["my-pcs-0-prefill"])
+	assert.Len(t, entries, 1)
+	assert.Equal(t, "my-pcs-0", entries[0].Name)
+	assert.Equal(t, int32(2), entries[0].PodCliques["my-pcs-0-prefill"])
 }
 
 // newTestPCS creates a minimal PodCliqueSet for use in unit tests.
