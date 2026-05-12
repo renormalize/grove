@@ -92,7 +92,6 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 			entries = []grovecorev1alpha1.PodGangEntry{{
 				Name:                       bpgName,
 				PodCliqueSetGenerationHash: generationHash,
-				TopologyAnchor:             grovecorev1alpha1.TopologyAnchorPCS,
 				PodCliques:                 bpgPodCliques,
 				PodCliqueScalingGroups:     bpgPCSGs,
 			}}
@@ -107,7 +106,6 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 					entries = append(entries, grovecorev1alpha1.PodGangEntry{
 						Name:                       spgName,
 						PodCliqueSetGenerationHash: generationHash,
-						TopologyAnchor:             grovecorev1alpha1.TopologyAnchorPCSG,
 						PodCliqueScalingGroups:     map[string]int32{pcsg.Name: 1},
 					})
 				}
@@ -124,7 +122,6 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 			entries = []grovecorev1alpha1.PodGangEntry{{
 				Name:                       bpgName,
 				PodCliqueSetGenerationHash: generationHash,
-				TopologyAnchor:             grovecorev1alpha1.TopologyAnchorPCS,
 				PodCliques:                 bpgPodCliques,
 				PodCliqueScalingGroups:     bpgPCSGs,
 			}}
@@ -140,7 +137,6 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 					entries = append(entries, grovecorev1alpha1.PodGangEntry{
 						Name:                       spgName,
 						PodCliqueSetGenerationHash: generationHash,
-						TopologyAnchor:             grovecorev1alpha1.TopologyAnchorPCSG,
 						PodCliqueScalingGroups:     map[string]int32{pcsgFQN: 1},
 					})
 				}
@@ -151,7 +147,6 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 			entries = []grovecorev1alpha1.PodGangEntry{{
 				Name:                       bpgName,
 				PodCliqueSetGenerationHash: generationHash,
-				TopologyAnchor:             grovecorev1alpha1.TopologyAnchorPCS,
 				PodCliques:                 bpgPodCliques,
 			}}
 		}
@@ -1104,10 +1099,13 @@ func TestComputeExpectedPodGangsWithTopologyConstraints(t *testing.T) {
 				},
 				{
 					fqn:           "test-pcs-0-scaling-group-0",
-					topologyLevel: &topologyLevelRack,
+					topologyLevel: &topologyLevelZone,
 					pclqConstraints: map[string]grovecorev1alpha1.TopologyLevel{
 						"test-pcs-0-scaling-group-1-decode-leader": topologyLevelHost,
 						"test-pcs-0-scaling-group-1-decode-worker": topologyLevelHost,
+					},
+					pcsgConstraints: map[string]grovecorev1alpha1.TopologyLevel{
+						"test-pcs-0-scaling-group-1": topologyLevelRack,
 					},
 				},
 			},
@@ -1167,10 +1165,13 @@ func TestComputeExpectedPodGangsWithTopologyConstraints(t *testing.T) {
 				},
 				{
 					fqn:           "test-pcs-0-scaling-group-0",
-					topologyLevel: &topologyLevelRack,
+					topologyLevel: &topologyLevelZone,
 					pclqConstraints: map[string]grovecorev1alpha1.TopologyLevel{
 						"test-pcs-0-scaling-group-1-decode-leader": topologyLevelHost,
 						"test-pcs-0-scaling-group-1-decode-worker": topologyLevelHost,
+					},
+					pcsgConstraints: map[string]grovecorev1alpha1.TopologyLevel{
+						"test-pcs-0-scaling-group-1": topologyLevelRack,
 					},
 				},
 			},
