@@ -140,8 +140,8 @@ func IsCoherentStrategy(pcs *grovecorev1alpha1.PodCliqueSet) bool {
 // IsCoherentUpdateInProgress returns true when a Coherent update has been initiated and not yet completed.
 func IsCoherentUpdateInProgress(pcs *grovecorev1alpha1.PodCliqueSet) bool {
 	return IsCoherentStrategy(pcs) &&
-		pcs.Status.CoherentUpdateProgress != nil &&
-		pcs.Status.CoherentUpdateProgress.UpdateEndedAt == nil
+		pcs.Status.UpdateProgress != nil &&
+		pcs.Status.UpdateProgress.UpdateEndedAt == nil
 }
 
 // GetExpectedPCLQNamesGroupByOwner returns the expected unqualified PodClique names which are either owned by PodCliqueSet or PodCliqueScalingGroup.

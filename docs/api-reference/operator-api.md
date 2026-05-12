@@ -111,47 +111,6 @@ _Appears in:_
 | `schedulerTopologyStatuses` _[SchedulerTopologyStatus](#schedulertopologystatus) array_ | SchedulerTopologyStatuses reports whether each scheduler backend's topology<br />resource is in sync with this ClusterTopologyBinding. |  |  |
 
 
-#### CoherentReplicaUpdateProgress
-
-
-
-CoherentReplicaUpdateProgress captures the progress of a coherent update for a single
-PodCliqueSet replica. The coherent strategy updates replicas one at a time, advancing only
-after all PodGangs created in the current iteration become available.
-
-
-
-_Appears in:_
-- [CoherentUpdateProgress](#coherentupdateprogress)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `replicaIndex` _integer_ | ReplicaIndex is the index of the PodCliqueSet replica being updated. |  |  |
-| `updateStartedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateStartedAt is the time at which the coherent update started for this replica. |  |  |
-| `updateEndedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateEndedAt is the time at which this replica completed its coherent update.<br />Nil while the update is still in progress. |  |  |
-| `inFlightPodGangs` _string array_ | InFlightPodGangs are the names of all PodGangs created in the current iteration.<br />The orchestrator waits for all of them to become available before advancing to the<br />next iteration. This field is purely for observability — PodGangMap is the source<br />of truth for pod-to-PodGang assignment. |  |  |
-| `errorMessage` _string_ | ErrorMessage captures the reason the update of this replica is stalled or failing, if any. |  |  |
-
-
-#### CoherentUpdateProgress
-
-
-
-CoherentUpdateProgress captures the overall progress of a coherent update across all replicas
-of a PodCliqueSet.
-
-
-
-_Appears in:_
-- [PodCliqueSetStatus](#podcliquesetstatus)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `updateStartedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateStartedAt is the time at which the coherent update started. |  |  |
-| `updateEndedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateEndedAt is the time at which all replicas completed their coherent update.<br />Nil while the update is still in progress. |  |  |
-| `currentlyUpdating` _[CoherentReplicaUpdateProgress](#coherentreplicaupdateprogress) array_ | CurrentlyUpdating tracks per-replica update progress for replicas currently being updated. |  |  |
-
-
 #### ErrorCode
 
 _Underlying type:_ _string_
@@ -492,6 +451,8 @@ _Appears in:_
 | `replicaIndex` _integer_ | ReplicaIndex is the replica index of the PodCliqueSet that is being updated. |  |  |
 | `updateStartedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateStartedAt is the time at which the update started for this PodCliqueSet replica index. |  |  |
 | `updateEndedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#time-v1-meta)_ | UpdateEndedAt is the time at which the update ended for this PodCliqueSet replica index.<br />The update ends when all child resources have been updated with the latest specification, when all Pods are<br />running the latest specification. |  |  |
+| `inFlightPodGangs` _string array_ | InFlightPodGangs are the names of PodGangs that are part of the current update<br />iteration for this replica. The orchestrator waits for all of them to become<br />available before advancing to the next iteration. |  |  |
+| `errorMessage` _string_ | ErrorMessage captures the reason the update of this replica is stalled or failing, if any. |  |  |
 
 
 #### PodCliqueSetSpec
@@ -535,8 +496,7 @@ _Appears in:_
 | `podGangStatuses` _[PodGangStatus](#podgangstatus) array_ | PodGangStatuses captures the status for all the PodGang's that are part of the PodCliqueSet.<br />Deprecated: Status of the PodGang should be captured as part of the PodGang resource.<br />This field is not been set today and will be removed in the future. |  |  |
 | `currentGenerationHash` _string_ | CurrentGenerationHash is a hash value generated out of a collection of fields in a PodCliqueSet.<br />Since only a subset of fields is taken into account when generating the hash, not every change in the PodCliqueSetSpec will<br />be accounted for when generating this hash value. A field in PodCliqueSetSpec is included if a change to it triggers<br />a rolling recreate of PodCliques and/or PodCliqueScalingGroups.<br />Only if this value is not nil and the newly computed hash value is different from the persisted CurrentGenerationHash value<br />then an update needs to be triggered. |  |  |
 | `updateProgress` _[PodCliqueSetUpdateProgress](#podcliquesetupdateprogress)_ | UpdateProgress represents the progress of an update. |  |  |
-| `coherentUpdateProgress` _[CoherentUpdateProgress](#coherentupdateprogress)_ | CoherentUpdateProgress represents the progress of a coherent update.<br />Only set when the update strategy is Coherent and an update is in progress. |  |  |
-| `podGangCounter` _object (keys:string, values:integer)_ | PodGangCounter tracks the number of PodGangs created per PodCliqueSet replica.<br />Key is the stringified replica index; value is the creation count for that replica.<br />The counter resets to zero at the start of each new update and increments once per<br />PodGang created — during an update as well as for scale-out events between updates.<br />It is never decremented, including on PodCliqueScalingGroup scale-in. Combined with<br />the generation hash segment in the PodGang name, it ensures unique PodGang names<br />across all iterations within a single update. |  |  |
+| `podGangCounter` _object (keys:string, values:integer)_ | PodGangCounter tracks the number of PodGangs created per PodCliqueSet replica.<br />Key is the stringified replica index; value is the creation count of PodGangs for that replica.<br />The counter resets to zero at the start of each new update and increments once per<br />PodGang create — during an update as well as for scale-out events between updates.<br />It is never decremented, including on PodCliqueScalingGroup scale-in. Combined with<br />the generation hash segment in the PodGang name, it ensures unique PodGang names<br />across all iterations within a single update. |  |  |
 
 
 #### PodCliqueSetTemplateSpec

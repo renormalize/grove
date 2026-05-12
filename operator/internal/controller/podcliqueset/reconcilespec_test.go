@@ -301,9 +301,8 @@ func TestInitUpdateProgress(t *testing.T) {
 
 			isCoherent := pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.CoherentStrategy
 			if isCoherent {
-				assert.Nil(t, updatedPCS.Status.UpdateProgress, "UpdateProgress should be nil for Coherent strategy")
-				require.NotNil(t, updatedPCS.Status.CoherentUpdateProgress, "CoherentUpdateProgress should be set for Coherent strategy")
-				assert.NotEmpty(t, updatedPCS.Status.CoherentUpdateProgress.UpdateStartedAt, "CoherentUpdateProgress.UpdateStartedAt should be set")
+				require.NotNil(t, updatedPCS.Status.UpdateProgress, "UpdateProgress should be set for Coherent strategy")
+				assert.NotEmpty(t, updatedPCS.Status.UpdateProgress.UpdateStartedAt, "UpdateProgress.UpdateStartedAt should be set")
 			} else {
 				// Verify UpdateProgress is set
 				require.NotNil(t, updatedPCS.Status.UpdateProgress, "UpdateProgress should be set")
