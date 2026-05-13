@@ -130,11 +130,20 @@ func GetPodCliqueSetName(objectMeta metav1.ObjectMeta) string {
 
 // IsAutoUpdateStrategy returns true when PodCliqueSet update strategy is automatically orchestrated by Grove.
 // Only the OnDelete update strategy is not an auto update strategy.
+// Deprecated: Use IsOnDeleteStrategy, IsCoherentStrategy, or IsRollingRecreateUpdateInProgress for explicit checks.
 func IsAutoUpdateStrategy(pcs *grovecorev1alpha1.PodCliqueSet) bool {
 	if pcs == nil {
 		return false
 	}
 	return pcs.Spec.UpdateStrategy == nil || pcs.Spec.UpdateStrategy.Type != grovecorev1alpha1.OnDeleteStrategy
+}
+
+// IsOnDeleteStrategy returns true when the PodCliqueSet update strategy is OnDelete.
+func IsOnDeleteStrategy(pcs *grovecorev1alpha1.PodCliqueSet) bool {
+	if pcs == nil {
+		return false
+	}
+	return pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.OnDeleteStrategy
 }
 
 // IsCoherentStrategy returns true when the PodCliqueSet update strategy is Coherent.
