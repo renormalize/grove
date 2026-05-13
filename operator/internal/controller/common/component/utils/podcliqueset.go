@@ -62,6 +62,14 @@ func GetStandalonePCLQFQNs(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex 
 	return GetStandalonePCLQFQNSet(pcs, pcsReplicaIndex).UnsortedList()
 }
 
+// CountStandalonePCLQs returns the number of standalone PodCliques defined in the PCS template.
+// A standalone PodClique is one whose name does not appear in any PodCliqueScalingGroupConfig.CliqueNames.
+func CountStandalonePCLQs(pcs *grovecorev1alpha1.PodCliqueSet) int {
+	return lo.CountBy(pcs.Spec.Template.Cliques, func(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec) bool {
+		return isStandalonePCLQ(pcs, pclqTemplateSpec.Name)
+	})
+}
+
 // isStandalonePCLQ checks if the PodClique is managed by PodCliqueSet or not
 func isStandalonePCLQ(pcs *grovecorev1alpha1.PodCliqueSet, pclqName string) bool {
 	return !lo.Reduce(pcs.Spec.Template.PodCliqueScalingGroupConfigs, func(agg bool, pcsgConfig grovecorev1alpha1.PodCliqueScalingGroupConfig, _ int) bool {
@@ -140,6 +148,13 @@ func IsCoherentStrategy(pcs *grovecorev1alpha1.PodCliqueSet) bool {
 // IsCoherentUpdateInProgress returns true when a Coherent update has been initiated and not yet completed.
 func IsCoherentUpdateInProgress(pcs *grovecorev1alpha1.PodCliqueSet) bool {
 	return IsCoherentStrategy(pcs) &&
+		pcs.Status.UpdateProgress != nil &&
+		pcs.Status.UpdateProgress.UpdateEndedAt == nil
+}
+
+// IsRollingRecreateUpdateInProgress returns true when a RollingRecreate update has been initiated and not yet completed.
+func IsRollingRecreateUpdateInProgress(pcs *grovecorev1alpha1.PodCliqueSet) bool {
+	return (pcs.Spec.UpdateStrategy == nil || pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.RollingRecreateStrategy) &&
 		pcs.Status.UpdateProgress != nil &&
 		pcs.Status.UpdateProgress.UpdateEndedAt == nil
 }

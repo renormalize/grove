@@ -428,6 +428,157 @@ func TestIsCoherentUpdateInProgress(t *testing.T) {
 	}
 }
 
+func TestIsRollingRecreateUpdateInProgress(t *testing.T) {
+	tests := []struct {
+		name     string
+		pcs      *grovecorev1alpha1.PodCliqueSet
+		expected bool
+	}{
+		{
+			name: "nil_strategy_with_update_in_progress",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					UpdateProgress: &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+						UpdateStartedAt: metav1.Now(),
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "rolling_recreate_strategy_update_in_progress",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.RollingRecreateStrategy},
+				},
+				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					UpdateProgress: &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+						UpdateStartedAt: metav1.Now(),
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "rolling_recreate_strategy_update_ended",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.RollingRecreateStrategy},
+				},
+				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					UpdateProgress: &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+						UpdateStartedAt: metav1.Now(),
+						UpdateEndedAt:   ptr.To(metav1.Now()),
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "coherent_strategy_is_not_rolling_recreate",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy},
+				},
+				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					UpdateProgress: &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+						UpdateStartedAt: metav1.Now(),
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "no_update_progress",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					UpdateProgress: nil,
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, IsRollingRecreateUpdateInProgress(tc.pcs))
+		})
+	}
+}
+
+func TestCountStandalonePCLQs(t *testing.T) {
+	tests := []struct {
+		name     string
+		pcs      *grovecorev1alpha1.PodCliqueSet
+		expected int
+	}{
+		{
+			name: "all_standalone",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					Template: grovecorev1alpha1.PodCliqueSetTemplateSpec{
+						Cliques: []*grovecorev1alpha1.PodCliqueTemplateSpec{
+							{Name: "worker"},
+							{Name: "router"},
+						},
+					},
+				},
+			},
+			expected: 2,
+		},
+		{
+			name: "mixed_standalone_and_pcsg",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					Template: grovecorev1alpha1.PodCliqueSetTemplateSpec{
+						Cliques: []*grovecorev1alpha1.PodCliqueTemplateSpec{
+							{Name: "router"},
+							{Name: "decode-leader"},
+							{Name: "decode-worker"},
+						},
+						PodCliqueScalingGroupConfigs: []grovecorev1alpha1.PodCliqueScalingGroupConfig{
+							{Name: "sg", CliqueNames: []string{"decode-leader", "decode-worker"}},
+						},
+					},
+				},
+			},
+			expected: 1,
+		},
+		{
+			name: "all_in_pcsg",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					Template: grovecorev1alpha1.PodCliqueSetTemplateSpec{
+						Cliques: []*grovecorev1alpha1.PodCliqueTemplateSpec{
+							{Name: "decode-leader"},
+							{Name: "decode-worker"},
+						},
+						PodCliqueScalingGroupConfigs: []grovecorev1alpha1.PodCliqueScalingGroupConfig{
+							{Name: "sg", CliqueNames: []string{"decode-leader", "decode-worker"}},
+						},
+					},
+				},
+			},
+			expected: 0,
+		},
+		{
+			name: "no_cliques",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					Template: grovecorev1alpha1.PodCliqueSetTemplateSpec{},
+				},
+			},
+			expected: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, CountStandalonePCLQs(tc.pcs))
+		})
+	}
+}
+
 // TestGetPodCliqueSet tests the GetPodCliqueSet function
 func TestGetPodCliqueSet(t *testing.T) {
 	tests := []struct {
