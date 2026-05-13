@@ -94,9 +94,9 @@ func mapPCSToPCSG() handler.MapFunc {
 			return nil
 		}
 		var pcsReplicaIndices []int32
-		if componentutils.IsAutoUpdateStrategy(pcs) &&
+		if !componentutils.IsOnDeleteStrategy(pcs) &&
 			len(pcs.Status.UpdateProgress.CurrentlyUpdating) > 0 {
-			// Rolling recreate needs to have a CurrentlyUpdating which is used to generate an event for the corresponding PCSG
+			// Coherent and RollingRecreate both use CurrentlyUpdating to determine which PCSG to reconcile
 			pcsReplicaIndices = lo.RangeFrom(pcs.Status.UpdateProgress.CurrentlyUpdating[0].ReplicaIndex, 1)
 		} else {
 			// OnDelete will not have a specific CurrentlyUpdating, so PCSG resources of all PCS replicas are reconciled
@@ -155,7 +155,7 @@ func shouldEnqueueOnPCSUpdate(event event.UpdateEvent) bool {
 		}
 	}
 	// Enqueue while using OnDelete since there is no CurrentlyUpdating
-	if newPCS.Status.UpdateProgress != nil && !componentutils.IsAutoUpdateStrategy(newPCS) {
+	if newPCS.Status.UpdateProgress != nil && componentutils.IsOnDeleteStrategy(newPCS) {
 		return true
 	}
 	return false

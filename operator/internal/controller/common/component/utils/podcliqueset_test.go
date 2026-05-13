@@ -311,6 +311,60 @@ func TestIsAutoUpdateStrategy(t *testing.T) {
 	}
 }
 
+func TestIsOnDeleteStrategy(t *testing.T) {
+	tests := []struct {
+		name     string
+		pcs      *grovecorev1alpha1.PodCliqueSet
+		expected bool
+	}{
+		{
+			name:     "nil_pcs",
+			pcs:      nil,
+			expected: false,
+		},
+		{
+			name: "nil_update_strategy_is_not_on_delete",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{},
+			},
+			expected: false,
+		},
+		{
+			name: "on_delete_strategy",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.OnDeleteStrategy},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "rolling_recreate_is_not_on_delete",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.RollingRecreateStrategy},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "coherent_is_not_on_delete",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, IsOnDeleteStrategy(tc.pcs))
+		})
+	}
+}
+
 func TestIsCoherentStrategy(t *testing.T) {
 	tests := []struct {
 		name     string
