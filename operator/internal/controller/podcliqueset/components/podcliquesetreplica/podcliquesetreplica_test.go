@@ -18,9 +18,11 @@ package podcliquesetreplica
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 
 	"github.com/go-logr/logr"
@@ -29,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -168,8 +171,8 @@ func TestSync(t *testing.T) {
 	}
 }
 
-// TestIsRollingUpdateInProgress tests the isRollingUpdateInProgress function
-func TestIsRollingUpdateInProgress(t *testing.T) {
+// TestIsRollingRecreateUpdateInProgress tests the IsRollingRecreateUpdateInProgress function
+func TestIsRollingRecreateUpdateInProgress(t *testing.T) {
 	tests := []struct {
 		name string
 		// pcs is the PodCliqueSet to check
@@ -215,8 +218,125 @@ func TestIsRollingUpdateInProgress(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := isAutoUpdateInProgress(tc.pcs)
+			result := componentutils.IsRollingRecreateUpdateInProgress(tc.pcs)
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+func TestComputeCoherentPendingWork(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, grovecorev1alpha1.AddToScheme(scheme))
+
+	makePCS := func(replicas int32, hash string) *grovecorev1alpha1.PodCliqueSet {
+		return &grovecorev1alpha1.PodCliqueSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-pcs", Namespace: "default"},
+			Spec: grovecorev1alpha1.PodCliqueSetSpec{
+				Replicas: replicas,
+				Template: grovecorev1alpha1.PodCliqueSetTemplateSpec{
+					Cliques: []*grovecorev1alpha1.PodCliqueTemplateSpec{
+						{Name: "worker", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 2, MinAvailable: ptrInt32(1)}},
+					},
+				},
+			},
+			Status: grovecorev1alpha1.PodCliqueSetStatus{
+				CurrentGenerationHash: &hash,
+			},
+		}
+	}
+
+	makePCLQ := func(name, namespace, pcsName string, replicaIndex int, hash string, updatedReplicas, readyReplicas int32) grovecorev1alpha1.PodClique {
+		return grovecorev1alpha1.PodClique{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by":        "grove-operator",
+					"app.kubernetes.io/part-of":           pcsName,
+					"grove.io/podcliqueset-replica-index": fmt.Sprintf("%d", replicaIndex),
+				},
+				OwnerReferences: []metav1.OwnerReference{
+					{Kind: "PodCliqueSet", Name: pcsName},
+				},
+			},
+			Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 2, MinAvailable: ptrInt32(1)},
+			Status: grovecorev1alpha1.PodCliqueStatus{
+				CurrentPodCliqueSetGenerationHash: &hash,
+				UpdatedReplicas:                   updatedReplicas,
+				ReadyReplicas:                     readyReplicas,
+			},
+		}
+	}
+
+	tests := []struct {
+		name                    string
+		pcs                     *grovecorev1alpha1.PodCliqueSet
+		pclqs                   []grovecorev1alpha1.PodClique
+		pcsIndicesToTerminate   []int
+		expectedPendingReplicas []int
+		expectedDoneReplicas    []int
+	}{
+		{
+			name: "all_replicas_done",
+			pcs:  makePCS(2, "new-hash"),
+			pclqs: []grovecorev1alpha1.PodClique{
+				makePCLQ("test-pcs-0-worker", "default", "test-pcs", 0, "new-hash", 2, 2),
+				makePCLQ("test-pcs-1-worker", "default", "test-pcs", 1, "new-hash", 2, 2),
+			},
+			expectedPendingReplicas: nil,
+			expectedDoneReplicas:    []int{0, 1},
+		},
+		{
+			name: "all_replicas_pending",
+			pcs:  makePCS(2, "new-hash"),
+			pclqs: []grovecorev1alpha1.PodClique{
+				makePCLQ("test-pcs-0-worker", "default", "test-pcs", 0, "old-hash", 2, 2),
+				makePCLQ("test-pcs-1-worker", "default", "test-pcs", 1, "old-hash", 2, 2),
+			},
+			expectedPendingReplicas: []int{0, 1},
+			expectedDoneReplicas:    nil,
+		},
+		{
+			name: "mixed_done_and_pending",
+			pcs:  makePCS(3, "new-hash"),
+			pclqs: []grovecorev1alpha1.PodClique{
+				makePCLQ("test-pcs-0-worker", "default", "test-pcs", 0, "new-hash", 2, 2),
+				makePCLQ("test-pcs-1-worker", "default", "test-pcs", 1, "old-hash", 2, 2),
+				makePCLQ("test-pcs-2-worker", "default", "test-pcs", 2, "new-hash", 2, 2),
+			},
+			expectedPendingReplicas: []int{1},
+			expectedDoneReplicas:    []int{0, 2},
+		},
+		{
+			name: "terminating_replica_excluded",
+			pcs:  makePCS(2, "new-hash"),
+			pclqs: []grovecorev1alpha1.PodClique{
+				makePCLQ("test-pcs-0-worker", "default", "test-pcs", 0, "old-hash", 2, 2),
+				makePCLQ("test-pcs-1-worker", "default", "test-pcs", 1, "old-hash", 2, 2),
+			},
+			pcsIndicesToTerminate:   []int{1},
+			expectedPendingReplicas: []int{0},
+			expectedDoneReplicas:    nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			objs := []client.Object{tc.pcs}
+			for i := range tc.pclqs {
+				objs = append(objs, &tc.pclqs[i])
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+			r := _resource{client: fakeClient}
+
+			work, err := r.computeCoherentPendingWork(context.Background(), tc.pcs, tc.pcsIndicesToTerminate)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tc.expectedPendingReplicas, work.pendingReplicaIndices)
+			assert.ElementsMatch(t, tc.expectedDoneReplicas, work.doneReplicaIndices)
+		})
+	}
+}
+
+func ptrInt32(v int32) *int32 {
+	return &v
 }
