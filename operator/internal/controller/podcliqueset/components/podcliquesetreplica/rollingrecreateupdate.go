@@ -90,17 +90,6 @@ func (r _resource) computeRollingRecreatePendingWork(ctx context.Context, pcs *g
 	return pendingWork, nil
 }
 
-// markCurrentReplicaUpdateDone records that the currently-updating replica finished.
-func (r _resource) markCurrentReplicaUpdateDone(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet) error {
-	original := pcs.DeepCopy()
-	pcs.Status.UpdateProgress.CurrentlyUpdating[0].UpdateEndedAt = ptr.To(metav1.Now())
-	if err := r.patchUpdateProgressStatus(ctx, logger, pcs, original); err != nil {
-		logger.Error(err, "failed to patch update progress", "replicaIndex", pcs.Status.UpdateProgress.CurrentlyUpdating[0].ReplicaIndex)
-		return err
-	}
-	return nil
-}
-
 // updatePCSWithNextSelectedReplica initiates an update for the next replica or marks completion.
 func (r _resource) updatePCSWithNextSelectedReplica(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, nextPCSReplicaToUpdate *int) error {
 	original := pcs.DeepCopy()

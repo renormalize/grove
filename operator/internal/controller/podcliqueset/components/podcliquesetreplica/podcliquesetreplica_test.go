@@ -23,8 +23,11 @@ import (
 
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
+	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
+	testutils "github.com/ai-dynamo/grove/operator/test/utils"
 
+	groveschedulerv1alpha1 "github.com/ai-dynamo/grove/scheduler/api/core/v1alpha1"
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -339,4 +342,116 @@ func TestComputeCoherentPendingWork(t *testing.T) {
 
 func ptrInt32(v int32) *int32 {
 	return &v
+}
+
+func TestCheckAndAdvanceCoherentUpdate(t *testing.T) {
+	makePodGang := func(name, namespace string, available bool) *groveschedulerv1alpha1.PodGang {
+		pg := &groveschedulerv1alpha1.PodGang{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		}
+		if available {
+			pg.Status.Conditions = []metav1.Condition{
+				{
+					Type:   string(groveschedulerv1alpha1.PodGangConditionTypeAvailable),
+					Status: metav1.ConditionTrue,
+				},
+			}
+		}
+		return pg
+	}
+
+	tests := []struct {
+		name              string
+		inFlightPodGangs             []string
+		podGangs                     []*groveschedulerv1alpha1.PodGang
+		replicaDone                  bool
+		expectRequeue                bool
+		expectReplicaDone            bool
+		expectInFlightPodGangsCleared bool
+	}{
+		{
+			name:             "empty InFlightPodGangs requeues",
+			inFlightPodGangs: nil,
+			expectRequeue:    true,
+		},
+		{
+			name:             "not all PodGangs Available requeues",
+			inFlightPodGangs: []string{"pg-0", "pg-1"},
+			podGangs: []*groveschedulerv1alpha1.PodGang{
+				makePodGang("pg-0", "default", true),
+				makePodGang("pg-1", "default", false),
+			},
+			expectRequeue: true,
+		},
+		{
+			name:             "all Available and replica done marks done",
+			inFlightPodGangs: []string{"pg-0"},
+			podGangs: []*groveschedulerv1alpha1.PodGang{
+				makePodGang("pg-0", "default", true),
+			},
+			replicaDone:       true,
+			expectReplicaDone: true,
+		},
+		{
+			name:             "all Available but replica not done clears InFlightPodGangs",
+			inFlightPodGangs: []string{"pg-0"},
+			podGangs: []*groveschedulerv1alpha1.PodGang{
+				makePodGang("pg-0", "default", true),
+			},
+			replicaDone:              false,
+			expectInFlightPodGangsCleared: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pcs := &grovecorev1alpha1.PodCliqueSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-pcs", Namespace: "default"},
+				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					UpdateProgress: &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+						UpdateStartedAt: metav1.Now(),
+						CurrentlyUpdating: []grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress{
+							{
+								ReplicaIndex:     0,
+								UpdateStartedAt:  metav1.Now(),
+								InFlightPodGangs: tc.inFlightPodGangs,
+							},
+						},
+					},
+				},
+			}
+
+			objs := []client.Object{pcs}
+			for _, pg := range tc.podGangs {
+				objs = append(objs, pg)
+			}
+			cl := testutils.NewTestClientBuilder().
+				WithObjects(objs...).
+				WithStatusSubresource(pcs).
+				Build()
+			r := _resource{client: cl}
+
+			updateWork := &coherentPendingWork{}
+			if tc.replicaDone {
+				updateWork.doneReplicaIndices = []int{0}
+			} else {
+				updateWork.pendingReplicaIndices = []int{0}
+			}
+
+			err := r.checkAndAdvanceCoherentUpdate(context.Background(), logr.Discard(), pcs, updateWork)
+
+			if tc.expectRequeue {
+				require.Error(t, err)
+				testutils.CheckGroveError(t, &groveerr.GroveError{Code: groveerr.ErrCodeContinueReconcileAndRequeue, Operation: component.OperationSync}, err)
+			} else if tc.expectReplicaDone {
+				require.NoError(t, err)
+				assert.NotNil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].UpdateEndedAt)
+				assert.Nil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].InFlightPodGangs)
+			} else if tc.expectInFlightPodGangsCleared {
+				require.NoError(t, err)
+				assert.Nil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].InFlightPodGangs)
+				assert.Nil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].UpdateEndedAt)
+			}
+		})
+	}
 }
