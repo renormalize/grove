@@ -17,15 +17,20 @@
 package podgangmap
 
 import (
+	"context"
 	"testing"
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	groveclientscheme "github.com/ai-dynamo/grove/operator/internal/client"
+	testutils "github.com/ai-dynamo/grove/operator/test/utils"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestBuildBaseAndScaledPodGangEntries_ErrorWhenGenerationHashNotSet(t *testing.T) {
@@ -197,8 +202,10 @@ func TestComputeEntries_CoherentUpdateInProgressReturnsNil(t *testing.T) {
 	assert.Nil(t, entries)
 }
 
-func TestComputeEntries_CoherentNoUpdateReturnsNil(t *testing.T) {
-	// Coherent strategy, no update in progress → TODO path returns nil (stub).
+func TestComputeEntries_CoherentNoUpdate_FallsThrough(t *testing.T) {
+	// Coherent strategy with no update in progress: computeEntries is never called
+	// in production (Sync returns early). But if called directly, it falls through
+	// to buildBaseAndScaledPodGangEntries since IsCoherentUpdateInProgress is false.
 	pcs := newTestPCS("my-pcs", "abc12xyz", nil, nil)
 	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{
 		Type: grovecorev1alpha1.CoherentStrategy,
@@ -207,7 +214,9 @@ func TestComputeEntries_CoherentNoUpdateReturnsNil(t *testing.T) {
 	r := &_resource{}
 	entries, err := r.computeEntries(pcs, 0, nil, nil)
 	require.NoError(t, err)
-	assert.Nil(t, entries)
+	// Falls through to buildBaseAndScaledPodGangEntries which produces a BPG entry
+	assert.Len(t, entries, 1)
+	assert.Equal(t, "my-pcs-0", entries[0].Name)
 }
 
 func TestComputeEntries_OnDeleteUsesBasePodGangEntries(t *testing.T) {
@@ -274,4 +283,67 @@ func newLivePCLQ(pcsName string, replicaIndex int, cliqueName string, replicas i
 		ObjectMeta: metav1.ObjectMeta{Name: fqn},
 		Spec:       grovecorev1alpha1.PodCliqueSpec{Replicas: replicas},
 	}
+}
+
+func TestSync_NoPGMsExist_NoCoherentUpdate_NoOp(t *testing.T) {
+	pcs := newTestPCS("my-pcs", "abc12xyz", nil, nil)
+	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{
+		Type: grovecorev1alpha1.CoherentStrategy,
+	}
+
+	cl := testutils.NewTestClientBuilder().WithObjects(pcs).Build()
+	r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
+
+	err := r.Sync(context.Background(), logr.Discard(), pcs)
+	require.NoError(t, err)
+}
+
+func TestSync_RollingRecreate_NoPGMsExist_NoOp(t *testing.T) {
+	pcs := newTestPCS("my-pcs", "abc12xyz", nil, nil)
+	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{
+		Type: grovecorev1alpha1.RollingRecreateStrategy,
+	}
+
+	cl := testutils.NewTestClientBuilder().WithObjects(pcs).Build()
+	r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
+
+	err := r.Sync(context.Background(), logr.Discard(), pcs)
+	require.NoError(t, err)
+}
+
+func TestSync_StalePGMsDeleted_WhenNoCoherentUpdate(t *testing.T) {
+	pcs := newTestPCS("my-pcs", "abc12xyz", nil, nil)
+	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{
+		Type: grovecorev1alpha1.CoherentStrategy,
+	}
+
+	pgm := &grovecorev1alpha1.PodGangMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-pcs-0",
+			Namespace: "default",
+			Labels:    getLabels("my-pcs", 0),
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: grovecorev1alpha1.SchemeGroupVersion.String(),
+					Kind:       "PodCliqueSet",
+					Name:       "my-pcs",
+					UID:        pcs.UID,
+					Controller: ptr.To(true),
+				},
+			},
+		},
+		Spec: grovecorev1alpha1.PodGangMapSpec{
+			PodCliqueSetReplicaIndex: 0,
+		},
+	}
+
+	cl := testutils.NewTestClientBuilder().WithObjects(pcs, pgm).Build()
+	r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
+
+	err := r.Sync(context.Background(), logr.Discard(), pcs)
+	require.NoError(t, err)
+
+	pgmList := &grovecorev1alpha1.PodGangMapList{}
+	require.NoError(t, cl.List(context.Background(), pgmList, client.InNamespace("default")))
+	assert.Empty(t, pgmList.Items)
 }

@@ -76,7 +76,10 @@ func (r _resource) GetExistingResourceNames(ctx context.Context, _ logr.Logger, 
 	return k8sutils.FilterMapOwnedResourceNames(pcsObjMeta, objMetaList.Items), nil
 }
 
-// Sync creates or updates one PodGangMap per PodCliqueSet replica and deletes any excess ones.
+// Sync creates or updates PodGangMap resources only during coherent updates.
+// PodGangMap is the single source of truth for PodGang recomputation during coherent updates.
+// For all other cases (RollingRecreate, OnDelete, steady state), PodGangMaps should not exist —
+// the PodGang component manages PodGangs directly from PCS spec and existing resources.
 func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet) error {
 	logger.Info("Syncing PodGangMap resources")
 
@@ -85,7 +88,15 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcs *grovecorev
 		return err
 	}
 
-	existingPCSGs, err := r.listPCSGsForPCS(ctx, pcs)
+	if !componentutils.IsCoherentUpdateInProgress(pcs) {
+		if len(existingPGMNames) == 0 {
+			return nil
+		}
+		return r.Delete(ctx, logger, pcs.ObjectMeta)
+	}
+
+	// Coherent update in progress: create/update PodGangMaps.
+	existingPCSGs, err := componentutils.ListPCSGsForPCS(ctx, r.client, client.ObjectKeyFromObject(pcs))
 	if err != nil {
 		return groveerr.WrapError(err,
 			errCodeListPCSGs,
@@ -115,7 +126,7 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcs *grovecorev
 			return pclq.Labels[apicommon.LabelPodCliqueSetReplicaIndex] == strconv.Itoa(int(replicaIndex))
 		})
 
-		entries, err := r.computeEntries(pcs, int(replicaIndex), pcsgsForReplica, pclqsForReplica)
+		entries, err := r.computeCoherentUpdateEntries(pcs, int(replicaIndex), pcsgsForReplica, pclqsForReplica)
 		if err != nil {
 			return groveerr.WrapError(err,
 				errCodeSyncPodGangMap,
@@ -179,23 +190,15 @@ func (r _resource) Delete(ctx context.Context, logger logr.Logger, pcsObjMeta me
 // up-to-date at this point (set by initUpdateProgress before Sync runs), so the same
 // code path handles both steady-state and update-in-progress cases.
 //
-// TODO: For the Coherent strategy, entry computation is not yet implemented in this commit.
+// For the Coherent strategy with an update in progress, entries reflect the partially-updated
+// state: existing PodGangs at their current generation hash plus new MVU-shaped entries for
+// the current update iteration.
 func (r _resource) computeEntries(pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup, pclqs []grovecorev1alpha1.PodClique) ([]grovecorev1alpha1.PodGangEntry, error) {
-	switch {
-	case componentutils.IsCoherentUpdateInProgress(pcs):
-		// TODO(coherent-updates): compute partial entries from InFlightPodGangs.
-		return nil, nil
-	case componentutils.IsCoherentStrategy(pcs):
-		// TODO(coherent-updates): compute MPG-convention entries from MVU rules.
-		return nil, nil
-	default:
-		// RollingRecreate, OnDelete, or nil strategy — all use the same BasePodGang/ScaledPodGang entry structure.
-		entries, err := r.buildBaseAndScaledPodGangEntries(pcs, replicaIndex, pcsgs, pclqs)
-		if err != nil {
-			return nil, err
-		}
-		return entries, nil
+	if componentutils.IsCoherentUpdateInProgress(pcs) {
+		return r.computeCoherentUpdateEntries(pcs, replicaIndex, pcsgs, pclqs)
 	}
+	// RollingRecreate, OnDelete, or nil strategy — all use the same BasePodGang/ScaledPodGang entry structure.
+	return r.buildBaseAndScaledPodGangEntries(pcs, replicaIndex, pcsgs, pclqs)
 }
 
 // buildBaseAndScaledPodGangEntries builds the BasePodGang entry and ScaledPodGang entries for one PodCliqueSet replica.
@@ -282,21 +285,6 @@ func (r _resource) buildResource(pgm *grovecorev1alpha1.PodGangMap, pcs *groveco
 	return nil
 }
 
-// listPCSGsForPCS fetches all PodCliqueScalingGroups owned by the PodCliqueSet.
-func (r _resource) listPCSGsForPCS(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet) ([]grovecorev1alpha1.PodCliqueScalingGroup, error) {
-	pcsgList := &grovecorev1alpha1.PodCliqueScalingGroupList{}
-	if err := r.client.List(ctx,
-		pcsgList,
-		client.InNamespace(pcs.Namespace),
-		client.MatchingLabels(apicommon.GetDefaultLabelsForPodCliqueSetManagedResources(pcs.Name)),
-	); err != nil {
-		return nil, err
-	}
-	return lo.Filter(pcsgList.Items, func(pcsg grovecorev1alpha1.PodCliqueScalingGroup, _ int) bool {
-		return metav1.IsControlledBy(&pcsg, pcs)
-	}), nil
-}
-
 // getSelectorLabels returns labels for selecting all PodGangMaps of a PodCliqueSet.
 func getSelectorLabels(pcsName string) map[string]string {
 	return lo.Assign(
@@ -326,4 +314,14 @@ func emptyPodGangMap(objKey client.ObjectKey) *grovecorev1alpha1.PodGangMap {
 			Namespace: objKey.Namespace,
 		},
 	}
+}
+
+// computeCoherentUpdateEntries computes entries for a coherent update in progress.
+// It reflects the partially-updated state: existing PodGangs at their current generation hash
+// plus new MVU-shaped entries for the current update iteration.
+//
+// TODO(coherent-updates): Full implementation pending — requires orchestrator integration
+// to determine which iteration is in progress and which PodGangs have been created so far.
+func (r _resource) computeCoherentUpdateEntries(_ *grovecorev1alpha1.PodCliqueSet, _ int, _ []grovecorev1alpha1.PodCliqueScalingGroup, _ []grovecorev1alpha1.PodClique) ([]grovecorev1alpha1.PodGangEntry, error) {
+	return nil, nil
 }

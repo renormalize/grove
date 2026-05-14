@@ -41,29 +41,17 @@ func FindScalingGroupConfigForClique(scalingGroupConfigs []grovecorev1alpha1.Pod
 	return &pcsgConfig
 }
 
-// GetPCSGsForPCS fetches all PodCliqueScalingGroups for a PodCliqueSet.
-func GetPCSGsForPCS(ctx context.Context, cl client.Client, pcsObjKey client.ObjectKey) ([]grovecorev1alpha1.PodCliqueScalingGroup, error) {
-	pcsgList, err := doGetPCSGsForPCS(ctx, cl, pcsObjKey, nil)
-	if err != nil {
-		return nil, err
-	}
-	return pcsgList.Items, nil
-}
-
-// doGetPCSGsForPCS is a helper function that fetches PodCliqueScalingGroups with optional additional label filtering
-func doGetPCSGsForPCS(ctx context.Context, cl client.Client, pcsObjKey client.ObjectKey, matchingLabels map[string]string) (*grovecorev1alpha1.PodCliqueScalingGroupList, error) {
+// ListPCSGsForPCS fetches all PodCliqueScalingGroups for a PodCliqueSet.
+func ListPCSGsForPCS(ctx context.Context, cl client.Client, pcsObjKey client.ObjectKey) ([]grovecorev1alpha1.PodCliqueScalingGroup, error) {
 	pcsgList := &grovecorev1alpha1.PodCliqueScalingGroupList{}
 	if err := cl.List(ctx,
 		pcsgList,
 		client.InNamespace(pcsObjKey.Namespace),
-		client.MatchingLabels(lo.Assign(
-			apicommon.GetDefaultLabelsForPodCliqueSetManagedResources(pcsObjKey.Name),
-			matchingLabels,
-		)),
+		client.MatchingLabels(apicommon.GetDefaultLabelsForPodCliqueSetManagedResources(pcsObjKey.Name)),
 	); err != nil {
 		return nil, err
 	}
-	return pcsgList, nil
+	return pcsgList.Items, nil
 }
 
 // GenerateDependencyNamesForBasePodGang generates the FQNs of all PodCliques that would qualify as a dependency.
@@ -103,16 +91,12 @@ func groupPCSGsByLabel(pcsgs []grovecorev1alpha1.PodCliqueScalingGroup, label st
 // GetPCSGsByPCSReplicaIndex groups the PodCliqueScalingGroups per PodCliqueSet replica index and returns a map with the key being the PodCliqueSet replica index and the value
 // being the slice of PodCliqueScalingGroup objects.
 func GetPCSGsByPCSReplicaIndex(ctx context.Context, cl client.Client, pcsObjKey client.ObjectKey) (map[string][]grovecorev1alpha1.PodCliqueScalingGroup, error) {
-	pcsgList := &grovecorev1alpha1.PodCliqueScalingGroupList{}
-	if err := cl.List(ctx,
-		pcsgList,
-		client.InNamespace(pcsObjKey.Namespace),
-		client.MatchingLabels(apicommon.GetDefaultLabelsForPodCliqueSetManagedResources(pcsObjKey.Name)),
-	); err != nil {
+	pcsgs, err := ListPCSGsForPCS(ctx, cl, pcsObjKey)
+	if err != nil {
 		return nil, err
 	}
 	pcsgsByPCSReplicaIndex := make(map[string][]grovecorev1alpha1.PodCliqueScalingGroup)
-	for _, pcsg := range pcsgList.Items {
+	for _, pcsg := range pcsgs {
 		pcsReplicaIndex, ok := pcsg.Labels[apicommon.LabelPodCliqueSetReplicaIndex]
 		if !ok {
 			continue
