@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
@@ -29,6 +30,7 @@ import (
 	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
+	"k8s.io/apimachinery/pkg/api/meta"
 
 	groveschedulerv1alpha1 "github.com/ai-dynamo/grove/scheduler/api/core/v1alpha1"
 	"github.com/go-logr/logr"
@@ -381,10 +383,29 @@ func (r _resource) createOrUpdatePodGangs(ctx context.Context, sc *syncContext) 
 
 		// Update status to set Initialized=True (idempotent - no need to check current state)
 		if !sc.isPodGangInitialized(expectedPG.fqn) {
-			if err := r.patchPodGangInitializedStatus(ctx, sc, expectedPG.fqn, metav1.ConditionTrue, groveschedulerv1alpha1.ConditionReasonPodGangPodsCreated, "PodGang is fully initialized"); err != nil {
+			if err := r.patchPodGangCondition(ctx, sc, expectedPG.fqn, groveschedulerv1alpha1.PodGangConditionTypeInitialized, metav1.ConditionTrue, groveschedulerv1alpha1.ConditionReasonPodGangPodsCreated, "PodGang is fully initialized"); err != nil {
 				sc.logger.Error(err, "failed to update Initialized condition in PodGang status", "PodGangName", expectedPG.fqn)
 				result.recordError(err)
 				continue
+			}
+		}
+
+		// Evaluate and set Available condition.
+		// A PodGang is Available when all MinReplica pods for all constituent PodGroups are
+		// scheduled and ready, and MinReplicas has been set to 0 on all PodGroups.
+		if !sc.isPodGangAvailable(expectedPG.fqn) {
+			if r.arePodGangMinReplicasReady(sc, expectedPG) {
+				if err := r.releaseMinReplicasConstraint(ctx, sc, expectedPG.fqn); err != nil {
+					sc.logger.Error(err, "failed to release MinReplicas constraint on PodGang", "PodGangName", expectedPG.fqn)
+					result.recordError(err)
+					continue
+				}
+				if err := r.patchPodGangCondition(ctx, sc, expectedPG.fqn, groveschedulerv1alpha1.PodGangConditionTypeAvailable, metav1.ConditionTrue, groveschedulerv1alpha1.ConditionReasonPodGangAvailable, "All MinReplica pods are ready and MinReplicas set to 0"); err != nil {
+					sc.logger.Error(err, "failed to update Available condition in PodGang status", "PodGangName", expectedPG.fqn)
+					result.recordError(err)
+					continue
+				}
+				sc.logger.Info("PodGang is now Available", "podGang", expectedPG.fqn)
 			}
 		}
 	}
@@ -392,26 +413,76 @@ func (r _resource) createOrUpdatePodGangs(ctx context.Context, sc *syncContext) 
 	return result
 }
 
-// patchPodGangInitializedStatus patches the Initialized condition with the given status.
-func (r _resource) patchPodGangInitializedStatus(ctx context.Context, sc *syncContext, podGangName string, status metav1.ConditionStatus, reason, message string) error {
-	// Create a PodGang object with only the status we want to patch
+// patchPodGangCondition patches a condition on the PodGang status.
+func (r _resource) patchPodGangCondition(ctx context.Context, sc *syncContext, podGangName string, conditionType groveschedulerv1alpha1.PodGangConditionType, status metav1.ConditionStatus, reason, message string) error {
 	statusPatch := &groveschedulerv1alpha1.PodGang{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podGangName,
 			Namespace: sc.pcs.Namespace,
 		},
 	}
-	setOrUpdateInitializedCondition(statusPatch, status, reason, message)
-	// One could argue why not use Status.Phase to also denote Initialized condition. For now the argument is that
-	// current set of phases (Pending, Starting, Running) is influenced by the status of constituent Pods w.r.t their
-	// scheduling state, whereas initialized condition is denoting if a PodGang is ready to be scheduled
-	// (so it is pre-scheduling phase state). We can always revisit this in future if this reasoning changes.
-	statusPatch.Status.Phase = groveschedulerv1alpha1.PodGangPhasePending
+	condition := metav1.Condition{
+		Type:               string(conditionType),
+		Status:             status,
+		ObservedGeneration: statusPatch.Generation,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
+	}
+	meta.SetStatusCondition(&statusPatch.Status.Conditions, condition)
 	if err := r.client.Status().Patch(ctx, statusPatch, client.Merge); err != nil {
 		return err
 	}
-	sc.logger.Info("Successfully patched PodGang Initialized condition",
-		"podGang", podGangName, "status", status)
+	sc.logger.Info("Successfully patched PodGang condition",
+		"podGang", podGangName, "conditionType", conditionType, "status", status)
+	return nil
+}
+
+// arePodGangMinReplicasReady returns true if, for each PodGroup in the PodGang, at least
+// MinReplicas pods that are associated to this PodGang are in Ready state.
+// Only pods whose names appear in associatedPodNames are considered — this correctly handles
+// the case where a standalone PCLQ's pods are spread across multiple PodGangs during a
+// coherent update.
+func (r _resource) arePodGangMinReplicasReady(sc *syncContext, pgi *podGangInfo) bool {
+	for _, pclq := range pgi.pclqs {
+		pods := sc.existingPCLQPods[pclq.fqn]
+		var readyCount int32
+		for i := range pods {
+			if slices.Contains(pclq.associatedPodNames, pods[i].Name) && k8sutils.IsPodReady(&pods[i]) {
+				readyCount++
+			}
+		}
+		if readyCount < pclq.minAvailable {
+			return false
+		}
+	}
+	return true
+}
+
+// releaseMinReplicasConstraint sets MinReplicas=0 on all PodGroups of the given PodGang.
+// This releases the gang scheduling constraint, allowing individual pods to be removed
+// without the scheduler evicting the entire PodGang for breaching the minimum availability
+// contract enforced via `podGroup.minReplicas` in a PodGang. This must be done after the backend
+// scheduler has scheduled minReplica pods across all PodGroups in a PodGang thus completing the gang-scheduling
+// constraint. After the initial gang scheduling has been done, we should relax the minReplicas constraints
+// to allow scale-ins. This is especially important in case of coherent updates where standalone PCLQ pods can be
+// spread across one or more PodGangs. This means that while a scale-in does not breach the minAvailability guarantee
+// as defined in the PodCliqueTemplateSpec but in the PodGang which has subset of the PCLQ replicas its `minReplicas`
+// can be breached.
+func (r _resource) releaseMinReplicasConstraint(ctx context.Context, sc *syncContext, podGangName string) error {
+	existingPG, ok := sc.existingPodGangByName[podGangName]
+	if !ok {
+		return fmt.Errorf("PodGang %s not found in existing PodGangs", podGangName)
+	}
+	patch := client.MergeFrom(&existingPG)
+	pgToUpdate := existingPG.DeepCopy()
+	for i := range pgToUpdate.Spec.PodGroups {
+		pgToUpdate.Spec.PodGroups[i].MinReplicas = 0
+	}
+	if err := r.client.Patch(ctx, pgToUpdate, patch); err != nil {
+		return fmt.Errorf("failed to set MinReplicas=0 on PodGang %s: %w", podGangName, err)
+	}
+	sc.logger.Info("Released MinReplicas constraint on PodGang", "podGang", podGangName)
 	return nil
 }
 
@@ -500,10 +571,10 @@ func (r _resource) createOrUpdatePodGang(ctx context.Context, sc *syncContext, p
 		)
 	}
 
-	// Update status with Initialized=False condition and Phase if not already set.
+	// Update status with Initialized=False condition if not already set.
 	// This needs to be done separately since CreateOrPatch doesn't handle updates/patches to status subresource.
 	if !k8sutils.HasCondition(pg.Status.Conditions, string(groveschedulerv1alpha1.PodGangConditionTypeInitialized)) {
-		if err = r.patchPodGangInitializedStatus(ctx, sc, pg.Name, metav1.ConditionFalse, groveschedulerv1alpha1.ConditionReasonPodGangPodsCreationPending, "Not all constituent pods have been created yet"); err != nil {
+		if err = r.patchPodGangCondition(ctx, sc, pg.Name, groveschedulerv1alpha1.PodGangConditionTypeInitialized, metav1.ConditionFalse, groveschedulerv1alpha1.ConditionReasonPodGangPodsCreationPending, "Not all constituent pods have been created yet"); err != nil {
 			return err
 		}
 	}
@@ -566,6 +637,11 @@ func (sc *syncContext) getExcessPodGangNames() []string {
 func (sc *syncContext) isPodGangInitialized(podGangName string) bool {
 	foundPG, ok := sc.existingPodGangByName[podGangName]
 	return ok && k8sutils.IsConditionTrue(foundPG.Status.Conditions, string(groveschedulerv1alpha1.PodGangConditionTypeInitialized))
+}
+
+func (sc *syncContext) isPodGangAvailable(podGangName string) bool {
+	foundPG, ok := sc.existingPodGangByName[podGangName]
+	return ok && k8sutils.IsConditionTrue(foundPG.Status.Conditions, string(groveschedulerv1alpha1.PodGangConditionTypeAvailable))
 }
 
 // initializeAssignedAndUnassignedPodsForPCS categorizes pods by PodGang assignment.

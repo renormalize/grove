@@ -34,24 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestSetInitializedCondition(t *testing.T) {
-	pg := &groveschedulerv1alpha1.PodGang{
-		ObjectMeta: metav1.ObjectMeta{Name: "pg-1", Namespace: "default", Generation: 1},
-	}
-	setOrUpdateInitializedCondition(pg, metav1.ConditionFalse, "PodsPending", "waiting")
-	require.Len(t, pg.Status.Conditions, 1)
-	assert.Equal(t, string(groveschedulerv1alpha1.PodGangConditionTypeInitialized), pg.Status.Conditions[0].Type)
-	assert.Equal(t, metav1.ConditionFalse, pg.Status.Conditions[0].Status)
-	assert.Equal(t, "PodsPending", pg.Status.Conditions[0].Reason)
-	assert.Equal(t, "waiting", pg.Status.Conditions[0].Message)
-
-	// Update existing condition to ready
-	setOrUpdateInitializedCondition(pg, metav1.ConditionTrue, "Ready", "all ready")
-	require.Len(t, pg.Status.Conditions, 1)
-	assert.Equal(t, metav1.ConditionTrue, pg.Status.Conditions[0].Status)
-	assert.Equal(t, "Ready", pg.Status.Conditions[0].Reason)
-}
-
 // TestBuildResource verifies that buildResource correctly populates PodGang
 // labels and annotations. PCS owns the non-grove.io key namespace exclusively
 // (additions and removals on the PCS propagate); grove.io/-prefixed keys are
