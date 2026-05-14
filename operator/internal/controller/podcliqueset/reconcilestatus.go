@@ -126,7 +126,7 @@ func (r *Reconciler) computeAvailableAndUpdatedReplicas(ctx context.Context, log
 	// Fetch all PCSGs for this PCS, then drop any stray PCSGs (not part of the spec) using O(1)
 	// set lookup. slices.DeleteFunc compacts in-place; safe here because the slice came from a
 	// fresh fetch and isn't aliased.
-	pcsgs, err := componentutils.GetPCSGsForPCS(ctx, r.client, pcsObjectKey)
+	pcsgs, err := componentutils.ListPCSGsForPCS(ctx, r.client, pcsObjectKey)
 	if err != nil {
 		return stats, err
 	}
