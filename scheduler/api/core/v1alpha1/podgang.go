@@ -163,6 +163,10 @@ const (
 	// PodGangConditionTypeUnhealthy indicates that the PodGang is unhealthy. It is now a candidate for gang termination.
 	// If this condition is true for at least PodGangSpec.TerminationDelay duration, then the PodGang will be terminated.
 	PodGangConditionTypeUnhealthy PodGangConditionType = "Unhealthy"
+	// PodGangConditionTypeAvailable indicates that the PodGang is fully available for serving.
+	// A PodGang is Available when all MinReplica pods for all constituent PodGroups are scheduled
+	// and ready, and MinReplicas has been set to 0 on all PodGroups within this PodGang.
+	PodGangConditionTypeAvailable PodGangConditionType = "Available"
 	// PodGangConditionTypeDisruptionTarget indicates that the PodGang is a target for disruption and is about to be terminated.
 	// due to one of the following reasons:
 	// 1. PodGang is preempted by a higher priority PodGang.
@@ -176,6 +180,10 @@ const (
 	ConditionReasonPodGangPodsCreationPending = "PodGangPodsCreationPending"
 	// ConditionReasonPodGangPodsCreated indicates that all constituent Pods for a PodGang have been created.
 	ConditionReasonPodGangPodsCreated = "PodGangPodsCreated"
+	// ConditionReasonPodGangAvailable indicates that the PodGang is fully available for serving.
+	ConditionReasonPodGangAvailable = "PodGangAvailable"
+	// ConditionReasonPodGangNotAvailable indicates that the PodGang is not yet available for serving.
+	ConditionReasonPodGangNotAvailable = "PodGangNotAvailable"
 )
 
 // PodGangStatus defines the status of a PodGang.
