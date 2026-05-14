@@ -35,6 +35,10 @@ const (
 	// LabelBasePodGang is a key for a label that sets the base PodGang name for scaled PodGangs.
 	// This label is present on scaled PodGangs (beyond MinAvailable) and points to their base PodGang.
 	LabelBasePodGang = "grove.io/base-podgang"
+	// LabelMinimumViableUnit is a key for a label that identifies MVU-shaped PodGangs.
+	// An MVU PodGang contains minAvailable replicas of all standalone PCLQs and all PCSGs —
+	// the smallest set of components that must be updated together in lockstep.
+	LabelMinimumViableUnit = "grove.io/minimum-viable-unit"
 	// LabelPodCliqueSetReplicaIndex is a key for a label that sets the replica index of a PodCliqueSet.
 	LabelPodCliqueSetReplicaIndex = "grove.io/podcliqueset-replica-index"
 	// LabelPodCliqueScalingGroup is a key for a label that sets the PodCliqueScalingGroup name.

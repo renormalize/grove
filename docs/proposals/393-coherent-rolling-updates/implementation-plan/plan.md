@@ -562,3 +562,159 @@ Run `make generate manifests`. Check `operator/internal/webhook` for any strateg
 4. Manual smoke test: 2-replica PCS (1 standalone PCLQ + 1 PCSG), trigger image update under Coherent strategy — verify PodGangMap updated each iteration, MPGs created in order, old PodGangs emptied and deleted, pods come up with new image.
 5. New PCS deployed under Coherent: verify PodGangMap created before any pods, initial deployment creates MPGs directly.
 6. `make test` and `make lint`.
+
+---
+
+## Revision 1: PodGangMap-Driven Architecture (Design Review Updates)
+
+The following revisions supersede the corresponding sections above where they conflict. They reflect decisions made during the design review phase.
+
+### R1.1 — PodGangMap Lifecycle: Coherent-Only Existence
+
+**Change**: PodGangMap only exists during coherent updates. It is deleted when the update completes. During steady state (no update in progress) for the Coherent strategy, PodGangMap does NOT exist.
+
+**Impact on Step 3**: The `PodGangMap` component's `Sync` method for Coherent strategy:
+- `IsCoherentStrategy(pcs) && !IsCoherentUpdateInProgress(pcs)` → delete any existing PGMs, return nil
+- `IsCoherentUpdateInProgress(pcs)` → create/update PGM with entries from `computeCoherentUpdateEntries()`
+
+For non-Coherent strategies (RollingRecreate, OnDelete), PodGangMap behavior is unchanged (always present).
+
+---
+
+### R1.2 — New Condition: `PodGangConditionTypeAvailable`
+
+**Change**: Add `PodGangConditionTypeAvailable` (not overloading `PodGangConditionTypeReady`) as the orchestrator's advancement gate.
+
+**Semantics**: A PodGang is Available when:
+1. All MinReplica pods for all constituent PodGroups are scheduled and ready
+2. MinReplicas has been set to 0 on all PodGroups within this PodGang
+
+**File**: `scheduler/api/core/v1alpha1/podgang.go`
+```go
+PodGangConditionTypeAvailable PodGangConditionType = "Available"
+
+ConditionReasonPodGangAvailable    = "PodGangAvailable"
+ConditionReasonPodGangNotAvailable = "PodGangNotAvailable"
+```
+
+---
+
+### R1.3 — New Label: `grove.io/minimum-viable-unit`
+
+**Change**: MVU-shaped PodGangs (those containing minAvailable of all standalone PCLQs + all PCSGs) are labeled `grove.io/minimum-viable-unit: "true"`. This enables efficient querying to find the highest-indexed MVU PodGang during scale-in/out.
+
+**File**: `operator/api/common/labels.go` (or equivalent constants file)
+```go
+LabelMinimumViableUnit = "grove.io/minimum-viable-unit"
+```
+
+Tail-PGs (PCSG-only overflow) do NOT carry this label.
+
+---
+
+### R1.4 — PodGang Component: minReplicas=0 Sequencing + Available Condition
+
+**Change**: The PodGang component is the sole mutator of PodGang resources. The orchestrator does NOT mutate PodGangs.
+
+**Sequence during coherent update iteration:**
+
+1. **Before PCLQ starts deleting old pods**: PodGang component sets `MinReplicas = 0` on ALL PodGroups of the old PodGang(s). This prevents the backend scheduler from evicting all pods from the old PG when some are removed (would breach gang scheduling contract).
+
+2. **PCLQ reconciler reacts**: Sees minReplicas=0 on old PodGangs, can now safely delete old-hash pods and create new-hash pods for the new PodGang entry.
+
+3. **After the new PodGang's pods are all ready**: PodGang component sets `MinReplicas = 0` on ALL PodGroups of the **new PodGang** (tells scheduler gang guarantees no longer need enforcement) and then sets `PodGangConditionTypeAvailable = True`.
+
+4. **Orchestrator** sees Available=True, knows it can advance to next iteration.
+
+**Impact on Step 6 (`orchestrateCoherentUpdate`)**: The orchestrator waits for `PodGangConditionTypeAvailable` (not MinReplicas checks). It does NOT delete pods — pod deletion is driven by the PCLQ reconciler.
+
+**Impact on Step 7 (PCLQ pod sync)**: When PCLQ wants to delete old-hash pods but the old PodGang still has minReplicas > 0, it **requeues** (does not error, does not block). It waits for the PodGang component to set minReplicas=0 first.
+
+---
+
+### R1.5 — PCLQ and PCSG Reconcilers: Watch PodGangMap Events
+
+**Change**: Both PCLQ and PCSG reconcilers add PodGangMap as a watched resource.
+
+**PCLQ controller** (`operator/internal/controller/podclique/register.go`):
+```go
+Watches(
+    &grovecorev1alpha1.PodGangMap{},
+    handler.EnqueueRequestsFromMapFunc(mapPodGangMapToPCLQs()),
+    builder.WithPredicates(podGangMapPredicate()),
+)
+```
+- `mapPodGangMapToPCLQs()`: Extract standalone PCLQ FQNs from PGM entries (keys of `entry.PodCliques`), return reconcile requests.
+- `podGangMapPredicate()`: Trigger on Create + Update. Skip Delete (PGM deletion means update is over).
+
+**PCSG controller** (`operator/internal/controller/podcliquescalinggroup/register.go`):
+```go
+Watches(
+    &grovecorev1alpha1.PodGangMap{},
+    handler.EnqueueRequestsFromMapFunc(mapPodGangMapToPCSGs()),
+    builder.WithPredicates(podGangMapPredicate()),
+)
+```
+- `mapPodGangMapToPCSGs()`: Extract PCSG names from PGM entries (`entry.PodCliqueScalingGroups` keys), return reconcile requests.
+- `podGangMapPredicate()`: Trigger on Create + Update.
+
+---
+
+### R1.6 — Orchestrator: `computeNextUpdateIntent`
+
+**Change**: The method formerly conceptualized as `declareNextCoherentIteration` is renamed to `computeNextUpdateIntent`.
+
+**Semantics**: Identifies the next set of PodGang entries to declare as update intent:
+- If a full MVU-shaped PodGang can still be formed → returns **1** new entry (MVU-shaped)
+- If only Tail-PGs remain → returns **all** remaining Tail-PG entries together
+
+The orchestrator calls this after an in-flight PodGang becomes Available, records the returned entry names in `InFlightPodGangs`, and requeues.
+
+---
+
+### R1.7 — Scale-in/out Conventions During Update
+
+**Scale-in during update:**
+- Both PCLQ reconciler and PCS PodGang component use the same convention: reduce from the **highest-indexed MVU PodGang** (identified via `grove.io/minimum-viable-unit` label). This ensures independent reconcilers converge on the same decision without coordination.
+- Standalone PCLQ pods only exist in MVU PodGangs, never in Tail-PGs.
+
+**Scale-out during update (standalone PCLQ):**
+- PCLQ fetches latest PodGangMap. If PGM does NOT reflect the increased replicas → do NOT create extra pods, **requeue**.
+- If PGM reflects it → create pods assigned to the appropriate PodGang entry.
+
+**Post-update (no PGM exists):**
+- Scale-out: assign new pod to highest-numbered MVU PodGang (use `grove.io/minimum-viable-unit` label to query).
+- Scale-in: use existing `DeletionSorter` criteria (unchanged from today).
+
+---
+
+### R1.8 — Shared Utility Functions
+
+**File**: `operator/internal/controller/common/component/utils/podgangmap.go` (new)
+
+```go
+// GetHighestIndexedMVUPodGang returns the MVU entry with the highest index.
+// MVU entries have non-empty PodCliques map (full serving units).
+// Tail-PGs (PCSG-only) are excluded.
+func GetHighestIndexedMVUPodGang(entries []PodGangEntry) *PodGangEntry
+
+// IsMVUEntry returns true if the entry is an MVU (has standalone PCLQ pods).
+func IsMVUEntry(entry PodGangEntry) bool
+
+// GetPodGangMapEntriesByGenerationHash filters entries by PodCliqueSetGenerationHash.
+func GetPodGangMapEntriesByGenerationHash(entries []PodGangEntry, hash string) []PodGangEntry
+```
+
+---
+
+### R1.9 — Updated File Change Summary (Additive)
+
+| File | Change |
+|---|---|
+| `scheduler/api/core/v1alpha1/podgang.go` | Add `PodGangConditionTypeAvailable`, reason constants |
+| `operator/api/common/labels.go` | Add `LabelMinimumViableUnit` constant |
+| `operator/internal/controller/common/component/utils/podgangmap.go` | **New** — shared MVU utility functions |
+| `operator/internal/controller/podclique/register.go` | Add PodGangMap watcher |
+| `operator/internal/controller/podcliquescalinggroup/register.go` | Add PodGangMap watcher |
+| `operator/internal/controller/podcliqueset/components/podgang/syncflow.go` | Add Available condition logic, minReplicas=0 sequencing |
+| `operator/internal/controller/podcliqueset/components/podgang/podgang.go` | Add `setOrUpdateAvailableCondition` helper |
