@@ -36,7 +36,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -176,8 +176,8 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 // TestVerifyAllPodsCreated tests verifyAllPodsCreated with minimal sc + podGangInfo (no PCS/prepareSyncFlow).
 // It covers both the PCLQ existence check and getPodsPendingCreationOrAssociation logic (Replicas and podgang label).
 func TestVerifyAllPodsCreated(t *testing.T) {
-	makePod := func(name string, podGangLabel string) v1.Pod {
-		pod := v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"}}
+	makePod := func(name string, podGangLabel string) corev1.Pod {
+		pod := corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"}}
 		if podGangLabel != "" {
 			pod.Labels = map[string]string{apicommon.LabelPodGang: podGangLabel}
 		}
@@ -192,21 +192,21 @@ func TestVerifyAllPodsCreated(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		existingPods  map[string][]v1.Pod
+		existingPods  map[string][]corev1.Pod
 		existingPCLQs []grovecorev1alpha1.PodClique
 		podGang       *podGangInfo
 		wantRequeue   bool
 	}{
 		{
 			name:          "requeue when not all constituent PCLQs exist yet",
-			existingPods:  map[string][]v1.Pod{"pclq-a": {makePod("a1", "pg-1")}},
+			existingPods:  map[string][]corev1.Pod{"pclq-a": {makePod("a1", "pg-1")}},
 			existingPCLQs: []grovecorev1alpha1.PodClique{makePCLQ("pclq-a", 1, 1)},
 			podGang:       &podGangInfo{fqn: "pg-1", pclqs: []pclqInfo{{fqn: "pclq-a", replicas: 1, minAvailable: 1}, {fqn: "pclq-b", replicas: 1, minAvailable: 1}}},
 			wantRequeue:   true,
 		},
 		{
 			name: "requeue when PCLQ has fewer pods than Replicas (even if >= MinAvailable)",
-			existingPods: map[string][]v1.Pod{
+			existingPods: map[string][]corev1.Pod{
 				"pclq-a": {makePod("a1", "pg-1"), makePod("a2", "pg-1")}, // 2 pods, Replicas=5, MinAvailable=2
 			},
 			existingPCLQs: []grovecorev1alpha1.PodClique{makePCLQ("pclq-a", 5, 2)},
@@ -215,7 +215,7 @@ func TestVerifyAllPodsCreated(t *testing.T) {
 		},
 		{
 			name: "requeue when Pod missing podgang label",
-			existingPods: map[string][]v1.Pod{
+			existingPods: map[string][]corev1.Pod{
 				"pclq-a": {makePod("a1", ""), makePod("a2", "pg-1")}, // a1 missing label
 			},
 			existingPCLQs: []grovecorev1alpha1.PodClique{makePCLQ("pclq-a", 2, 1)},
@@ -224,7 +224,7 @@ func TestVerifyAllPodsCreated(t *testing.T) {
 		},
 		{
 			name: "requeue when Pod has wrong podgang label",
-			existingPods: map[string][]v1.Pod{
+			existingPods: map[string][]corev1.Pod{
 				"pclq-a": {makePod("a1", "pg-wrong"), makePod("a2", "pg-1")},
 			},
 			existingPCLQs: []grovecorev1alpha1.PodClique{makePCLQ("pclq-a", 2, 1)},
@@ -233,7 +233,7 @@ func TestVerifyAllPodsCreated(t *testing.T) {
 		},
 		{
 			name: "success when all Replicas created and all pods have correct podgang label",
-			existingPods: map[string][]v1.Pod{
+			existingPods: map[string][]corev1.Pod{
 				"pclq-a": {makePod("a1", "pg-1"), makePod("a2", "pg-1"), makePod("a3", "pg-1"), makePod("a4", "pg-1"), makePod("a5", "pg-1")},
 			},
 			existingPCLQs: []grovecorev1alpha1.PodClique{makePCLQ("pclq-a", 5, 2)},
@@ -404,12 +404,12 @@ func TestCreateOrUpdatePodGangs(t *testing.T) {
 			Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 2, MinAvailable: ptr.To(int32(1))},
 		}
 	}
-	makePod := func(name, podGangLabel string) *v1.Pod {
+	makePod := func(name, podGangLabel string) *corev1.Pod {
 		labels := lo.Assign(pcsLabels)
 		if podGangLabel != "" {
 			labels[apicommon.LabelPodGang] = podGangLabel
 		}
-		return &v1.Pod{
+		return &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: name, Namespace: ns,
 				Labels:          labels,
@@ -644,7 +644,7 @@ func TestCreateOrUpdatePodGangs(t *testing.T) {
 			},
 			Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 1, MinAvailable: ptr.To(int32(1))},
 		}
-		pod1 := &v1.Pod{
+		pod1 := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "worker-1-0", Namespace: ns,
 				Labels:          lo.Assign(pcsLabels, map[string]string{apicommon.LabelPodGang: pg1Name}),
@@ -1547,8 +1547,8 @@ func TestCreateOrUpdatePodGangs_ClearsStaleTopologyStateOnExistingPodGang(t *tes
 		}
 	}
 
-	makePod := func() *v1.Pod {
-		return &v1.Pod{
+	makePod := func() *corev1.Pod {
+		return &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "worker-0",
 				Namespace: ns,
@@ -1695,12 +1695,12 @@ func TestBuildResourceTopologyAnnotation(t *testing.T) {
 		}
 	}
 
-	makePod := func(podGangLabel string) *v1.Pod {
+	makePod := func(podGangLabel string) *corev1.Pod {
 		labels := lo.Assign(pcsLabels)
 		if podGangLabel != "" {
 			labels[apicommon.LabelPodGang] = podGangLabel
 		}
-		return &v1.Pod{
+		return &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "worker-0", Namespace: ns,
 				Labels:          labels,
@@ -1783,6 +1783,102 @@ func TestBuildResourceTopologyAnnotation(t *testing.T) {
 				_, hasAnnotation := pgAfter.Annotations[apicommonconstants.AnnotationTopologyName]
 				assert.False(t, hasAnnotation, "PodGang should not have the topology-name annotation")
 			}
+		})
+	}
+}
+
+func TestArePodGangMinReplicasReady(t *testing.T) {
+	makeReadyPod := func(name string) corev1.Pod {
+		return *testutils.NewPodBuilder(name, "default").
+			WithCondition(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
+			Build()
+	}
+	makeNotReadyPod := func(name string) corev1.Pod {
+		return *testutils.NewPodBuilder(name, "default").
+			WithCondition(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionFalse}).
+			Build()
+	}
+
+	tests := []struct {
+		name                   string
+		existingPodsByPCLQName map[string][]corev1.Pod
+		pgi                    *podGangInfo
+		expectedResult         bool
+	}{
+		{
+			name: "all associated pods ready and >= minAvailable",
+			existingPodsByPCLQName: map[string][]corev1.Pod{
+				"pcs-0-frontend": {makeReadyPod("fe-0"), makeReadyPod("fe-1"), makeReadyPod("fe-2")},
+			},
+			pgi: &podGangInfo{
+				fqn: "pg-0",
+				pclqs: []pclqInfo{
+					{fqn: "pcs-0-frontend", minAvailable: 2, associatedPodNames: []string{"fe-0", "fe-1", "fe-2"}},
+				},
+			},
+			expectedResult: true,
+		},
+		{
+			name: "not enough ready pods for minAvailable",
+			existingPodsByPCLQName: map[string][]corev1.Pod{
+				"pcs-0-frontend": {makeReadyPod("fe-0"), makeNotReadyPod("fe-1"), makeNotReadyPod("fe-2")},
+			},
+			pgi: &podGangInfo{
+				fqn: "pg-0",
+				pclqs: []pclqInfo{
+					{fqn: "pcs-0-frontend", minAvailable: 2, associatedPodNames: []string{"fe-0", "fe-1", "fe-2"}},
+				},
+			},
+			expectedResult: false,
+		},
+		{
+			name: "only counts pods associated to this PodGang",
+			existingPodsByPCLQName: map[string][]corev1.Pod{
+				"pcs-0-frontend": {makeReadyPod("fe-0"), makeReadyPod("fe-1"), makeReadyPod("fe-2"), makeReadyPod("fe-3")},
+			},
+			pgi: &podGangInfo{
+				fqn: "pg-1",
+				pclqs: []pclqInfo{
+					{fqn: "pcs-0-frontend", minAvailable: 2, associatedPodNames: []string{"fe-2", "fe-3"}},
+				},
+			},
+			expectedResult: true,
+		},
+		{
+			name: "unassociated ready pods do not satisfy minAvailable",
+			existingPodsByPCLQName: map[string][]corev1.Pod{
+				"pcs-0-frontend": {makeReadyPod("fe-0"), makeReadyPod("fe-1"), makeNotReadyPod("fe-2")},
+			},
+			pgi: &podGangInfo{
+				fqn: "pg-1",
+				pclqs: []pclqInfo{
+					{fqn: "pcs-0-frontend", minAvailable: 2, associatedPodNames: []string{"fe-2"}},
+				},
+			},
+			expectedResult: false,
+		},
+		{
+			name: "multiple PodGroups all must satisfy minAvailable",
+			existingPodsByPCLQName: map[string][]corev1.Pod{
+				"pcs-0-frontend": {makeReadyPod("fe-0"), makeReadyPod("fe-1")},
+				"pcs-0-backend":  {makeReadyPod("be-0"), makeNotReadyPod("be-1")},
+			},
+			pgi: &podGangInfo{
+				fqn: "pg-0",
+				pclqs: []pclqInfo{
+					{fqn: "pcs-0-frontend", minAvailable: 2, associatedPodNames: []string{"fe-0", "fe-1"}},
+					{fqn: "pcs-0-backend", minAvailable: 2, associatedPodNames: []string{"be-0", "be-1"}},
+				},
+			},
+			expectedResult: false,
+		},
+	}
+
+	r := &_resource{}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sc := &syncContext{existingPCLQPods: tc.existingPodsByPCLQName}
+			assert.Equal(t, tc.expectedResult, r.arePodGangMinReplicasReady(sc, tc.pgi))
 		})
 	}
 }
