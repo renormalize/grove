@@ -590,61 +590,79 @@ is created. The coherent update mechanism is not triggered — this degrades to 
 
 ### Phase 3: Iterative Computation of Next PodGang Entries
 
+**Function**: `computeNextPodGangMapState(template, oldEntries, entryBuilder) podGangMapState`
+
 **Inputs for each iteration:**
 - `mvuTemplate`: the fixed template from Phase 1 (standalone PCLQs with their minAvailable counts +
-  PCSGs with their minAvailable counts)
-- `remainingOldPods[pclq]`: count of old-version pods still to be taken down, per updated standalone PCLQ
-- `remainingOldReplicas[pcsg]`: count of old-version PCSG replicas still to be taken down, per updated PCSG
+  PCSGs with their minAvailable counts). Uses unqualified names (as in PCS spec).
+- `oldEntries`: existing old-hash PodGang entries ordered by index (lowest first). These represent
+  the current state of old PodGangs with their pod/replica counts. Counts are decremented as pods
+  are allocated to new PodGangs. Entries with all counts at zero are removed.
+- `entryBuilder`: a function that creates a `PodGangEntry` given pod/replica composition. Decouples
+  naming/hash concerns (PodGang name generation, generation hash) from pure computation logic.
+
+**Output**: `podGangMapState` containing:
+- `oldEntries`: updated old entries with decremented counts (zeroed entries removed)
+- `newEntries`: newly created MVU PodGang or Tail-PG entries
+- `done`: true if there are no remaining old pods/replicas to process
+
+**Remaining counts are derived from old entries directly** — no separate tracking maps needed.
+The old entries in the PodGangMap are the single source of truth for what's left to process.
+
+**Deduction order**: pods and replicas are always deducted from the **lowest-indexed** old entry first.
 
 ---
 
 #### Rule 1: Can a full MVU be formed?
 
 ```
-canFormMVU =
-    for ALL standalone PCLQ in mvuTemplate: remainingOldPods[pclq] >= mvuTemplate[pclq]
+canFormMVUPodGang =
+    for ALL standalone PCLQ in mvuTemplate: sumPCLQPodsInOldEntries(pclq) >= mvuTemplate[pclq]
     AND
-    for ALL PCSG in mvuTemplate: remainingOldReplicas[pcsg] >= mvuTemplate[pcsg]
+    for ALL PCSG in mvuTemplate: sumPCSGReplicasInOldEntries(pcsg) >= mvuTemplate[pcsg]
 ```
 
 ---
 
-#### Rule 2: If `canFormMVU = true` → create exactly 1 MVU PodGang
+#### Rule 2: If `canFormMVUPodGang = true` → create exactly 1 MVU PodGang
 
 **2a.** Compose the MVU PodGang entry with:
 - `minAvailable` pods from each updated standalone PCLQ
 - `minAvailable` replicas from each updated PCSG
 
-**2b.** Deduct from remaining:
-- `remainingOldPods[pclq] -= mvuTemplate[pclq]` for each standalone PCLQ
-- `remainingOldReplicas[pcsg] -= mvuTemplate[pcsg]` for each PCSG
+**2b.** Deduct from old entries (lowest-indexed first):
+- Deduct `mvuTemplate[pclq]` pods from old entries for each standalone PCLQ
+- Deduct `mvuTemplate[pcsg]` replicas from old entries for each PCSG
+- Remove old entries whose pod and replica counts have all reached zero
 
-**2c.** Check if another full MVU can be formed from what remains:
+**2c.** Check if another full MVU can be formed from what remains in old entries:
 ```
 canFormAnotherMVU =
-    for ALL standalone PCLQ in mvuTemplate: remainingOldPods[pclq] >= mvuTemplate[pclq]
+    for ALL standalone PCLQ in mvuTemplate: sumPCLQPodsInOldEntries(pclq) >= mvuTemplate[pclq]
     AND
-    for ALL PCSG in mvuTemplate: remainingOldReplicas[pcsg] >= mvuTemplate[pcsg]
+    for ALL PCSG in mvuTemplate: sumPCSGReplicasInOldEntries(pcsg) >= mvuTemplate[pcsg]
 ```
 
 - If `canFormAnotherMVU = true` → Output = **[1 MVU PodGang entry]** with exactly minAvailable of
   each component. Wait for Available.
-- If `canFormAnotherMVU = false` → Absorb ALL remaining standalone PCLQ pods into this MVU PodGang
-  (extra pods above minAvailable). PCSG replicas are NOT absorbed — they are left for Tail-PGs.
+- If `canFormAnotherMVU = false` → Absorb ALL remaining standalone PCLQ pods from old entries into
+  this MVU PodGang (deducting them from old entries, lowest-indexed first).
+  PCSG replicas are NOT absorbed — they are left for Tail-PGs.
   Output = **[1 MVU PodGang entry with minAvailable PCSGs + ALL remaining standalone PCLQ pods]**.
   Wait for Available.
 
 ---
 
-#### Rule 3: If `canFormMVU = false` → only Tail-PGs remain
+#### Rule 3: If `canFormMVUPodGang = false` → only Tail-PGs remain
 
 At this point:
-- No standalone PCLQ pods should remain (they were absorbed into the last MVU PodGang per Rule 2c)
-- Only remaining old-version PCSG replicas are left
+- No standalone PCLQ pods should remain in old entries (they were absorbed into the last MVU PodGang per Rule 2c)
+- Only remaining old-version PCSG replicas are left in old entries
 
 **Composition:**
 - Each Tail-PG = exactly 1 PCSG replica (with all its constituent PCLQs and all their pods)
 - All Tail-PGs are created **together** in a single iteration
+- PCSG replicas are deducted from old entries (lowest-indexed first)
 
 **Output** = **[N Tail-PG entries]** (one per remaining PCSG replica). Wait for all to become Available.
 
@@ -661,6 +679,8 @@ At this point:
 | 5 | Wait for Available between MVU iterations |
 | 6 | MVU template is fixed per update — does not change between iterations |
 | 7 | Rule 0 (single standalone PCLQ, minAvailable==1, no PCSGs) bypasses the entire MVU mechanism |
+| 8 | Pods/replicas are always deducted from the lowest-indexed old entry first |
+| 9 | Old entries with all counts at zero are removed from the PodGangMap |
 
 ---
 
@@ -847,15 +867,19 @@ Watches(
 
 ---
 
-### R1.6 — Orchestrator: `computeNextUpdateIntent`
+### R1.6 — Orchestrator: `checkAndAdvanceCoherentUpdate`
 
-**Change**: The method formerly conceptualized as `declareNextCoherentIteration` is renamed to `computeNextUpdateIntent`.
+**Change**: The orchestrator's state machine progression is handled by `checkAndAdvanceCoherentUpdate`.
 
-**Semantics**: Identifies the next set of PodGang entries to declare as update intent:
-- If a full MVU-shaped PodGang can still be formed → returns **1** new entry (MVU-shaped)
-- If only Tail-PGs remain → returns **all** remaining Tail-PG entries together
+**Semantics**:
+- If `InFlightPodGangs` is empty → requeues (PodGangMap component will compute next entries)
+- If `InFlightPodGangs` are not all Available → requeues
+- If all Available and replica is done → marks replica done via `markCurrentReplicaUpdateDone`
+- If all Available but replica not done → clears `InFlightPodGangs` and requeues (PodGangMap
+  component will compute next iteration's entries on next reconcile)
 
-The orchestrator calls this after an in-flight PodGang becomes Available, records the returned entry names in `InFlightPodGangs`, and requeues.
+The PodGangMap component's `computeCoherentUpdateEntries` is only called when `InFlightPodGangs`
+is empty — this is the signal that the orchestrator is ready for the next set of entries.
 
 ---
 
