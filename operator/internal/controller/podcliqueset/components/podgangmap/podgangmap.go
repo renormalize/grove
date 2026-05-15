@@ -28,6 +28,8 @@ import (
 	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
+	groveschedulerv1alpha1 "github.com/ai-dynamo/grove/scheduler/api/core/v1alpha1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
@@ -41,7 +43,6 @@ const (
 	errCodeListPodGangMaps   grovecorev1alpha1.ErrorCode = "ERR_LIST_PODGANGMAPS"
 	errCodeSyncPodGangMap    grovecorev1alpha1.ErrorCode = "ERR_SYNC_PODGANGMAP"
 	errCodeDeletePodGangMaps grovecorev1alpha1.ErrorCode = "ERR_DELETE_PODGANGMAPS"
-	errCodeListPCSGs         grovecorev1alpha1.ErrorCode = "ERR_LIST_PCSGS_FOR_PODGANGMAP"
 	errCodeListPCLQs         grovecorev1alpha1.ErrorCode = "ERR_LIST_PCLQS_FOR_PODGANGMAP"
 )
 
@@ -88,6 +89,8 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcs *grovecorev
 		return err
 	}
 
+	// If the coherent update is not in-progress then delete any leftover PodGangMap resources if they exist and exit early.
+	// The life-span of PodGangMap resource is only during an in-process coherent update.
 	if !componentutils.IsCoherentUpdateInProgress(pcs) {
 		if len(existingPGMNames) == 0 {
 			return nil
@@ -95,22 +98,20 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcs *grovecorev
 		return r.Delete(ctx, logger, pcs.ObjectMeta)
 	}
 
-	// Coherent update in progress: create/update PodGangMaps.
-	existingPCSGs, err := componentutils.ListPCSGsForPCS(ctx, r.client, client.ObjectKeyFromObject(pcs))
-	if err != nil {
-		return groveerr.WrapError(err,
-			errCodeListPCSGs,
-			component.OperationSync,
-			fmt.Sprintf("Error listing PodCliqueScalingGroups for PodCliqueSet: %v", client.ObjectKeyFromObject(pcs)),
-		)
+	// If InFlightPodGangs is populated, the orchestrator is still waiting for them to become
+	// Available. The PodGangMap already has the correct entries from the previous reconcile —
+	// skip recomputation entirely.
+	if hasInFlightPodGangs(pcs) {
+		return nil
 	}
 
-	existingStandalonePCLQs, err := componentutils.GetPodCliquesWithParentPCS(ctx, r.client, client.ObjectKeyFromObject(pcs))
+	// Coherent update in progress: create/update PodGangMaps.
+	existingPCLQs, err := componentutils.GetPCLQsMatchingLabels(ctx, r.client, pcs.Namespace, apicommon.GetDefaultLabelsForPodCliqueSetManagedResources(pcs.Name))
 	if err != nil {
 		return groveerr.WrapError(err,
 			errCodeListPCLQs,
 			component.OperationSync,
-			fmt.Sprintf("Error listing standalone PodCliques for PodCliqueSet: %v", client.ObjectKeyFromObject(pcs)),
+			fmt.Sprintf("Error listing PodCliques for PodCliqueSet: %v", client.ObjectKeyFromObject(pcs)),
 		)
 	}
 
@@ -119,14 +120,11 @@ func (r _resource) Sync(ctx context.Context, logger logr.Logger, pcs *grovecorev
 		pgmName := apicommon.GeneratePodGangMapName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: int(replicaIndex)})
 		expectedPGMNames = append(expectedPGMNames, pgmName)
 
-		pcsgsForReplica := lo.Filter(existingPCSGs, func(pcsg grovecorev1alpha1.PodCliqueScalingGroup, _ int) bool {
-			return pcsg.Labels[apicommon.LabelPodCliqueSetReplicaIndex] == strconv.Itoa(int(replicaIndex))
-		})
-		pclqsForReplica := lo.Filter(existingStandalonePCLQs, func(pclq grovecorev1alpha1.PodClique, _ int) bool {
+		pclqsForReplica := lo.Filter(existingPCLQs, func(pclq grovecorev1alpha1.PodClique, _ int) bool {
 			return pclq.Labels[apicommon.LabelPodCliqueSetReplicaIndex] == strconv.Itoa(int(replicaIndex))
 		})
 
-		entries, err := r.computeCoherentUpdateEntries(pcs, int(replicaIndex), pcsgsForReplica, pclqsForReplica)
+		entries, err := r.computeCoherentUpdateEntries(ctx, pcs, int(replicaIndex), pclqsForReplica)
 		if err != nil {
 			return groveerr.WrapError(err,
 				errCodeSyncPodGangMap,
@@ -181,95 +179,6 @@ func (r _resource) Delete(ctx context.Context, logger logr.Logger, pcsObjMeta me
 	return nil
 }
 
-// computeEntries returns the desired PodGangEntries for one PodCliqueSet replica.
-//
-// For non-Coherent strategies (RollingRecreate, OnDelete, nil), entries are computed
-// from pcs.Spec and live PCLQ/PCSG state: one BasePodGang entry covering all standalone
-// PCLQs and the first MinAvailable replicas of each PCSG, plus one ScaledPodGang entry
-// per PCSG replica beyond MinAvailable. pcs.Status.CurrentGenerationHash is always
-// up-to-date at this point (set by initUpdateProgress before Sync runs), so the same
-// code path handles both steady-state and update-in-progress cases.
-//
-// For the Coherent strategy with an update in progress, entries reflect the partially-updated
-// state: existing PodGangs at their current generation hash plus new MVU-shaped entries for
-// the current update iteration.
-func (r _resource) computeEntries(pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup, pclqs []grovecorev1alpha1.PodClique) ([]grovecorev1alpha1.PodGangEntry, error) {
-	if componentutils.IsCoherentUpdateInProgress(pcs) {
-		return r.computeCoherentUpdateEntries(pcs, replicaIndex, pcsgs, pclqs)
-	}
-	// RollingRecreate, OnDelete, or nil strategy — all use the same BasePodGang/ScaledPodGang entry structure.
-	return r.buildBaseAndScaledPodGangEntries(pcs, replicaIndex, pcsgs, pclqs)
-}
-
-// buildBaseAndScaledPodGangEntries builds the BasePodGang entry and ScaledPodGang entries for one PodCliqueSet replica.
-// One BasePodGang entry covers all standalone PodCliques and the first MinAvailable replicas of each PCSG.
-// One ScaledPodGang entry is added per PCSG replica beyond MinAvailable.
-func (r _resource) buildBaseAndScaledPodGangEntries(pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, existingPCSGs []grovecorev1alpha1.PodCliqueScalingGroup, existingPCLQs []grovecorev1alpha1.PodClique) ([]grovecorev1alpha1.PodGangEntry, error) {
-	if pcs.Status.CurrentGenerationHash == nil {
-		return nil, fmt.Errorf("PodCliqueSet %s/%s has no CurrentGenerationHash set in status", pcs.Namespace, pcs.Name)
-	}
-
-	generationHash := *pcs.Status.CurrentGenerationHash
-	bpgName := apicommon.GenerateBasePodGangName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex})
-
-	// Build a lookup of live replica count by existing PCLQ FQN.
-	existingReplicasByPCLQ := make(map[string]int32, len(existingPCLQs))
-	for _, pclq := range existingPCLQs {
-		existingReplicasByPCLQ[pclq.Name] = pclq.Spec.Replicas
-	}
-
-	// BasePodGang entry: standalone PCLQs at their live replica count (falling back to template if not yet created).
-	standalonePCLQFQNSet := componentutils.GetStandalonePCLQFQNSet(pcs, replicaIndex)
-	bpgPodCliques := make(map[string]int32, standalonePCLQFQNSet.Len())
-	for _, cliqueTemplate := range pcs.Spec.Template.Cliques {
-		pclqFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex}, cliqueTemplate.Name)
-		if !standalonePCLQFQNSet.Has(pclqFQN) {
-			continue
-		}
-		replicas, exists := existingReplicasByPCLQ[pclqFQN]
-		if !exists {
-			// PCLQ not yet created (first reconcile); fall back to template replicas.
-			replicas = cliqueTemplate.Spec.Replicas
-		}
-		bpgPodCliques[pclqFQN] = replicas
-	}
-
-	// BasePodGang entry: each PCSG contributes MinAvailable replicas.
-	bpgPCSGs := make(map[string]int32)
-	for _, pcsg := range existingPCSGs {
-		if pcsg.Spec.MinAvailable != nil {
-			bpgPCSGs[pcsg.Name] = *pcsg.Spec.MinAvailable
-		}
-	}
-
-	entries := []grovecorev1alpha1.PodGangEntry{
-		{
-			Name:                       bpgName,
-			PodCliqueSetGenerationHash: generationHash,
-			PodCliques:                 bpgPodCliques,
-			PodCliqueScalingGroups:     bpgPCSGs,
-		},
-	}
-
-	// ScaledPodGang entries: one per PCSG replica beyond MinAvailable.
-	for _, pcsg := range existingPCSGs {
-		if pcsg.Spec.MinAvailable == nil {
-			continue
-		}
-		minAvailable := *pcsg.Spec.MinAvailable
-		for scaledIndex := range pcsg.Spec.Replicas - minAvailable {
-			spgName := apicommon.CreatePodGangNameFromPCSGFQN(pcsg.Name, int(scaledIndex))
-			entries = append(entries, grovecorev1alpha1.PodGangEntry{
-				Name:                       spgName,
-				PodCliqueSetGenerationHash: generationHash,
-				PodCliqueScalingGroups:     map[string]int32{pcsg.Name: 1},
-			})
-		}
-	}
-
-	return entries, nil
-}
-
 // buildResource configures the PodGangMap with the desired entries.
 func (r _resource) buildResource(pgm *grovecorev1alpha1.PodGangMap, pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, entries []grovecorev1alpha1.PodGangEntry) error {
 	if err := controllerutil.SetControllerReference(pcs, pgm, r.scheme); err != nil {
@@ -316,12 +225,182 @@ func emptyPodGangMap(objKey client.ObjectKey) *grovecorev1alpha1.PodGangMap {
 	}
 }
 
-// computeCoherentUpdateEntries computes entries for a coherent update in progress.
-// It reflects the partially-updated state: existing PodGangs at their current generation hash
-// plus new MVU-shaped entries for the current update iteration.
-//
-// TODO(coherent-updates): Full implementation pending — requires orchestrator integration
-// to determine which iteration is in progress and which PodGangs have been created so far.
-func (r _resource) computeCoherentUpdateEntries(_ *grovecorev1alpha1.PodCliqueSet, _ int, _ []grovecorev1alpha1.PodCliqueScalingGroup, _ []grovecorev1alpha1.PodClique) ([]grovecorev1alpha1.PodGangEntry, error) {
-	return nil, nil
+// computeCoherentUpdateEntries computes PodGangMap entries for a coherent update.
+// On the first reconcile (PodGangMap doesn't exist yet): it initializes old entries from existing
+// PodGang resources and computes the first iteration's new entries.
+// On subsequent reconciles (PodGangMap exists): it reads existing entries, separates into old-hash
+// and new-hash, and computes next iteration's entries.
+// Returns the complete set of entries for the PodGangMap: updated old entries + all new entries.
+func (r _resource) computeCoherentUpdateEntries(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, pclqs []grovecorev1alpha1.PodClique) ([]grovecorev1alpha1.PodGangEntry, error) {
+	// Compute the MVU template from current PCS spec vs live PCLQ hashes.
+	template, err := computeMVUTemplate(pcs, pclqs)
+	if err != nil {
+		return nil, err
+	}
+
+	newGenerationHash := *pcs.Status.CurrentGenerationHash
+	// Get old-hash and previously-created new-hash entries.
+	oldEntries, existingNewEntries, err := r.getOldAndNewEntries(ctx, pcs, replicaIndex, pclqs, newGenerationHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build the entry builder closure for generating new PodGang names.
+	nextPodGangIndex := getCreatedPodGangCount(pcs, replicaIndex)
+	entryBuilder := func(standalonePCLQPods map[string]int32, pcsgReplicas map[string]int32) grovecorev1alpha1.PodGangEntry {
+		name := apicommon.GeneratePodGangName(pcs.Name, int32(replicaIndex), newGenerationHash, nextPodGangIndex)
+		nextPodGangIndex++
+		return grovecorev1alpha1.PodGangEntry{
+			Name:                       name,
+			PodCliqueSetGenerationHash: newGenerationHash,
+			PodCliques:                 standalonePCLQPods,
+			PodCliqueScalingGroups:     pcsgReplicas,
+		}
+	}
+
+	// Compute next iteration's state.
+	state := computeNextPodGangMapState(*template, oldEntries, entryBuilder)
+
+	// Combine: updated old entries + previously created new entries + this iteration's new entries.
+	var allEntries []grovecorev1alpha1.PodGangEntry
+	allEntries = append(allEntries, state.oldEntries...)
+	allEntries = append(allEntries, existingNewEntries...)
+	allEntries = append(allEntries, state.newEntries...)
+	return allEntries, nil
+}
+
+// hasInFlightPodGangs returns true if the orchestrator has in-flight PodGangs awaiting availability.
+func hasInFlightPodGangs(pcs *grovecorev1alpha1.PodCliqueSet) bool {
+	return len(pcs.Status.UpdateProgress.CurrentlyUpdating) > 0 &&
+		len(pcs.Status.UpdateProgress.CurrentlyUpdating[0].InFlightPodGangs) > 0
+}
+
+// getOldAndNewEntries retrieves old-hash and new-hash entries for the given replica.
+// If the PodGangMap doesn't exist yet (first reconcile of this update), it initializes
+// old entries from existing PodGang resources.
+func (r _resource) getOldAndNewEntries(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, pclqs []grovecorev1alpha1.PodClique, newHash string) (oldEntries, newEntries []grovecorev1alpha1.PodGangEntry, err error) {
+	pgmName := apicommon.GeneratePodGangMapName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex})
+	pgm := &grovecorev1alpha1.PodGangMap{}
+	err = r.client.Get(ctx, client.ObjectKey{Namespace: pcs.Namespace, Name: pgmName}, pgm)
+
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// PodGangMap doesn't exist yet — first reconcile of this update.
+			oldEntries, err = r.buildOldEntriesFromExistingPodGangs(ctx, pcs, replicaIndex, pclqs)
+			return
+		}
+		return
+	}
+
+	// PodGangMap exists — separate entries by generation hash.
+	for _, entry := range pgm.Spec.Entries {
+		if entry.PodCliqueSetGenerationHash == newHash {
+			newEntries = append(newEntries, entry)
+		} else {
+			oldEntries = append(oldEntries, entry)
+		}
+	}
+	return
+}
+
+// buildOldEntriesFromExistingPodGangs lists existing PodGang resources for this PCS replica
+// and builds PodGangEntries from their PodGroup specs. At the start of a coherent update,
+// all existing PodGangs are treated as old (not matching the new generation hash).
+func (r _resource) buildOldEntriesFromExistingPodGangs(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, pclqs []grovecorev1alpha1.PodClique) ([]grovecorev1alpha1.PodGangEntry, error) {
+	existingPodGangs, err := componentutils.GetExistingPodGangs(ctx, r.client, pcs.ObjectMeta, pcs.Namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	podGangsForReplica := lo.Filter(existingPodGangs, func(pg groveschedulerv1alpha1.PodGang, _ int) bool {
+		return pg.Labels[apicommon.LabelPodCliqueSetReplicaIndex] == strconv.Itoa(replicaIndex)
+	})
+
+	oldPCSHash := getOldPodCliqueSetGenerationHash(pclqs)
+
+	entries := make([]grovecorev1alpha1.PodGangEntry, 0, len(podGangsForReplica))
+	for _, pg := range podGangsForReplica {
+		entry, err := buildEntryFromPodGang(pcs, oldPCSHash, pg)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+// buildEntryFromPodGang constructs a PodGangEntry from an existing PodGang resource.
+// It maps PodGroups to standalone PCLQ pod counts and PCSG replica counts.
+func buildEntryFromPodGang(pcs *grovecorev1alpha1.PodCliqueSet, generationHash string, pg groveschedulerv1alpha1.PodGang) (grovecorev1alpha1.PodGangEntry, error) {
+	entry := grovecorev1alpha1.PodGangEntry{
+		Name:                       pg.Name,
+		PodCliqueSetGenerationHash: generationHash,
+		PodCliques:                 make(map[string]int32),
+		PodCliqueScalingGroups:     make(map[string]int32),
+	}
+
+	for _, podGroup := range pg.Spec.PodGroups {
+		cliqueName, err := extractCliqueName(podGroup.Name, pcs)
+		if err != nil {
+			return grovecorev1alpha1.PodGangEntry{}, err
+		}
+		pcsgConfig := componentutils.FindScalingGroupConfigForClique(pcs.Spec.Template.PodCliqueScalingGroupConfigs, cliqueName)
+		if pcsgConfig == nil {
+			entry.PodCliques[cliqueName] = int32(len(podGroup.PodReferences))
+		}
+	}
+
+	// For PCSGs: count replicas by dividing total PodGroups for this PCSG by number of constituent cliques.
+	for _, pcsgConfig := range pcs.Spec.Template.PodCliqueScalingGroupConfigs {
+		var numPodGroupsForPCSG int32
+		for _, podGroup := range pg.Spec.PodGroups {
+			cliqueName, _ := extractCliqueName(podGroup.Name, pcs)
+			if slices.Contains(pcsgConfig.CliqueNames, cliqueName) {
+				numPodGroupsForPCSG++
+			}
+		}
+		if numPodGroupsForPCSG > 0 {
+			// Each PCSG replica contributes one PodGroup per constituent clique.
+			// So replica count = total PodGroups for this PCSG / number of cliques in the PCSG.
+			entry.PodCliqueScalingGroups[pcsgConfig.Name] = numPodGroupsForPCSG / int32(len(pcsgConfig.CliqueNames))
+		}
+	}
+
+	return entry, nil
+}
+
+// extractCliqueName extracts the unqualified clique name from a PodGroup name (PCLQ FQN)
+// by matching against known clique templates in the PCS spec.
+// Returns an error if the PodGroup name does not match any known clique template.
+func extractCliqueName(podGroupName string, pcs *grovecorev1alpha1.PodCliqueSet) (string, error) {
+	for _, cliqueTemplate := range pcs.Spec.Template.Cliques {
+		if cliqueTemplate == nil {
+			continue
+		}
+		suffix := "-" + cliqueTemplate.Name
+		if len(podGroupName) > len(suffix) && podGroupName[len(podGroupName)-len(suffix):] == suffix {
+			return cliqueTemplate.Name, nil
+		}
+	}
+	return "", fmt.Errorf("PodGroup name %q does not match any known clique template in PCS %s", podGroupName, pcs.Name)
+}
+
+// getOldPodCliqueSetGenerationHash returns the generation hash that existing PCLQs are currently running.
+// At the start of a coherent update, this is the hash before the update was triggered.
+// The exact value doesn't matter for computation — it only needs to differ from the new hash.
+func getOldPodCliqueSetGenerationHash(pclqs []grovecorev1alpha1.PodClique) string {
+	for _, pclq := range pclqs {
+		if pclq.Status.CurrentPodCliqueSetGenerationHash != nil {
+			return *pclq.Status.CurrentPodCliqueSetGenerationHash
+		}
+	}
+	return ""
+}
+
+// getCreatedPodGangCount returns the number of PodGangs created so far for the given replica index.
+func getCreatedPodGangCount(pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int) int32 {
+	if pcs.Status.PodGangCounter == nil {
+		return 0
+	}
+	return pcs.Status.PodGangCounter[strconv.Itoa(replicaIndex)]
 }

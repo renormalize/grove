@@ -667,7 +667,7 @@ func TestComputeNextPodGangMapState_DeductsFromLowestIndexFirst(t *testing.T) {
 // makeTestEntryBuilder creates a simple entryBuilder that produces entries with an incrementing
 // name and the given composition.
 func makeTestEntryBuilder(counter *int) podGangEntryBuilder {
-	return func(standalonePCLQPods map[string]int32, pcsgReplicas map[string]int32, _ bool) grovecorev1alpha1.PodGangEntry {
+	return func(standalonePCLQPods map[string]int32, pcsgReplicas map[string]int32) grovecorev1alpha1.PodGangEntry {
 		name := fmt.Sprintf("mvu-%d", *counter)
 		*counter++
 		return grovecorev1alpha1.PodGangEntry{

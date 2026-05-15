@@ -49,7 +49,7 @@ func GetPodCliqueFQNsForPCSNotInPCSG(pcs *grovecorev1alpha1.PodCliqueSet) []stri
 func GetStandalonePCLQFQNSet(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex int) sets.Set[string] {
 	fqns := sets.New[string]()
 	for _, pclqTemplateSpec := range pcs.Spec.Template.Cliques {
-		if isStandalonePCLQ(pcs, pclqTemplateSpec.Name) {
+		if isStandalonePCLQName(pcs, pclqTemplateSpec.Name) {
 			fqns.Insert(common.GeneratePodCliqueName(common.ResourceNameReplica{Name: pcs.Name, Replica: pcsReplicaIndex}, pclqTemplateSpec.Name))
 		}
 	}
@@ -66,12 +66,13 @@ func GetStandalonePCLQFQNs(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex 
 // A standalone PodClique is one whose name does not appear in any PodCliqueScalingGroupConfig.CliqueNames.
 func CountStandalonePCLQs(pcs *grovecorev1alpha1.PodCliqueSet) int {
 	return lo.CountBy(pcs.Spec.Template.Cliques, func(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTemplateSpec) bool {
-		return isStandalonePCLQ(pcs, pclqTemplateSpec.Name)
+		return isStandalonePCLQName(pcs, pclqTemplateSpec.Name)
 	})
 }
 
-// isStandalonePCLQ checks if the PodClique is managed by PodCliqueSet or not
-func isStandalonePCLQ(pcs *grovecorev1alpha1.PodCliqueSet, pclqName string) bool {
+// isStandalonePCLQName checks if the PodClique is managed by PodCliqueSet or not
+// NOTE: This function should only be used by callers who can always pass a valid PCLQ name.
+func isStandalonePCLQName(pcs *grovecorev1alpha1.PodCliqueSet, pclqName string) bool {
 	return !lo.Reduce(pcs.Spec.Template.PodCliqueScalingGroupConfigs, func(agg bool, pcsgConfig grovecorev1alpha1.PodCliqueScalingGroupConfig, _ int) bool {
 		return agg || slices.Contains(pcsgConfig.CliqueNames, pclqName)
 	}, false)
