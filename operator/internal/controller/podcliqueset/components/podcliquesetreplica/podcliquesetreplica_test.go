@@ -344,6 +344,10 @@ func ptrInt32(v int32) *int32 {
 	return &v
 }
 
+func ptrString(v string) *string {
+	return &v
+}
+
 func TestCheckAndAdvanceCoherentUpdate(t *testing.T) {
 	makePodGang := func(name, namespace string, available bool) *groveschedulerv1alpha1.PodGang {
 		pg := &groveschedulerv1alpha1.PodGang{
@@ -364,15 +368,54 @@ func TestCheckAndAdvanceCoherentUpdate(t *testing.T) {
 		name              string
 		inFlightPodGangs             []string
 		podGangs                     []*groveschedulerv1alpha1.PodGang
+		podGangMap                   *grovecorev1alpha1.PodGangMap
+		currentGenerationHash        *string
 		replicaDone                  bool
 		expectRequeue                bool
 		expectReplicaDone            bool
 		expectInFlightPodGangsCleared bool
+		expectInFlightPodGangsSet    []string
 	}{
 		{
-			name:             "empty InFlightPodGangs requeues",
+			name:             "empty InFlightPodGangs populates from PodGangMap",
 			inFlightPodGangs: nil,
+			currentGenerationHash: ptrString("new-hash"),
+			podGangMap: &grovecorev1alpha1.PodGangMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-pcs-0", Namespace: "default"},
+				Spec: grovecorev1alpha1.PodGangMapSpec{
+					PodCliqueSetReplicaIndex: 0,
+					Entries: []grovecorev1alpha1.PodGangEntry{
+						{Name: "pg-old-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"worker": 2}},
+						{Name: "pg-new-0", PodCliqueSetGenerationHash: "new-hash", PodCliques: map[string]int32{"worker": 2}},
+					},
+				},
+			},
+			expectInFlightPodGangsSet: []string{"pg-new-0"},
+		},
+		{
+			name:             "empty InFlightPodGangs with no PodGangMap requeues",
+			inFlightPodGangs: nil,
+			currentGenerationHash: ptrString("new-hash"),
+			podGangMap:       nil,
 			expectRequeue:    true,
+		},
+		{
+			name:             "empty InFlightPodGangs with all new-hash entries Available requeues",
+			inFlightPodGangs: nil,
+			currentGenerationHash: ptrString("new-hash"),
+			podGangMap: &grovecorev1alpha1.PodGangMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-pcs-0", Namespace: "default"},
+				Spec: grovecorev1alpha1.PodGangMapSpec{
+					PodCliqueSetReplicaIndex: 0,
+					Entries: []grovecorev1alpha1.PodGangEntry{
+						{Name: "pg-new-0", PodCliqueSetGenerationHash: "new-hash", PodCliques: map[string]int32{"worker": 2}},
+					},
+				},
+			},
+			podGangs: []*groveschedulerv1alpha1.PodGang{
+				makePodGang("pg-new-0", "default", true),
+			},
+			expectRequeue: true,
 		},
 		{
 			name:             "not all PodGangs Available requeues",
@@ -408,6 +451,7 @@ func TestCheckAndAdvanceCoherentUpdate(t *testing.T) {
 			pcs := &grovecorev1alpha1.PodCliqueSet{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-pcs", Namespace: "default"},
 				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					CurrentGenerationHash: tc.currentGenerationHash,
 					UpdateProgress: &grovecorev1alpha1.PodCliqueSetUpdateProgress{
 						UpdateStartedAt: metav1.Now(),
 						CurrentlyUpdating: []grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress{
@@ -424,6 +468,9 @@ func TestCheckAndAdvanceCoherentUpdate(t *testing.T) {
 			objs := []client.Object{pcs}
 			for _, pg := range tc.podGangs {
 				objs = append(objs, pg)
+			}
+			if tc.podGangMap != nil {
+				objs = append(objs, tc.podGangMap)
 			}
 			cl := testutils.NewTestClientBuilder().
 				WithObjects(objs...).
@@ -451,6 +498,9 @@ func TestCheckAndAdvanceCoherentUpdate(t *testing.T) {
 				require.NoError(t, err)
 				assert.Nil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].InFlightPodGangs)
 				assert.Nil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].UpdateEndedAt)
+			} else if tc.expectInFlightPodGangsSet != nil {
+				require.NoError(t, err)
+				assert.ElementsMatch(t, tc.expectInFlightPodGangsSet, pcs.Status.UpdateProgress.CurrentlyUpdating[0].InFlightPodGangs)
 			}
 		})
 	}
