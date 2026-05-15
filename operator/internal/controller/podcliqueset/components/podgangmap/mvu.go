@@ -99,99 +99,189 @@ func findUpdatedPodCliques(pcs *grovecorev1alpha1.PodCliqueSet, existingPCLQs []
 
 type podGangEntryBuilder func(standalonePCLQPods map[string]int32, pcsgReplicas map[string]int32, isTailPG bool) grovecorev1alpha1.PodGangEntry
 
-// computeNextIteration determines the next set of PodGang entries to create for the current
-// coherent update iteration. It checks if a full MVU PodGang can be formed from the remaining
-// old pods and PCSG replicas. If yes, it produces exactly one MVU PodGang entry (absorbing
-// leftover standalone PCLQ pods if no further MVU can be formed after it). If a full MVU cannot
-// be formed, it produces one Tail-PG entry per remaining PCSG replica.
-// Returns nil if there are no remaining pods or replicas to process.
+// podGangMapState captures the state of the PodGangMap after a computation step:
+// the updated old entries (with decremented counts) and newly introduced entries.
+type podGangMapState struct {
+	// oldEntries are existing old-hash PodGang entries with decremented pod/replica counts.
+	// Entries that have reached zero across all counts are removed.
+	oldEntries []grovecorev1alpha1.PodGangEntry
+	// newEntries are the newly computed MVU PodGang or Tail-PG entries for this iteration.
+	newEntries []grovecorev1alpha1.PodGangEntry
+	// done is true when there are no remaining old pods/replicas to process.
+	done bool
+}
+
+// computeNextPodGangMapState determines the next state of the PodGangMap for the current
+// coherent update. It checks if a full MVU PodGang can be formed from the pods and
+// replicas available in the old-hash entries. If yes, it produces exactly one MVU PodGang entry
+// (absorbing leftover standalone PCLQ pods if no further MVU can be formed after it). If a full
+// MVU cannot be formed, it produces one Tail-PG entry per remaining PCSG replica.
+// It deducts the allocated pods/replicas from old entries (lowest-indexed first) and removes
+// old entries that reach zero.
 //
 // Parameters:
 //   - template: the fixed MVU template for this update
-//   - remainingOldPods: count of old-version pods per updated standalone PCLQ still to be taken down
-//   - remainingOldReplicas: count of old-version PCSG replicas per updated PCSG still to be taken down
+//   - oldEntries: existing old-hash PodGang entries ordered by index (lowest first)
 //   - entryBuilder: a function that creates a PodGangEntry given the composition
-//
-// The entryBuilder is passed in to decouple naming/hash concerns from the pure computation logic.
-func computeNextIteration(
+func computeNextPodGangMapState(
 	template mvuTemplate,
-	remainingOldPods map[string]int32,
-	remainingOldReplicas map[string]int32,
-	entryBuilder podGangEntryBuilder) (entries []grovecorev1alpha1.PodGangEntry, done bool) {
-	// Check if a MVU PodGang can be created from the remaining old PCLQ pods and old PCSG replicas.
-	if canFormMVUPodGang(template, remainingOldPods, remainingOldReplicas) {
-		return computeNextMVUPodGang(template, remainingOldPods, remainingOldReplicas, entryBuilder), false
+	oldEntries []grovecorev1alpha1.PodGangEntry,
+	entryBuilder podGangEntryBuilder,
+) podGangMapState {
+	if canFormMVUPodGang(template, oldEntries) {
+		oldEntries, newEntries := computeNextMVUPodGang(template, oldEntries, entryBuilder)
+		return podGangMapState{oldEntries: oldEntries, newEntries: newEntries, done: false}
 	}
-	// If you have reached here, then only Tail-PGs remain. Create PodGangEntries for Tail-PGs.
-	return computeTailPodGangs(remainingOldReplicas, entryBuilder)
+	// Only Tail-PGs remain. Create PodGangEntries for Tail-PGs.
+	oldEntries, newEntries, done := computeTailPodGangs(template, oldEntries, entryBuilder)
+	return podGangMapState{oldEntries: oldEntries, newEntries: newEntries, done: done}
 }
 
-// canFormMVUPodGang checks whether remaining old standalone PCLQ pods and old PCSG replicas can fill a complete MVU.
-func canFormMVUPodGang(template mvuTemplate, remainingOldStandalonePCLQPods map[string]int32, remainingOldReplicas map[string]int32) bool {
+// canFormMVUPodGang checks whether the old entries collectively have enough pods and replicas
+// to fill a complete MVU.
+func canFormMVUPodGang(template mvuTemplate, oldEntries []grovecorev1alpha1.PodGangEntry) bool {
 	for pclqName, minAvailable := range template.standalonePCLQs {
-		if remainingOldStandalonePCLQPods[pclqName] < minAvailable {
+		if sumPCLQPodsInEntries(oldEntries, pclqName) < minAvailable {
 			return false
 		}
 	}
 	for pcsgName, minAvailable := range template.pcsgs {
-		if remainingOldReplicas[pcsgName] < minAvailable {
+		if sumPCSGReplicasInEntries(oldEntries, pcsgName) < minAvailable {
 			return false
 		}
 	}
 	return true
 }
 
-// computeNextMVUPodGang computes the constituents of next MVU PodGang, potentially absorbing
-// leftover standalone PCLQ pods if another full MVU PodGang cannot be formed after this one.
+// computeNextMVUPodGang computes the next MVU PodGang entry and deducts the allocated
+// pods/replicas from old entries (lowest-indexed first). If another MVU cannot be formed
+// after this one, all remaining standalone PCLQ pods are absorbed into this MVU.
 func computeNextMVUPodGang(
 	template mvuTemplate,
-	remainingOldStandalonePCLQPodCounts map[string]int32,
-	remainingOldPCSGReplicas map[string]int32,
-	entryBuilder podGangEntryBuilder) []grovecorev1alpha1.PodGangEntry {
+	oldEntries []grovecorev1alpha1.PodGangEntry,
+	entryBuilder podGangEntryBuilder,
+) (updatedOldEntries []grovecorev1alpha1.PodGangEntry, newEntries []grovecorev1alpha1.PodGangEntry) {
+	// Clone standalone PCLQ counts from template — may grow if absorption happens.
+	nextMVUStandalonePCLQs := maps.Clone(template.standalonePCLQs)
 
-	// clone the standalone PCLQ map from the template as this will be conditionally mutated
-	// based on if the remaining old standalone PCLQ pods and PCSG replicas can form another MVU.
-	nextMVUStandAlonePCLQs := maps.Clone(template.standalonePCLQs)
-
-	// Deduct from remaining.
-	for pclqName, minAvailable := range template.standalonePCLQs {
-		remainingOldStandalonePCLQPodCounts[pclqName] -= minAvailable
+	// Deduct standalone PCLQ pods from old entries (lowest index first).
+	for pclqName, needed := range template.standalonePCLQs {
+		oldEntries = deductPCLQPodsFromOldEntries(oldEntries, pclqName, needed)
 	}
-	for pcsgName, minAvailable := range template.pcsgs {
-		remainingOldPCSGReplicas[pcsgName] -= minAvailable
+
+	// Deduct PCSG replicas from old entries (lowest index first).
+	for pcsgName, needed := range template.pcsgs {
+		oldEntries = deductPCSGReplicasFromOldEntries(oldEntries, pcsgName, needed)
 	}
 
 	// Check if another full MVU can be formed after this deduction.
-	canFormAnother := canFormMVUPodGang(template, remainingOldStandalonePCLQPodCounts, remainingOldPCSGReplicas)
-	if !canFormAnother {
+	if !canFormMVUPodGang(template, oldEntries) {
 		// Absorb ALL remaining standalone PCLQ pods into this MVU PodGang.
 		// PCSG replicas are NOT absorbed — they remain for Tail-PGs.
-		for pclq := range template.standalonePCLQs {
-			if remainingOldStandalonePCLQPodCounts[pclq] > 0 {
-				nextMVUStandAlonePCLQs[pclq] += remainingOldStandalonePCLQPodCounts[pclq]
-				remainingOldStandalonePCLQPodCounts[pclq] = 0
+		for pclqName := range template.standalonePCLQs {
+			remaining := sumPCLQPodsInEntries(oldEntries, pclqName)
+			if remaining > 0 {
+				nextMVUStandalonePCLQs[pclqName] += remaining
+				oldEntries = deductPCLQPodsFromOldEntries(oldEntries, pclqName, remaining)
 			}
 		}
 	}
 
-	return []grovecorev1alpha1.PodGangEntry{entryBuilder(nextMVUStandAlonePCLQs, template.pcsgs, false)}
+	// Remove old entries that have no pods and no replicas left.
+	updatedOldEntries = removeEmptyEntries(oldEntries)
+	newEntries = []grovecorev1alpha1.PodGangEntry{entryBuilder(nextMVUStandalonePCLQs, template.pcsgs, false)}
+	return
 }
 
-// computeTailPodGangs create one Tail-PG per remaining PCSG replica.
-// Returns the Tail-PG entries and whether the update is done (true if no remaining replicas).
-func computeTailPodGangs(remainingOldPCSGReplicas map[string]int32, entryBuilder podGangEntryBuilder) ([]grovecorev1alpha1.PodGangEntry, bool) {
-	var entries []grovecorev1alpha1.PodGangEntry
-	for pcsg, count := range remainingOldPCSGReplicas {
-		for range count {
-			entry := entryBuilder(nil, map[string]int32{pcsg: 1}, true)
-			entries = append(entries, entry)
+// computeTailPodGangs creates one Tail-PG per remaining PCSG replica in the old entries.
+// Deducts replicas from old entries (lowest-indexed first).
+func computeTailPodGangs(
+	template mvuTemplate,
+	oldEntries []grovecorev1alpha1.PodGangEntry,
+	entryBuilder podGangEntryBuilder,
+) (updatedOldEntries []grovecorev1alpha1.PodGangEntry, newEntries []grovecorev1alpha1.PodGangEntry, done bool) {
+	for pcsgName := range template.pcsgs {
+		remaining := sumPCSGReplicasInEntries(oldEntries, pcsgName)
+		for range remaining {
+			newEntries = append(newEntries, entryBuilder(nil, map[string]int32{pcsgName: 1}, true))
+			oldEntries = deductPCSGReplicasFromOldEntries(oldEntries, pcsgName, 1)
 		}
-		remainingOldPCSGReplicas[pcsg] = 0
 	}
 
-	if len(entries) == 0 {
-		return nil, true
+	updatedOldEntries = removeEmptyEntries(oldEntries)
+	if len(newEntries) == 0 {
+		return updatedOldEntries, nil, true
 	}
+	return updatedOldEntries, newEntries, false
+}
 
-	return entries, false
+// sumPCLQPodsInEntries sums the pod count for a given standalone PCLQ across all entries.
+func sumPCLQPodsInEntries(entries []grovecorev1alpha1.PodGangEntry, pclqName string) int32 {
+	var total int32
+	for _, entry := range entries {
+		total += entry.PodCliques[pclqName]
+	}
+	return total
+}
+
+// sumPCSGReplicasInEntries sums the replica count for a given PCSG across all entries.
+func sumPCSGReplicasInEntries(entries []grovecorev1alpha1.PodGangEntry, pcsgName string) int32 {
+	var total int32
+	for _, entry := range entries {
+		total += entry.PodCliqueScalingGroups[pcsgName]
+	}
+	return total
+}
+
+// deductPCLQPodsFromOldEntries deducts the specified number of pods for a PCLQ from old
+// entries, starting from the lowest-indexed entry.
+func deductPCLQPodsFromOldEntries(entries []grovecorev1alpha1.PodGangEntry, pclqName string, toDeduct int32) []grovecorev1alpha1.PodGangEntry {
+	for i := range entries {
+		available := entries[i].PodCliques[pclqName]
+		if available <= 0 {
+			continue
+		}
+		take := min(available, toDeduct)
+		entries[i].PodCliques[pclqName] -= take
+		toDeduct -= take
+		if toDeduct == 0 {
+			break
+		}
+	}
+	return entries
+}
+
+// deductPCSGReplicasFromOldEntries deducts the specified number of replicas for a PCSG from
+// old entries, starting from the lowest-indexed entry.
+func deductPCSGReplicasFromOldEntries(entries []grovecorev1alpha1.PodGangEntry, pcsgName string, toDeduct int32) []grovecorev1alpha1.PodGangEntry {
+	for i := range entries {
+		available := entries[i].PodCliqueScalingGroups[pcsgName]
+		if available <= 0 {
+			continue
+		}
+		take := min(available, toDeduct)
+		entries[i].PodCliqueScalingGroups[pcsgName] -= take
+		toDeduct -= take
+		if toDeduct == 0 {
+			break
+		}
+	}
+	return entries
+}
+
+// removeEmptyEntries removes entries where all PodClique and PodCliqueScalingGroup counts are zero.
+func removeEmptyEntries(entries []grovecorev1alpha1.PodGangEntry) []grovecorev1alpha1.PodGangEntry {
+	return slices.DeleteFunc(entries, func(entry grovecorev1alpha1.PodGangEntry) bool {
+		for _, count := range entry.PodCliques {
+			if count > 0 {
+				return false
+			}
+		}
+		for _, count := range entry.PodCliqueScalingGroups {
+			if count > 0 {
+				return false
+			}
+		}
+		return true
+	})
 }
