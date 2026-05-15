@@ -97,7 +97,7 @@ func findUpdatedPodCliques(pcs *grovecorev1alpha1.PodCliqueSet, existingPCLQs []
 	return
 }
 
-type podGangEntryBuilder func(standalonePCLQPods map[string]int32, pcsgReplicas map[string]int32, isTailPG bool) grovecorev1alpha1.PodGangEntry
+type podGangEntryBuilder func(standalonePCLQPods map[string]int32, pcsgReplicas map[string]int32) grovecorev1alpha1.PodGangEntry
 
 // podGangMapState captures the state of the PodGangMap after a computation step:
 // the updated old entries (with decremented counts) and newly introduced entries.
@@ -189,7 +189,7 @@ func computeNextMVUPodGang(
 
 	// Remove old entries that have no pods and no replicas left.
 	updatedOldEntries = removeEmptyEntries(oldEntries)
-	newEntries = []grovecorev1alpha1.PodGangEntry{entryBuilder(nextMVUStandalonePCLQs, template.pcsgs, false)}
+	newEntries = []grovecorev1alpha1.PodGangEntry{entryBuilder(nextMVUStandalonePCLQs, template.pcsgs)}
 	return
 }
 
@@ -203,7 +203,7 @@ func computeTailPodGangs(
 	for pcsgName := range template.pcsgs {
 		remaining := sumPCSGReplicasInEntries(oldEntries, pcsgName)
 		for range remaining {
-			newEntries = append(newEntries, entryBuilder(nil, map[string]int32{pcsgName: 1}, true))
+			newEntries = append(newEntries, entryBuilder(nil, map[string]int32{pcsgName: 1}))
 			oldEntries = deductPCSGReplicasFromOldEntries(oldEntries, pcsgName, 1)
 		}
 	}

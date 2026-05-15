@@ -1413,11 +1413,11 @@ func makePCSWithTopology(ns, name string, topologyName string) *grovecorev1alpha
 	return pcs
 }
 
-// makeClusterTopologyWithLevels creates a ClusterTopology with the given levels.
-func makeClusterTopologyWithLevels(name string, levels []grovecorev1alpha1.TopologyLevel) *grovecorev1alpha1.ClusterTopology {
-	return &grovecorev1alpha1.ClusterTopology{
+// makeClusterTopologyBindingWithLevels creates a ClusterTopologyBinding with the given levels.
+func makeClusterTopologyBindingWithLevels(name string, levels []grovecorev1alpha1.TopologyLevel) *grovecorev1alpha1.ClusterTopologyBinding {
+	return &grovecorev1alpha1.ClusterTopologyBinding{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec:       grovecorev1alpha1.ClusterTopologySpec{Levels: levels},
+		Spec:       grovecorev1alpha1.ClusterTopologyBindingSpec{Levels: levels},
 	}
 }
 
@@ -1500,7 +1500,7 @@ func TestPrepareSyncFlowTopologyResolution(t *testing.T) {
 			if tc.clusterTopologyExists {
 				topologyName, err := componentutils.ResolveTopologyNameForPodCliqueSet(pcs)
 				require.NoError(t, err)
-				objs = append(objs, makeClusterTopologyWithLevels(topologyName, ctLevels))
+				objs = append(objs, makeClusterTopologyBindingWithLevels(topologyName, ctLevels))
 			}
 
 			fakeClient := testutils.NewTestClientBuilder().WithObjects(objs...).Build()
@@ -1596,7 +1596,7 @@ func TestCreateOrUpdatePodGangs_ClearsStaleTopologyStateOnExistingPodGang(t *tes
 				return makePCSWithTopology(ns, pcsName, "my-topology")
 			},
 			clusterTopologyObjects: []client.Object{
-				makeClusterTopologyWithLevels("my-topology", []grovecorev1alpha1.TopologyLevel{
+				makeClusterTopologyBindingWithLevels("my-topology", []grovecorev1alpha1.TopologyLevel{
 					{Domain: "zone", Key: "topology.kubernetes.io/zone"},
 				}),
 			},
@@ -1752,7 +1752,7 @@ func TestBuildResourceTopologyAnnotation(t *testing.T) {
 				objs = append(objs, pgm)
 			}
 			if tc.topologyName != "" {
-				objs = append(objs, makeClusterTopologyWithLevels(tc.topologyName, ctLevels))
+				objs = append(objs, makeClusterTopologyBindingWithLevels(tc.topologyName, ctLevels))
 			}
 
 			fakeClient := testutils.NewTestClientBuilder().
