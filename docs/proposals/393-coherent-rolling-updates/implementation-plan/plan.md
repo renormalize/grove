@@ -554,14 +554,201 @@ Run `make generate manifests`. Check `operator/internal/webhook` for any strateg
 
 ---
 
+## Revision 2: Rules for Computing PodGang Entries During Coherent Update
+
+This section defines the deterministic rules used by the PodGangMap component to compute the next
+set of PodGang entries during a coherent update. These rules supersede the take-down set computation
+described in Step 6 above.
+
+### Phase 1: Determine MVU Shape and Template (computed once at update start)
+
+**Step A: Identify which components participate in the MVU**
+
+1. Identify all standalone PCLQs whose pod spec has changed (new PCS generation hash differs from previous)
+2. Identify all PCSGs that have at least one constituent PCLQ whose pod spec has changed — the entire
+   PCSG is treated as updated regardless of how many of its constituent PCLQs actually changed
+
+**Step B: Compute the MVU template from the identified components**
+
+The MVU template is a map describing the composition of one MVU PodGang:
+- For each updated standalone PCLQ: key = PCLQ FQN, value = `minAvailable` (number of pods)
+- For each updated PCSG: key = PCSG FQN, value = `minAvailable` (number of PCSG replicas; each
+  replica brings ALL its constituent PCLQs with all their pods)
+
+The MVU template is **fixed for the entire duration of the update**. It does not change between iterations.
+
+---
+
+### Phase 2: Special Case — No MVU PodGangs Needed (Rule 0)
+
+**Condition:** Only one standalone PCLQ is updated AND its `minAvailable == 1` AND no PCSGs are updated.
+
+**Behavior:** No MPGs are created. Pods are replaced in-place in their original PodGang. No PodGangMap
+is created. The coherent update mechanism is not triggered — this degrades to in-place replacement semantics.
+
+---
+
+### Phase 3: Iterative Computation of Next PodGang Entries
+
+**Inputs for each iteration:**
+- `mvuTemplate`: the fixed template from Phase 1 (standalone PCLQs with their minAvailable counts +
+  PCSGs with their minAvailable counts)
+- `remainingOldPods[pclq]`: count of old-version pods still to be taken down, per updated standalone PCLQ
+- `remainingOldReplicas[pcsg]`: count of old-version PCSG replicas still to be taken down, per updated PCSG
+
+---
+
+#### Rule 1: Can a full MVU be formed?
+
+```
+canFormMVU =
+    for ALL standalone PCLQ in mvuTemplate: remainingOldPods[pclq] >= mvuTemplate[pclq]
+    AND
+    for ALL PCSG in mvuTemplate: remainingOldReplicas[pcsg] >= mvuTemplate[pcsg]
+```
+
+---
+
+#### Rule 2: If `canFormMVU = true` → create exactly 1 MVU PodGang
+
+**2a.** Compose the MVU PodGang entry with:
+- `minAvailable` pods from each updated standalone PCLQ
+- `minAvailable` replicas from each updated PCSG
+
+**2b.** Deduct from remaining:
+- `remainingOldPods[pclq] -= mvuTemplate[pclq]` for each standalone PCLQ
+- `remainingOldReplicas[pcsg] -= mvuTemplate[pcsg]` for each PCSG
+
+**2c.** Check if another full MVU can be formed from what remains:
+```
+canFormAnotherMVU =
+    for ALL standalone PCLQ in mvuTemplate: remainingOldPods[pclq] >= mvuTemplate[pclq]
+    AND
+    for ALL PCSG in mvuTemplate: remainingOldReplicas[pcsg] >= mvuTemplate[pcsg]
+```
+
+- If `canFormAnotherMVU = true` → Output = **[1 MVU PodGang entry]** with exactly minAvailable of
+  each component. Wait for Available.
+- If `canFormAnotherMVU = false` → Absorb ALL remaining standalone PCLQ pods into this MVU PodGang
+  (extra pods above minAvailable). PCSG replicas are NOT absorbed — they are left for Tail-PGs.
+  Output = **[1 MVU PodGang entry with minAvailable PCSGs + ALL remaining standalone PCLQ pods]**.
+  Wait for Available.
+
+---
+
+#### Rule 3: If `canFormMVU = false` → only Tail-PGs remain
+
+At this point:
+- No standalone PCLQ pods should remain (they were absorbed into the last MVU PodGang per Rule 2c)
+- Only remaining old-version PCSG replicas are left
+
+**Composition:**
+- Each Tail-PG = exactly 1 PCSG replica (with all its constituent PCLQs and all their pods)
+- All Tail-PGs are created **together** in a single iteration
+
+**Output** = **[N Tail-PG entries]** (one per remaining PCSG replica). Wait for all to become Available.
+
+---
+
+### Summary of Invariants
+
+| # | Invariant |
+|---|-----------|
+| 1 | One MVU PodGang per iteration — never more than one MVU PodGang created at a time |
+| 2 | Standalone PCLQ pods never become Tail-PGs — they are absorbed into the last MVU PodGang |
+| 3 | Tail-PGs are PCSG-only — each contains exactly 1 PCSG replica |
+| 4 | All Tail-PGs created together in a single final iteration |
+| 5 | Wait for Available between MVU iterations |
+| 6 | MVU template is fixed per update — does not change between iterations |
+| 7 | Rule 0 (single standalone PCLQ, minAvailable==1, no PCSGs) bypasses the entire MVU mechanism |
+
+---
+
+### Walkthrough Against GREP Examples
+
+**Case #1: All PCLQs updated (Frontend + Prefill PCSG + Decode PCSG)**
+
+- MVU template: {F:2, P:1, D:1}
+- Initial: remainingOldPods={F:5}, remainingOldReplicas={P:4, D:3}
+
+```
+Iteration 1: canFormMVU? Yes (5≥2, 4≥1, 3≥1).
+  Create MVU {2F, 1P, 1D}. Remaining: {F:3, P:3, D:2}.
+  canFormAnotherMVU? Yes (3≥2, 3≥1, 2≥1).
+  Output: [MVU {2F,1P,1D}]. Wait.
+
+Iteration 2: canFormMVU? Yes (3≥2, 3≥1, 2≥1).
+  Create MVU {2F, 1P, 1D}. Remaining: {F:1, P:2, D:1}.
+  canFormAnotherMVU? No (F:1<2).
+  Absorb remaining F: MVU becomes {3F, 1P, 1D}.
+  Output: [MVU {3F,1P,1D}]. Wait.
+
+Iteration 3: canFormMVU? No (F:0<2).
+  Only Tail-PGs remain: {P:2, D:1}.
+  Output: [Tail-PG {1P}, Tail-PG {1P}, Tail-PG {1D}]. Wait.
+```
+Final state: MPG: {2F,1P,1D}, {3F,1P,1D}, Tail-MPGs: {1P}, {1P}, {1D} ✓
+
+**Case #2: Prefill and Decode PCSGs updated**
+
+- MVU template: {P:1, D:1}
+- Initial: remainingOldReplicas={P:4, D:3}
+
+```
+Iteration 1: canFormMVU? Yes (4≥1, 3≥1).
+  Create MVU {1P, 1D}. Remaining: {P:3, D:2}.
+  canFormAnotherMVU? Yes (3≥1, 2≥1).
+  Output: [MVU {1P,1D}]. Wait.
+
+Iteration 2: canFormMVU? Yes (3≥1, 2≥1).
+  Create MVU {1P, 1D}. Remaining: {P:2, D:1}.
+  canFormAnotherMVU? Yes (2≥1, 1≥1).
+  Output: [MVU {1P,1D}]. Wait.
+
+Iteration 3: canFormMVU? Yes (2≥1, 1≥1).
+  Create MVU {1P, 1D}. Remaining: {P:1, D:0}.
+  canFormAnotherMVU? No (D:0<1).
+  No standalone PCLQ pods to absorb.
+  Output: [MVU {1P,1D}]. Wait.
+
+Iteration 4: canFormMVU? No (D:0<1).
+  Only Tail-PGs remain: {P:1}.
+  Output: [Tail-PG {1P}]. Wait.
+```
+Final state: MPG: {1P,1D}, {1P,1D}, {1P,1D}, Tail-MPG: {1P} ✓
+
+**Case #3: Only Frontend (standalone PCLQ) updated**
+
+- MVU template: {F:2}
+- Initial: remainingOldPods={F:5}
+
+```
+Iteration 1: canFormMVU? Yes (5≥2).
+  Create MVU {2F}. Remaining: {F:3}.
+  canFormAnotherMVU? Yes (3≥2).
+  Output: [MVU {2F}]. Wait.
+
+Iteration 2: canFormMVU? Yes (3≥2).
+  Create MVU {2F}. Remaining: {F:1}.
+  canFormAnotherMVU? No (1<2).
+  Absorb remaining F: MVU becomes {3F}.
+  Output: [MVU {3F}]. Wait.
+
+Iteration 3: canFormMVU? No (F:0<2). No remaining. Done.
+```
+Final state: MPG: {2F}, {3F} ✓
+
+---
+
 ## Verification
 
 1. Unit tests for `orchestrateCoherentUpdate`: first takedown, MPG creation via PodGangMap, MPG availability wait, tail-MPG, update completion.
 2. Unit tests for `PodGangMap` component: all 4 cases (BPG/SPG, MPG, Coherent update, RollingRecreate).
-3. Existing `podcliquesetreplica_test.go` must still pass (RollingRecreate regression).
-4. Manual smoke test: 2-replica PCS (1 standalone PCLQ + 1 PCSG), trigger image update under Coherent strategy — verify PodGangMap updated each iteration, MPGs created in order, old PodGangs emptied and deleted, pods come up with new image.
-5. New PCS deployed under Coherent: verify PodGangMap created before any pods, initial deployment creates MPGs directly.
-6. `make test` and `make lint`.
+3. Unit tests for MVU entry computation rules: all 3 GREP cases + edge cases (single PCLQ minAvailable==1, no PCSGs, only PCSGs, mixed).
+4. Existing `podcliquesetreplica_test.go` must still pass (RollingRecreate regression).
+5. Manual smoke test: 2-replica PCS (1 standalone PCLQ + 1 PCSG), trigger image update under Coherent strategy — verify PodGangMap updated each iteration, MPGs created in order, old PodGangs emptied and deleted, pods come up with new image.
+6. New PCS deployed under Coherent: verify PodGangMap created before any pods, initial deployment creates MPGs directly.
+7. `make test` and `make lint`.
 
 ---
 

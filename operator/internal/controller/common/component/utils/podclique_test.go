@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
+	"github.com/ai-dynamo/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 
 	"github.com/stretchr/testify/assert"
@@ -408,6 +409,55 @@ func TestIsLastPCLQUpdateCompleted(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			result := IsLastPCLQUpdateCompleted(tc.pclq)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestIsStandalonePCLQ(t *testing.T) {
+	tests := []struct {
+		name     string
+		pclq     *grovecorev1alpha1.PodClique
+		expected bool
+	}{
+		{
+			name: "standalone PCLQ owned by PodCliqueSet",
+			pclq: &grovecorev1alpha1.PodClique{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pcs-0-frontend",
+					OwnerReferences: []metav1.OwnerReference{
+						{Kind: constants.KindPodCliqueSet, Name: "pcs"},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "PCSG-owned PCLQ owned by PodCliqueScalingGroup",
+			pclq: &grovecorev1alpha1.PodClique{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pcs-0-prefill-0-pworker",
+					OwnerReferences: []metav1.OwnerReference{
+						{Kind: constants.KindPodCliqueScalingGroup, Name: "pcs-0-prefill"},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "PCLQ with no owner references",
+			pclq: &grovecorev1alpha1.PodClique{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "orphan-pclq",
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := IsStandalonePCLQ(tc.pclq)
 			assert.Equal(t, tc.expected, result)
 		})
 	}
