@@ -154,6 +154,13 @@ func ComputePCLQPodTemplateHash(pclqTemplateSpec *grovecorev1alpha1.PodCliqueTem
 	return k8sutils.ComputeHash(&podTemplateSpec)
 }
 
+// IsStandalonePCLQ checks if the given PCLQ is a standalone PCLQ.
+// A PCLQ is considered standalone when its owner is PCS.
+func IsStandalonePCLQ(pclq *grovecorev1alpha1.PodClique) bool {
+	ownerRefs := pclq.OwnerReferences
+	return len(ownerRefs) > 0 && ownerRefs[0].Kind == constants.KindPodCliqueSet
+}
+
 // IsPCLQAutoUpdateInProgress checks if PodClique is under an auto-orchestrated update.
 func IsPCLQAutoUpdateInProgress(pclq *grovecorev1alpha1.PodClique) bool {
 	return pclq.Status.UpdateProgress != nil && pclq.Status.UpdateProgress.UpdateEndedAt == nil
