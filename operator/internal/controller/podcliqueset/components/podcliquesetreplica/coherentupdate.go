@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"slices"
 
+	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
 	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
@@ -29,6 +30,7 @@ import (
 
 	groveschedulerv1alpha1 "github.com/ai-dynamo/grove/scheduler/api/core/v1alpha1"
 	"github.com/go-logr/logr"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
@@ -84,11 +86,7 @@ func (r _resource) checkAndAdvanceCoherentUpdate(ctx context.Context, logger log
 	replicaIndex := currentProgress.ReplicaIndex
 
 	if len(currentProgress.InFlightPodGangs) == 0 {
-		return groveerr.New(
-			groveerr.ErrCodeContinueReconcileAndRequeue,
-			component.OperationSync,
-			fmt.Sprintf("waiting for PodGangMap to compute next update intent for replica %d", replicaIndex),
-		)
+		return r.populateInFlightPodGangs(ctx, logger, pcs, currentProgress)
 	}
 
 	// Check if all in-flight PodGangs have become Available.
@@ -158,4 +156,62 @@ func (w *coherentPendingWork) getNextPendingReplicaByIndex() *int {
 	}
 	slices.Sort(w.pendingReplicaIndices)
 	return &w.pendingReplicaIndices[0]
+}
+
+// populateInFlightPodGangs reads the PodGangMap for the currently-updating replica,
+// identifies new-hash entries whose PodGangs are not yet Available, and sets them
+// as InFlightPodGangs in the PCS status.
+func (r _resource) populateInFlightPodGangs(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, currentProgress *grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress) error {
+	replicaIndex := currentProgress.ReplicaIndex
+	pgmName := apicommon.GeneratePodGangMapName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: int(replicaIndex)})
+
+	pgm, err := componentutils.GetPodGangMap(ctx, r.client, pgmName, pcs.Namespace)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return groveerr.New(
+				groveerr.ErrCodeContinueReconcileAndRequeue,
+				component.OperationSync,
+				fmt.Sprintf("PodGangMap %s not found for replica %d, requeueing", pgmName, replicaIndex),
+			)
+		}
+		return groveerr.WrapError(err,
+			errCodeListPCLQs,
+			component.OperationSync,
+			fmt.Sprintf("failed to get PodGangMap %s for replica %d", pgmName, replicaIndex),
+		)
+	}
+
+	newHashEntries := componentutils.FilterPodGangMapEntriesByGenerationHash(pgm.Spec.Entries, *pcs.Status.CurrentGenerationHash)
+
+	var inFlightNames []string
+	for _, entry := range newHashEntries {
+		pg, err := componentutils.GetPodGang(ctx, r.client, entry.Name, pcs.Namespace)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				inFlightNames = append(inFlightNames, entry.Name)
+				continue
+			}
+			return groveerr.WrapError(err,
+				errCodeListPCLQs,
+				component.OperationSync,
+				fmt.Sprintf("failed to get PodGang %s to check availability", entry.Name),
+			)
+		}
+		if !k8sutils.IsConditionTrue(pg.Status.Conditions, string(groveschedulerv1alpha1.PodGangConditionTypeAvailable)) {
+			inFlightNames = append(inFlightNames, entry.Name)
+		}
+	}
+
+	if len(inFlightNames) == 0 {
+		return groveerr.New(
+			groveerr.ErrCodeContinueReconcileAndRequeue,
+			component.OperationSync,
+			fmt.Sprintf("no new in-flight PodGangs found for replica %d, requeueing", replicaIndex),
+		)
+	}
+
+	logger.Info("Populating InFlightPodGangs from PodGangMap", "replicaIndex", replicaIndex, "inFlightPodGangs", inFlightNames)
+	original := pcs.DeepCopy()
+	currentProgress.InFlightPodGangs = inFlightNames
+	return r.patchUpdateProgressStatus(ctx, logger, pcs, original)
 }

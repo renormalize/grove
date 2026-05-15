@@ -32,26 +32,26 @@ func TestGetPodGangMapEntriesByGenerationHash(t *testing.T) {
 	}
 
 	t.Run("returns entries matching old hash", func(t *testing.T) {
-		result := GetPodGangMapEntriesByGenerationHash(entries, "hash-old")
+		result := FilterPodGangMapEntriesByGenerationHash(entries, "hash-old")
 		assert.Len(t, result, 2)
 		assert.Equal(t, "pg-0", result[0].Name)
 		assert.Equal(t, "pg-2", result[1].Name)
 	})
 
 	t.Run("returns entries matching new hash", func(t *testing.T) {
-		result := GetPodGangMapEntriesByGenerationHash(entries, "hash-new")
+		result := FilterPodGangMapEntriesByGenerationHash(entries, "hash-new")
 		assert.Len(t, result, 2)
 		assert.Equal(t, "pg-1", result[0].Name)
 		assert.Equal(t, "pg-3", result[1].Name)
 	})
 
 	t.Run("returns empty for non-existent hash", func(t *testing.T) {
-		result := GetPodGangMapEntriesByGenerationHash(entries, "hash-unknown")
+		result := FilterPodGangMapEntriesByGenerationHash(entries, "hash-unknown")
 		assert.Empty(t, result)
 	})
 
 	t.Run("returns empty for empty entries", func(t *testing.T) {
-		result := GetPodGangMapEntriesByGenerationHash(nil, "hash-old")
+		result := FilterPodGangMapEntriesByGenerationHash(nil, "hash-old")
 		assert.Empty(t, result)
 	})
 }

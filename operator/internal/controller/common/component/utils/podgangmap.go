@@ -17,11 +17,23 @@
 package utils
 
 import (
+	"context"
+
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// GetPodGangMapEntriesByGenerationHash returns entries that match the given PodCliqueSetGenerationHash.
-func GetPodGangMapEntriesByGenerationHash(entries []grovecorev1alpha1.PodGangEntry, hash string) []grovecorev1alpha1.PodGangEntry {
+// GetPodGangMap fetches a PodGangMap by name and namespace.
+func GetPodGangMap(ctx context.Context, cl client.Client, podGangMapName, namespace string) (*grovecorev1alpha1.PodGangMap, error) {
+	pgm := &grovecorev1alpha1.PodGangMap{}
+	if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: podGangMapName}, pgm); err != nil {
+		return nil, err
+	}
+	return pgm, nil
+}
+
+// FilterPodGangMapEntriesByGenerationHash returns entries that match the given PodCliqueSetGenerationHash.
+func FilterPodGangMapEntriesByGenerationHash(entries []grovecorev1alpha1.PodGangEntry, hash string) []grovecorev1alpha1.PodGangEntry {
 	result := make([]grovecorev1alpha1.PodGangEntry, 0, len(entries))
 	for _, entry := range entries {
 		if entry.PodCliqueSetGenerationHash == hash {
