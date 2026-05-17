@@ -97,8 +97,6 @@ func findUpdatedPodCliques(pcs *grovecorev1alpha1.PodCliqueSet, existingPCLQs []
 	return
 }
 
-type podGangEntryBuilder func(standalonePCLQPods map[string]int32, pcsgReplicas map[string]int32) grovecorev1alpha1.PodGangEntry
-
 // podGangMapState captures the state of the PodGangMap after a computation step:
 // the updated old entries (with decremented counts) and newly introduced entries.
 type podGangMapState struct {
@@ -126,7 +124,7 @@ type podGangMapState struct {
 func computeNextPodGangMapState(
 	template mvuTemplate,
 	oldEntries []grovecorev1alpha1.PodGangEntry,
-	entryBuilder podGangEntryBuilder,
+	entryBuilder componentutils.PodGangEntryBuilder,
 ) podGangMapState {
 	if canFormMVUPodGang(template, oldEntries) {
 		oldEntries, newEntries := computeNextMVUPodGang(template, oldEntries, entryBuilder)
@@ -159,7 +157,7 @@ func canFormMVUPodGang(template mvuTemplate, oldEntries []grovecorev1alpha1.PodG
 func computeNextMVUPodGang(
 	template mvuTemplate,
 	oldEntries []grovecorev1alpha1.PodGangEntry,
-	entryBuilder podGangEntryBuilder,
+	entryBuilder componentutils.PodGangEntryBuilder,
 ) (updatedOldEntries []grovecorev1alpha1.PodGangEntry, newEntries []grovecorev1alpha1.PodGangEntry) {
 	// Clone standalone PCLQ counts from template — may grow if absorption happens.
 	nextMVUStandalonePCLQs := maps.Clone(template.standalonePCLQs)
@@ -198,7 +196,7 @@ func computeNextMVUPodGang(
 func computeTailPodGangs(
 	template mvuTemplate,
 	oldEntries []grovecorev1alpha1.PodGangEntry,
-	entryBuilder podGangEntryBuilder,
+	entryBuilder componentutils.PodGangEntryBuilder,
 ) (updatedOldEntries []grovecorev1alpha1.PodGangEntry, newEntries []grovecorev1alpha1.PodGangEntry, done bool) {
 	for pcsgName := range template.pcsgs {
 		remaining := sumPCSGReplicasInEntries(oldEntries, pcsgName)

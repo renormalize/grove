@@ -390,16 +390,7 @@ func (r _resource) computeCoherentUpdateEntries(ctx context.Context, pcs *grovec
 
 	// Build the entry builder closure for generating new PodGang names.
 	nextPodGangIndex := getCreatedPodGangCount(pcs, replicaIndex)
-	entryBuilder := func(standalonePCLQPods map[string]int32, pcsgReplicas map[string]int32) grovecorev1alpha1.PodGangEntry {
-		name := apicommon.GeneratePodGangName(pcs.Name, int32(replicaIndex), newGenerationHash, nextPodGangIndex)
-		nextPodGangIndex++
-		return grovecorev1alpha1.PodGangEntry{
-			Name:                       name,
-			PodCliqueSetGenerationHash: newGenerationHash,
-			PodCliques:                 standalonePCLQPods,
-			PodCliqueScalingGroups:     pcsgReplicas,
-		}
-	}
+	entryBuilder := componentutils.NewPodGangEntryBuilder(pcs.Name, int32(replicaIndex), newGenerationHash, &nextPodGangIndex)
 
 	// Compute next iteration's state.
 	state := computeNextPodGangMapState(*template, oldEntries, entryBuilder)
