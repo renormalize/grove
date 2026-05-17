@@ -9041,6 +9041,15 @@ spec:
                   by the controller.
                 format: int64
                 type: integer
+              podGangReplicaMap:
+                additionalProperties:
+                  format: int32
+                  type: integer
+                description: |-
+                  PodGangMapping maps PodGangs to pods of a PodClique.
+                  The key of this map is the name of the PodGang and the value is the number of Pods that
+                  are associated to this PodGang.
+                type: object
               readyReplicas:
                 default: 0
                 description: ReadyReplicas is the number of ready Pods targeted by

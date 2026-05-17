@@ -572,6 +572,13 @@ func (in *PodCliqueScalingGroupStatus) DeepCopyInto(out *PodCliqueScalingGroupSt
 		*out = new(PodCliqueScalingGroupUpdateProgress)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.PodGangMapping != nil {
+		in, out := &in.PodGangMapping, &out.PodGangMapping
+		*out = make(map[string]int32, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	return
 }
 
@@ -974,6 +981,13 @@ func (in *PodCliqueStatus) DeepCopyInto(out *PodCliqueStatus) {
 		in, out := &in.UpdateProgress, &out.UpdateProgress
 		*out = new(PodCliqueUpdateProgress)
 		(*in).DeepCopyInto(*out)
+	}
+	if in.PodGangMapping != nil {
+		in, out := &in.PodGangMapping, &out.PodGangMapping
+		*out = make(map[string]int32, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
 	}
 	return
 }
