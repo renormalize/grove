@@ -69,6 +69,7 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pc
 	// mutate PodClique Status Replicas, ReadyReplicas, ScheduleGatedReplicas and UpdatedReplicas.
 	mutateReplicas(pclq, podCategories, len(existingPods))
 	mutateUpdatedReplica(pclq, existingPods)
+	mutatePodGangMapping(pclq, existingPods)
 
 	// mutate the conditions only if the PodClique has been successfully reconciled at least once.
 	// This prevents prematurely setting incorrect conditions.
@@ -160,6 +161,23 @@ func mutateUpdatedReplica(pclq *grovecorev1alpha1.PodClique, existingPods []*cor
 			return agg
 		}, 0)
 		pclq.Status.UpdatedReplicas = int32(updatedReplicas)
+	}
+}
+
+// mutatePodGangMapping updates PodGangMapping by counting pods per PodGang from pod labels.
+func mutatePodGangMapping(pclq *grovecorev1alpha1.PodClique, existingPods []*corev1.Pod) {
+	podGangMapping := make(map[string]int32)
+	for _, pod := range existingPods {
+		pgName, ok := pod.Labels[apicommon.LabelPodGang]
+		if !ok {
+			continue
+		}
+		podGangMapping[pgName]++
+	}
+	if len(podGangMapping) > 0 {
+		pclq.Status.PodGangMapping = podGangMapping
+	} else {
+		pclq.Status.PodGangMapping = nil
 	}
 }
 
