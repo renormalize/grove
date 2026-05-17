@@ -98,16 +98,6 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pcs 
 		// handles this via the TopologyNameMissing condition.
 	}
 
-	if err = r.computeExpectedPodGangs(ctx, sc); err != nil {
-		return nil, groveerr.WrapError(err,
-			errCodeComputeExistingPodGangs,
-			component.OperationSync,
-			fmt.Sprintf("failed to compute existing PodGangs for PodCliqueSet %v", pcsObjectKey),
-		)
-	}
-	sc.expectedPodGangByName = podGangInfoByName(sc.expectedPodGangs)
-	sc.expectedPodGangNameSet = podGangInfoNameSet(sc.expectedPodGangs)
-
 	sc.existingPodGangs, err = componentutils.GetExistingPodGangs(ctx, r.client, pcs.ObjectMeta, pcs.Namespace)
 	if err != nil {
 		return nil, groveerr.WrapError(err,
@@ -117,6 +107,16 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pcs 
 		)
 	}
 	sc.existingPodGangByName = componentutils.PodGangByName(sc.existingPodGangs)
+
+	if err = r.computeExpectedPodGangs(ctx, sc); err != nil {
+		return nil, groveerr.WrapError(err,
+			errCodeComputeExistingPodGangs,
+			component.OperationSync,
+			fmt.Sprintf("failed to compute expected PodGangs for PodCliqueSet %v", pcsObjectKey),
+		)
+	}
+	sc.expectedPodGangByName = podGangInfoByName(sc.expectedPodGangs)
+	sc.expectedPodGangNameSet = podGangInfoNameSet(sc.expectedPodGangs)
 
 	sc.existingPCLQPods, err = r.getExistingPodsByPCLQForPCS(ctx, pcsObjectKey)
 	if err != nil {
@@ -148,22 +148,23 @@ func (r _resource) getExistingPCLQsForPCS(ctx context.Context, pcs *grovecorev1a
 }
 
 // computeExpectedPodGangs computes expected PodGangs by reading the PodGangMap for each PCS replica.
+// PodGangMap is the single source of truth for PodGang composition in all cases.
 func (r _resource) computeExpectedPodGangs(ctx context.Context, sc *syncContext) error {
 	for replicaIndex := range int(sc.pcs.Spec.Replicas) {
 		pgmName := apicommon.GeneratePodGangMapName(apicommon.ResourceNameReplica{Name: sc.pcs.Name, Replica: replicaIndex})
-		pgm := &grovecorev1alpha1.PodGangMap{}
-		if err := r.client.Get(ctx, client.ObjectKey{Namespace: sc.pcs.Namespace, Name: pgmName}, pgm); err != nil {
+		pgm, err := componentutils.GetPodGangMap(ctx, r.client, pgmName, sc.pcs.Namespace)
+		if err != nil {
 			return err
 		}
 		pcsgReplicaOffset := make(map[string]int32)
 		for _, entry := range pgm.Spec.Entries {
-			pg, err := r.buildPodGangInfoFromEntry(sc, replicaIndex, entry, pcsgReplicaOffset)
+			pgi, err := r.buildPodGangInfoFromEntry(sc, replicaIndex, entry, pcsgReplicaOffset)
 			if err != nil {
 				return fmt.Errorf("failed to build PodGang info from entry %q in PodGangMap %s: %w", entry.Name, pgmName, err)
 			}
-			sc.expectedPodGangs = append(sc.expectedPodGangs, pg)
-			for pcsgName, count := range entry.PodCliqueScalingGroups {
-				pcsgReplicaOffset[pcsgName] += count
+			sc.expectedPodGangs = append(sc.expectedPodGangs, pgi)
+			for pcsgName, replicas := range entry.PodCliqueScalingGroups {
+				pcsgReplicaOffset[pcsgName] += replicas
 			}
 		}
 	}
@@ -195,7 +196,7 @@ func buildStandalonePCLQInfos(sc *syncContext, pcsReplicaIndex int, pgEntry grov
 	var pclqs []pclqInfo
 	for _, cliqueTemplate := range sc.pcs.Spec.Template.Cliques {
 		pclqFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: sc.pcs.Name, Replica: pcsReplicaIndex}, cliqueTemplate.Name)
-		desiredPCLQReplicas, ok := pgEntry.PodCliques[pclqFQN]
+		desiredPCLQReplicas, ok := pgEntry.PodCliques[cliqueTemplate.Name]
 		if !ok {
 			continue
 		}
@@ -219,11 +220,11 @@ func buildPCLQInfosAndTopologyConstraintsForPCSGs(sc *syncContext, pcsReplicaInd
 	)
 	for _, pcsgConfig := range sc.pcs.Spec.Template.PodCliqueScalingGroupConfigs {
 		pcsgFQN := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: sc.pcs.Name, Replica: pcsReplicaIndex}, pcsgConfig.Name)
-		desiredPCSGReplicas, ok := pgEntry.PodCliqueScalingGroups[pcsgFQN]
+		desiredPCSGReplicas, ok := pgEntry.PodCliqueScalingGroups[pcsgConfig.Name]
 		if !ok {
 			continue
 		}
-		startIndex := pcsgReplicaOffset[pcsgFQN]
+		startIndex := pcsgReplicaOffset[pcsgConfig.Name]
 		for replicaIdx := startIndex; replicaIdx < startIndex+desiredPCSGReplicas; replicaIdx++ {
 			pclqFQNs := make([]string, 0, len(pcsgConfig.CliqueNames))
 			for _, cliqueName := range pcsgConfig.CliqueNames {

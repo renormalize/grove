@@ -75,7 +75,7 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 		for _, cliqueTemplate := range pcs.Spec.Template.Cliques {
 			fqn := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex}, cliqueTemplate.Name)
 			if standaloneFQNs.Has(fqn) {
-				bpgPodCliques[fqn] = cliqueTemplate.Spec.Replicas
+				bpgPodCliques[cliqueTemplate.Name] = cliqueTemplate.Spec.Replicas
 			}
 		}
 
@@ -93,7 +93,8 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 		if len(pcsgForReplica) > 0 {
 			for _, pcsg := range pcsgForReplica {
 				if pcsg.Spec.MinAvailable != nil {
-					bpgPCSGs[pcsg.Name] = *pcsg.Spec.MinAvailable
+					pcsgName := apicommon.ExtractScalingGroupNameFromPCSGFQN(pcsg.Name, apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex})
+					bpgPCSGs[pcsgName] = *pcsg.Spec.MinAvailable
 				}
 			}
 			bpgName := apicommon.GenerateBasePodGangName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex})
@@ -108,22 +109,22 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 				if pcsg.Spec.MinAvailable == nil {
 					continue
 				}
+				pcsgName := apicommon.ExtractScalingGroupNameFromPCSGFQN(pcsg.Name, apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex})
 				minAvail := *pcsg.Spec.MinAvailable
 				for scaledIdx := range pcsg.Spec.Replicas - minAvail {
 					spgName := apicommon.CreatePodGangNameFromPCSGFQN(pcsg.Name, int(scaledIdx))
 					entries = append(entries, grovecorev1alpha1.PodGangEntry{
 						Name:                       spgName,
 						PodCliqueSetGenerationHash: generationHash,
-						PodCliqueScalingGroups:     map[string]int32{pcsg.Name: 1},
+						PodCliqueScalingGroups:     map[string]int32{pcsgName: 1},
 					})
 				}
 			}
 		} else if len(pcs.Spec.Template.PodCliqueScalingGroupConfigs) > 0 {
 			// No PCSG objects yet — derive from template config.
 			for _, cfg := range pcs.Spec.Template.PodCliqueScalingGroupConfigs {
-				pcsgFQN := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex}, cfg.Name)
 				if cfg.MinAvailable != nil {
-					bpgPCSGs[pcsgFQN] = *cfg.MinAvailable
+					bpgPCSGs[cfg.Name] = *cfg.MinAvailable
 				}
 			}
 			bpgName := apicommon.GenerateBasePodGangName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex})
@@ -145,7 +146,7 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 					entries = append(entries, grovecorev1alpha1.PodGangEntry{
 						Name:                       spgName,
 						PodCliqueSetGenerationHash: generationHash,
-						PodCliqueScalingGroups:     map[string]int32{pcsgFQN: 1},
+						PodCliqueScalingGroups:     map[string]int32{cfg.Name: 1},
 					})
 				}
 			}
