@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	"github.com/ai-dynamo/grove/operator/api/common/constants"
@@ -94,11 +93,10 @@ func (r _resource) getPCSReplicaInfos(ctx context.Context, pcs *grovecorev1alpha
 		if slices.Contains(pcsIndicesToTerminate, pcsReplicaIndex) {
 			continue
 		}
-		pcsReplicaIndexStr := strconv.Itoa(pcsReplicaIndex)
 		replicaInfos = append(replicaInfos, pcsReplicaInfo{
 			replicaIndex: pcsReplicaIndex,
-			pclqs:        pclqsByPCSIndex[pcsReplicaIndexStr],
-			pcsgs:        pcsgsByPCSIndex[pcsReplicaIndexStr],
+			pclqs:        pclqsByPCSIndex[pcsReplicaIndex],
+			pcsgs:        pcsgsByPCSIndex[pcsReplicaIndex],
 		})
 	}
 	return replicaInfos, nil

@@ -327,8 +327,8 @@ func TestGetPCSGsByPCSReplicaIndex(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
-		assert.Len(t, result["0"], 2)
-		assert.Len(t, result["1"], 1)
+		assert.Len(t, result[0], 2)
+		assert.Len(t, result[1], 1)
 	})
 
 	t.Run("skips PCSGs without replica index label", func(t *testing.T) {
@@ -359,7 +359,7 @@ func TestGetPCSGsByPCSReplicaIndex(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Len(t, result, 1)
-		assert.Len(t, result["0"], 1)
+		assert.Len(t, result[0], 1)
 	})
 
 	t.Run("returns empty map when no PCSGs exist", func(t *testing.T) {

@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 
 	apicommonconstants "github.com/ai-dynamo/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
@@ -146,13 +145,18 @@ func (r *Reconciler) computeAvailableAndUpdatedReplicas(ctx context.Context, log
 	})
 
 	// Group both resources by PCS replica index
-	standalonePCLQsByReplica := componentutils.GroupPCLQsByPCSReplicaIndex(standalonePCLQs)
-	pcsgsByReplica := componentutils.GroupPCSGsByPCSReplicaIndex(pcsgs)
+	standalonePCLQsByReplica, err := componentutils.GroupPCLQsByPCSReplicaIndex(standalonePCLQs)
+	if err != nil {
+		return pcsReplicaStats{}, err
+	}
+	pcsgsByReplica, err := componentutils.GroupPCSGsByPCSReplicaIndex(pcsgs)
+	if err != nil {
+		return pcsReplicaStats{}, err
+	}
 
 	for replicaIndex := 0; replicaIndex < int(pcs.Spec.Replicas); replicaIndex++ {
-		replicaIndexStr := strconv.Itoa(replicaIndex)
-		replicaStandalonePCLQs := standalonePCLQsByReplica[replicaIndexStr]
-		replicaPCSGs := pcsgsByReplica[replicaIndexStr]
+		replicaStandalonePCLQs := standalonePCLQsByReplica[replicaIndex]
+		replicaPCSGs := pcsgsByReplica[replicaIndex]
 		expectedPCSGCount := len(expectedPCSGFQNsPerPCSReplica[replicaIndex])
 		expectedPCLQCount := len(expectedStandAlonePCLQFQNsPerPCSReplica[replicaIndex])
 

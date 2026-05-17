@@ -43,22 +43,22 @@ func FilterPodGangMapEntriesByGenerationHash(entries []grovecorev1alpha1.PodGang
 	return result
 }
 
-// GetPodGangMapEntriesForPCLQ returns all entries that reference the given standalone PCLQ FQN.
-func GetPodGangMapEntriesForPCLQ(entries []grovecorev1alpha1.PodGangEntry, pclqFQN string) []grovecorev1alpha1.PodGangEntry {
+// GetPodGangMapEntriesForPCLQ returns all entries that reference the given standalone PodClique name.
+func GetPodGangMapEntriesForPCLQ(entries []grovecorev1alpha1.PodGangEntry, pclqName string) []grovecorev1alpha1.PodGangEntry {
 	result := make([]grovecorev1alpha1.PodGangEntry, 0, len(entries))
 	for _, entry := range entries {
-		if _, ok := entry.PodCliques[pclqFQN]; ok {
+		if _, ok := entry.PodCliques[pclqName]; ok {
 			result = append(result, entry)
 		}
 	}
 	return result
 }
 
-// GetPodGangMapEntriesForPCSG returns all entries that reference the given PCSG FQN.
-func GetPodGangMapEntriesForPCSG(entries []grovecorev1alpha1.PodGangEntry, pcsgFQN string) []grovecorev1alpha1.PodGangEntry {
+// GetPodGangMapEntriesForPCSG returns all entries that reference the given PodCliqueScalingGroup name.
+func GetPodGangMapEntriesForPCSG(entries []grovecorev1alpha1.PodGangEntry, pcsgName string) []grovecorev1alpha1.PodGangEntry {
 	result := make([]grovecorev1alpha1.PodGangEntry, 0, len(entries))
 	for _, entry := range entries {
-		if _, ok := entry.PodCliqueScalingGroups[pcsgFQN]; ok {
+		if _, ok := entry.PodCliqueScalingGroups[pcsgName]; ok {
 			result = append(result, entry)
 		}
 	}
