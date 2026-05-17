@@ -451,49 +451,63 @@ gate-removal path (same as any other PodGang). The orchestrator simply waits for
 
 ---
 
-### Step 7 — PCLQ controller: use PodGangMap for pod creation (`operator/internal/controller/podclique/`)
+### Step 7 — PCLQ pod component: PodGang assignment and coherent update (`operator/internal/controller/podclique/components/pod/`)
 
-#### 7a — `processUpdate()` early-exit for Coherent (`reconcilespec.go` line 72)
+#### 7a — `syncContext` additions
 
-```go
-if pcs.Spec.UpdateStrategy != nil && pcs.Spec.UpdateStrategy.Type == grovecorev1alpha1.CoherentStrategy {
-    // PodGangMap drives pod replacement for Coherent; PCLQ controller skips its own update orchestration.
-    return ctrlcommon.ContinueReconcile()
-}
+Pre-computed in `prepareSyncFlow`:
+- `isStandalonePCLQ` — whether the PCLQ is standalone (owner is PCS)
+- `pcsReplicaIndex` — PCS replica index from PCLQ label
+- `cliqueName` — unqualified clique name extracted from PCLQ FQN
+
+#### 7b — `runSyncFlow` dispatch
+
+```
+if diff < 0 && !isStandalonePCLQCoherentUpdate(sc):
+    createPods → resolvePodGangNamesForNewPods → assignPodsToDeficitPodGangs
+if isStandalonePCLQCoherentUpdate(sc):
+    processCoherentUpdate (coherentupdate.go)
+elif rollingRecreateUpdate:
+    processPendingUpdates (unchanged)
 ```
 
-#### 7b — Pod sync: read PodGangMap to determine pod count and PodGang assignment (`components/pod/syncflow.go`)
+`isStandalonePCLQCoherentUpdate` returns true when: standalone PCLQ + coherent update in progress + PCLQ auto update in progress.
 
-In `prepareSyncFlow`, after fetching the PCLQ, fetch the `PodGangMap` for this PCS replica. The pod creation
-logic differs based on whether the PCLQ is standalone or owned by a PCSG:
+During standalone coherent update, pod creation from the diff logic is **skipped** — deficit is resolved by `processCoherentUpdate` or future PodGangMap iterations.
 
-**Standalone PCLQ** — look up by PCLQ name in `entry.PodCliques`:
-1. Find the entry where `entry.PodCliques` contains this PCLQ's name
-2. Count existing pods with `grove.io/podgang == entry.Name` AND `PodCliqueSetGenerationHash == entry.PodCliqueSetGenerationHash` (idempotency guard — handles requeues where some pods were already created)
-3. Create delta pods up to `entry.PodCliques[pclqName]` with `grove.io/podgang: <entry.Name>` set at creation time and scheduling gate set
-4. Entry quota is a hard ceiling — do not use `spec.replicas` as the creation driver (see eviction note below)
+#### 7c — `resolvePodGangNamesForNewPods` (steady state + rolling recreate)
 
-**PCSG-owned PCLQ** — look up by owning PCSG name in `entry.PodCliqueScalingGroups`:
-1. Find the entry where `entry.PodCliqueScalingGroups` contains the owning PCSG's name
-2. Count existing pods with `grove.io/podgang == entry.Name` AND `PodCliqueSetGenerationHash == entry.PodCliqueSetGenerationHash` (same idempotency guard)
-3. Create delta pods up to `spec.replicas` (always all pods — the PCSG decides replica granularity, not the PCLQ) with `grove.io/podgang: <entry.Name>` set at creation time and scheduling gate set
-4. No entry quota ceiling here — `spec.replicas` is always the target for PCSG-owned PCLQs
+Determines per-pod PodGang assignment:
+- **PCSG-owned PCLQ**: all pods go to `associatedPodGangName` from PCLQ label (set by PCSG reconciler)
+- **Standalone PCLQ**: reads PodGangMap via `GetPodGangMapForPCSReplica`, calls `assignPodsToDeficitPodGangs`
 
-This replaces the current logic of inheriting `grove.io/podgang` from the PCLQ resource label — pods now get the label directly from the `PodGangMap` entry at creation time. The `PodCliqueScalingGroups` map in the entry is sufficient for PCSG-owned PCLQ association — there is no need to enumerate PCSG-owned PCLQs explicitly in `PodCliques`.
+`assignPodsToDeficitPodGangs` iterates PodGangMap entries, assigns pods to PodGangs that have fewer pods than their desired count. For scale-out beyond PodGangMap desired counts, assigns to highest-indexed MVU PodGang (`findHighestMVUPodGangForClique`).
 
-**Important (standalone PCLQs only):** Under Coherent updates, the entry quota is a hard ceiling on pod
-creation. Consider this scenario: the orchestrator takes down 2 old pods of PCLQ `F` to place them into
-MPG-1 (entry count = 2). Before the PCLQ reconciler reacts, a third old pod of `F` is evicted due to node
-failure. The PCLQ reconciler must still only create 2 new pods (matching the MPG-1 entry quota), not 3.
-The evicted old pod is intentionally not replaced — there is no PodGangMap entry that accommodates a
-new-spec pod for it, and creating one would leave it without a PodGang association. It will be accounted
-for in a subsequent iteration when the orchestrator advances the takedown set.
+Handles BPG/SPG (single entry → all pods go there) and MVU (multiple entries → distribute by deficit) uniformly.
 
-`reconcilestatus.go` is untouched — it generically tracks `UpdatedReplicas` and `CurrentPodTemplateHash` as pods come up.
-Under Coherent, `processUpdate()` is skipped but `reconcilestatus.go` still runs on every reconcile and updates
-`currentPodCliqueSetGenerationHash`, `updatedReplicas`, `scheduledReplicas` etc. from live pod state.
-The coherent orchestrator relies on these fields in `computeCoherentPendingWork` to determine whether all pods
-of a PCLQ have converged to the new generation hash — the same fields used by `isPCLQUpdateComplete` for RollingRecreate.
+#### 7d — `processCoherentUpdate` (coherentupdate.go — new file)
+
+Called only for standalone PCLQs during coherent update:
+1. Reads `InFlightPodGangs` from PCS status (defensive: returns nil if empty)
+2. Reads PodGangMap for this PCS replica
+3. `computeInFlightDeficits`: for each in-flight PodGang, determines how many pods this PCLQ needs (desired from entry - already existing pods in that PodGang)
+4. `getPodsFromDecrementedPodGangs`: identifies old PodGangs where actual pod count > PodGangMap desired count (i.e., replicas were taken from them). Returns all pods from those PodGangs as deletion candidates
+5. `selectPodsForDeletion`: uses existing `DeletionSorter` to pick the best pods for deletion from candidates
+6. Deletes selected pods, creates replacements assigned to in-flight PodGangs
+
+Key: does NOT select from all old pods — only from PodGangs that were specifically decremented by PodGangMap.
+
+#### 7e — PCSG-owned PCLQs during coherent update
+
+No special handling in PCLQ pod component. The PCSG reconciler handles the lifecycle:
+- Deletes old PCLQs for replicas being updated
+- Creates new PCLQs with correct `grove.io/podgang` label
+- PCLQ reconciler sees a brand new PCLQ → creates pods using the label
+
+**Files:**
+- `operator/internal/controller/podclique/components/pod/syncflow.go` — modified `syncContext`, `prepareSyncFlow`, `runSyncFlow`, `createPods`; new: `resolvePodGangNamesForNewPods`, `assignPodsToDeficitPodGangs`, `countPodsPerPodGang`, `findHighestMVUPodGangForClique`, `getPCSReplicaIndexFromPCLQ`, `isStandalonePCLQCoherentUpdate`
+- `operator/internal/controller/podclique/components/pod/coherentupdate.go` — **New**: `processCoherentUpdate`, `computeInFlightDeficits`, `getPodsFromDecrementedPodGangs`, `groupPodsByPodGang`, `selectPodsForDeletion`, `deletePodsForCoherentUpdate`, `createPodsForInFlightPodGangs`, `sumDeficits`
+- `operator/internal/controller/common/component/utils/podgangmap.go` — added `GetPodGangMapForPCSReplica`
 
 ---
 
@@ -940,6 +954,7 @@ func GetPCSGMinAvailableFromPCS(pcs *PodCliqueSet) map[string]int32
 
 ```go
 func GetPodGangMap(ctx context.Context, cl client.Client, podGangMapName, namespace string) (*PodGangMap, error)
+func GetPodGangMapForPCSReplica(ctx context.Context, cl client.Client, pcsName, namespace string, pcsReplicaIndex int) (*PodGangMap, error)
 func FilterPodGangMapEntriesByGenerationHash(entries []PodGangEntry, hash string) []PodGangEntry
 func GetPodGangMapEntriesForPCLQ(entries []PodGangEntry, pclqName string) []PodGangEntry
 func GetPodGangMapEntriesForPCSG(entries []PodGangEntry, pcsgName string) []PodGangEntry
@@ -956,9 +971,13 @@ func GetPodGangMapEntriesForPCSG(entries []PodGangEntry, pcsgName string) []PodG
 | `operator/api/core/v1alpha1/podclique.go` | Add `PodGangMapping` status field |
 | `operator/api/core/v1alpha1/scalinggroup.go` | Add `PodGangMapping` status field |
 | `operator/internal/controller/common/component/utils/mvu.go` | **New** — MVUTemplate, PodGangEntryBuilder, spec helper functions |
-| `operator/internal/controller/common/component/utils/podgangmap.go` | GetPodGangMap, FilterPodGangMapEntriesByGenerationHash, entry filters |
-| `operator/internal/controller/podclique/register.go` | Add PodGangMap watcher |
-| `operator/internal/controller/podcliquescalinggroup/register.go` | Add PodGangMap watcher |
+| `operator/internal/controller/common/component/utils/podgangmap.go` | GetPodGangMap, GetPodGangMapForPCSReplica, FilterPodGangMapEntriesByGenerationHash, entry filters |
+| `operator/internal/controller/podclique/components/pod/syncflow.go` | PodGang assignment via PodGangMap; `resolvePodGangNamesForNewPods`, `assignPodsToDeficitPodGangs`; coherent update dispatch |
+| `operator/internal/controller/podclique/components/pod/coherentupdate.go` | **New** — `processCoherentUpdate`, pod selection from decremented PodGangs, replacement creation |
+| `operator/internal/controller/podclique/reconcilestatus.go` | `mutatePodGangMapping` — counts pods per PodGang from labels |
+| `operator/internal/controller/podcliquescalinggroup/reconcilestatus.go` | `mutatePodGangMapping` — reads PodGang label from constituent PCLQs |
+| `operator/internal/controller/podcliqueset/reconcilestatus.go` | `mutatePodGangCounter` — counts PodGangMap entries per generation hash |
 | `operator/internal/controller/podcliqueset/components/podgang/syncflow.go` | Simplified `computeExpectedPodGangs` — always reads from PodGangMap; uses unqualified entry keys |
 | `operator/internal/controller/podcliqueset/components/podgangmap/podgangmap.go` | Interface methods, resource helpers |
 | `operator/internal/controller/podcliqueset/components/podgangmap/syncflow.go` | **New** — sync flow with steady-state (BPG/SPG + MVU from spec + status sync) and coherent update paths |
+| `operator/internal/controller/podcliqueset/components/podcliquesetreplica/coherentupdate.go` | `populateInFlightPodGangs` — reads PodGangMap, sets InFlightPodGangs in PCS status |
