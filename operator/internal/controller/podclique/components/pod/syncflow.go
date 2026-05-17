@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
@@ -57,6 +58,26 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 			errCodeGetPodCliqueSet,
 			component.OperationSync,
 			fmt.Sprintf("failed to get owner PodCliqueSet of PodClique: %v", client.ObjectKeyFromObject(pclq)),
+		)
+	}
+
+	sc.isStandalonePCLQ = componentutils.IsStandalonePCLQ(pclq)
+
+	sc.pcsReplicaIndex, err = getPCSReplicaIndexFromPCLQ(pclq)
+	if err != nil {
+		return nil, groveerr.WrapError(err,
+			errCodeGetPodCliqueSetReplicaIndex,
+			component.OperationSync,
+			fmt.Sprintf("failed to get PCS replica index from PodClique %s", pclq.Name),
+		)
+	}
+
+	sc.cliqueName, err = utils.GetPodCliqueNameFromPodCliqueFQN(pclq.ObjectMeta)
+	if err != nil {
+		return nil, groveerr.WrapError(err,
+			errCodeGetPodCliqueTemplate,
+			component.OperationSync,
+			fmt.Sprintf("failed to extract clique name from PodClique %s", pclq.Name),
 		)
 	}
 
@@ -117,6 +138,27 @@ func (r _resource) getAssociatedPodGangName(pclqObjectMeta metav1.ObjectMeta) (s
 	return podGangName, nil
 }
 
+// getPCSReplicaIndexFromPCLQ extracts the PCS replica index from the PCLQ's labels.
+func getPCSReplicaIndexFromPCLQ(pclq *grovecorev1alpha1.PodClique) (int, error) {
+	indexStr, ok := pclq.Labels[apicommon.LabelPodCliqueSetReplicaIndex]
+	if !ok {
+		return 0, fmt.Errorf("%s label missing on PodClique %s", apicommon.LabelPodCliqueSetReplicaIndex, pclq.Name)
+	}
+	idx, err := strconv.Atoi(indexStr)
+	if err != nil {
+		return 0, fmt.Errorf("%s label on PodClique %s is not a valid integer: %q", apicommon.LabelPodCliqueSetReplicaIndex, pclq.Name, indexStr)
+	}
+	return idx, nil
+}
+
+// isStandalonePCLQCoherentUpdate returns true when this PCLQ is a standalone PCLQ
+// that is part of an in-progress coherent update.
+func isStandalonePCLQCoherentUpdate(sc *syncContext) bool {
+	return sc.isStandalonePCLQ &&
+		componentutils.IsCoherentUpdateInProgress(sc.pcs) &&
+		componentutils.IsPCLQAutoUpdateInProgress(sc.pclq)
+}
+
 // getPodNamesUpdatedInAssociatedPodGang gathers all Pod names that are already updated in PodGroups defined in the PodGang resource.
 func (r _resource) getPodNamesUpdatedInAssociatedPodGang(existingPodGang *groveschedulerv1alpha1.PodGang, pclqFQN string) []string {
 	if existingPodGang == nil {
@@ -137,22 +179,27 @@ func (r _resource) getPodNamesUpdatedInAssociatedPodGang(existingPodGang *groves
 func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) syncFlowResult {
 	result := syncFlowResult{}
 	diff := r.syncExpectationsAndComputeDifference(logger, sc)
-	if diff < 0 {
+
+	if diff < 0 && !isStandalonePCLQCoherentUpdate(sc) {
 		logger.Info("found fewer pods than desired", "pclq.spec.replicas", sc.pclq.Spec.Replicas, "delta", diff)
 		diff *= -1
-		numScheduleGatedPods, err := r.createPods(sc.ctx, logger, sc, diff)
+		numCreated, err := r.createPods(sc.ctx, logger, sc, diff)
 		if err != nil {
 			logger.Error(err, "failed to create pods")
 			result.recordError(err)
 		}
-		logger.Info("created unassigned and scheduled gated pods", "numberOfCreatedPods", numScheduleGatedPods)
+		logger.Info("Created pods for PodClique", "numCreated", numCreated)
 	} else if diff > 0 {
 		if err := r.deleteExcessPods(sc, logger, diff); err != nil {
 			result.recordError(err)
 		}
 	}
 
-	if componentutils.IsRollingRecreateUpdateInProgress(sc.pcs) && componentutils.IsPCLQAutoUpdateInProgress(sc.pclq) {
+	if isStandalonePCLQCoherentUpdate(sc) {
+		if err := r.processCoherentUpdate(logger, sc); err != nil {
+			result.recordError(err)
+		}
+	} else if componentutils.IsRollingRecreateUpdateInProgress(sc.pcs) && componentutils.IsPCLQAutoUpdateInProgress(sc.pclq) {
 		if err := r.processPendingUpdates(logger, sc); err != nil {
 			result.recordError(err)
 		}
@@ -412,7 +459,6 @@ func hasPodGangSchedulingGate(pod *corev1.Pod) bool {
 
 // createPods creates the specified number of new pods for the PodClique with proper indexing and concurrency control
 func (r _resource) createPods(ctx context.Context, logger logr.Logger, sc *syncContext, numPods int) (int, error) {
-	// Pre-calculate all needed indices to avoid race conditions
 	availableIndices, err := index.GetAvailableIndices(logger, sc.existingPCLQPods, numPods)
 	if err != nil {
 		return 0, groveerr.WrapError(err,
@@ -421,12 +467,15 @@ func (r _resource) createPods(ctx context.Context, logger logr.Logger, sc *syncC
 			fmt.Sprintf("error getting available indices for Pods in PodClique %v", client.ObjectKeyFromObject(sc.pclq)),
 		)
 	}
+
+	podGangNames, err := r.resolvePodGangNamesForNewPods(ctx, sc, numPods)
+	if err != nil {
+		return 0, err
+	}
+
 	createTasks := make([]utils.Task, 0, numPods)
 	for i := range numPods {
-		// Get the available Pod host name index. This ensures that we fill the holes in the indices if there are any when creating
-		// new pods.
-		podHostNameIndex := availableIndices[i]
-		createTasks = append(createTasks, r.createPodCreationTask(logger, sc.pcs, sc.pclq, sc.associatedPodGangName, sc.pclqExpectationsStoreKey, i, podHostNameIndex))
+		createTasks = append(createTasks, r.createPodCreationTask(logger, sc.pcs, sc.pclq, podGangNames[i], sc.pclqExpectationsStoreKey, i, availableIndices[i]))
 	}
 	runResult := utils.RunConcurrentlyWithSlowStart(ctx, logger, 1, createTasks)
 	if runResult.HasErrors() {
@@ -437,6 +486,84 @@ func (r _resource) createPods(ctx context.Context, logger logr.Logger, sc *syncC
 	return len(runResult.SuccessfulTasks), nil
 }
 
+// resolvePodGangNamesForNewPods determines which PodGang each new pod should be assigned to.
+func (r _resource) resolvePodGangNamesForNewPods(ctx context.Context, sc *syncContext, numPods int) ([]string, error) {
+	if !sc.isStandalonePCLQ {
+		names := make([]string, numPods)
+		for i := range names {
+			names[i] = sc.associatedPodGangName
+		}
+		return names, nil
+	}
+
+	pgm, err := componentutils.GetPodGangMapForPCSReplica(ctx, r.client, sc.pcs.Name, sc.pclq.Namespace, sc.pcsReplicaIndex)
+	if err != nil {
+		return nil, groveerr.WrapError(err,
+			errCodeGetPodGang,
+			component.OperationSync,
+			fmt.Sprintf("failed to get PodGangMap for PCS replica %d", sc.pcsReplicaIndex),
+		)
+	}
+
+	return assignPodsToDeficitPodGangs(pgm.Spec.Entries, sc.cliqueName, sc.existingPCLQPods, numPods), nil
+}
+
+// assignPodsToDeficitPodGangs assigns pods to PodGangs that have fewer pods than desired per PodGangMap entries.
+// For scale-out beyond PodGangMap desired counts, assigns to highest-indexed MVU PodGang.
+func assignPodsToDeficitPodGangs(entries []grovecorev1alpha1.PodGangEntry, cliqueName string, existingPods []*corev1.Pod, numPods int) []string {
+	existingPodsPerPodGang := countPodsPerPodGang(existingPods)
+
+	var assignments []string
+	for _, entry := range entries {
+		desired, ok := entry.PodCliques[cliqueName]
+		if !ok {
+			continue
+		}
+		deficit := desired - existingPodsPerPodGang[entry.Name]
+		if deficit <= 0 {
+			continue
+		}
+		for range min(int(deficit), numPods-len(assignments)) {
+			assignments = append(assignments, entry.Name)
+		}
+		if len(assignments) >= numPods {
+			return assignments
+		}
+	}
+
+	if remaining := numPods - len(assignments); remaining > 0 {
+		highestMVU := findHighestMVUPodGangForClique(entries, cliqueName)
+		for range remaining {
+			assignments = append(assignments, highestMVU)
+		}
+	}
+
+	return assignments
+}
+
+// countPodsPerPodGang counts existing pods grouped by their PodGang label.
+func countPodsPerPodGang(pods []*corev1.Pod) map[string]int32 {
+	counts := make(map[string]int32)
+	for _, pod := range pods {
+		if pgName, ok := pod.Labels[apicommon.LabelPodGang]; ok {
+			counts[pgName]++
+		}
+	}
+	return counts
+}
+
+// findHighestMVUPodGangForClique returns the name of the last PodGangMap entry that references
+// the given clique. Entries are ordered lowest-index first, so last match = highest.
+func findHighestMVUPodGangForClique(entries []grovecorev1alpha1.PodGangEntry, cliqueName string) string {
+	var highest string
+	for _, entry := range entries {
+		if _, ok := entry.PodCliques[cliqueName]; ok {
+			highest = entry.Name
+		}
+	}
+	return highest
+}
+
 // Convenience functions, types and methods on these types that are used during sync flow run.
 // ------------------------------------------------------------------------------------------------
 
@@ -445,6 +572,9 @@ type syncContext struct {
 	ctx                             context.Context
 	pcs                             *grovecorev1alpha1.PodCliqueSet
 	pclq                            *grovecorev1alpha1.PodClique
+	isStandalonePCLQ                bool
+	pcsReplicaIndex                 int
+	cliqueName                      string
 	associatedPodGangName           string
 	existingPCLQPods                []*corev1.Pod
 	podNamesUpdatedInPCLQPodGangs   []string
