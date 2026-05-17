@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"time"
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
@@ -51,12 +52,12 @@ func GetPCLQsByOwner(ctx context.Context, cl client.Client, ownerKind string, ow
 }
 
 // GetPCLQsByOwnerReplicaIndex retrieves PodClique objects per replica of the owner resource matching provided selector labels.
-func GetPCLQsByOwnerReplicaIndex(ctx context.Context, cl client.Client, ownerKind string, ownerObjectKey client.ObjectKey, selectorLabels map[string]string) (map[string][]grovecorev1alpha1.PodClique, error) {
+func GetPCLQsByOwnerReplicaIndex(ctx context.Context, cl client.Client, ownerKind string, ownerObjectKey client.ObjectKey, selectorLabels map[string]string) (map[int][]grovecorev1alpha1.PodClique, error) {
 	pclqs, err := GetPCLQsByOwner(ctx, cl, ownerKind, ownerObjectKey, selectorLabels)
 	if err != nil {
 		return nil, err
 	}
-	return groupPCLQsByLabel(pclqs, apicommon.LabelPodCliqueSetReplicaIndex), nil
+	return GroupPCLQsByPCSReplicaIndex(pclqs)
 }
 
 // GetPCLQsMatchingLabels gets all the PodClique's in a given namespace matching selectorLabels.
@@ -82,8 +83,20 @@ func GroupPCLQsByPCSGReplicaIndex(pclqs []grovecorev1alpha1.PodClique) map[strin
 }
 
 // GroupPCLQsByPCSReplicaIndex filters PCLQs that have a PodCliqueSetReplicaIndex label and groups them by the PCS replica.
-func GroupPCLQsByPCSReplicaIndex(pclqs []grovecorev1alpha1.PodClique) map[string][]grovecorev1alpha1.PodClique {
-	return groupPCLQsByLabel(pclqs, apicommon.LabelPodCliqueSetReplicaIndex)
+func GroupPCLQsByPCSReplicaIndex(pclqs []grovecorev1alpha1.PodClique) (map[int][]grovecorev1alpha1.PodClique, error) {
+	grouped := make(map[int][]grovecorev1alpha1.PodClique)
+	for _, pclq := range pclqs {
+		labelValue, ok := pclq.Labels[apicommon.LabelPodCliqueSetReplicaIndex]
+		if !ok {
+			continue
+		}
+		replicaIndex, err := strconv.Atoi(labelValue)
+		if err != nil {
+			return nil, fmt.Errorf("%s label on PodClique %s is not a valid integer: %q", apicommon.LabelPodCliqueSetReplicaIndex, pclq.Name, labelValue)
+		}
+		grouped[replicaIndex] = append(grouped[replicaIndex], pclq)
+	}
+	return grouped, nil
 }
 
 // GetMinAvailableBreachedPCLQInfo filters PodCliques that have grovecorev1alpha1.ConditionTypeMinAvailableBreached set to true.
