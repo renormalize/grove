@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	"github.com/ai-dynamo/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	internalconstants "github.com/ai-dynamo/grove/operator/internal/constants"
@@ -858,4 +859,33 @@ func assertCondition(t *testing.T, pcsg *grovecorev1alpha1.PodCliqueScalingGroup
 	require.NotNil(t, condition, "MinAvailableBreached condition should exist")
 	isBreached := condition.Status == metav1.ConditionTrue
 	assert.Equal(t, expectBreached, isBreached, "condition breach status mismatch")
+}
+
+func TestMutatePodGangMapping_MultipleReplicasInDifferentPodGangs(t *testing.T) {
+	pcsg := &grovecorev1alpha1.PodCliqueScalingGroup{}
+	pclqsPerReplica := map[string][]grovecorev1alpha1.PodClique{
+		"0": {{ObjectMeta: metav1.ObjectMeta{Name: "pclq-0-worker", Labels: map[string]string{apicommon.LabelPodGang: "pg-mvu-0"}}}},
+		"1": {{ObjectMeta: metav1.ObjectMeta{Name: "pclq-1-worker", Labels: map[string]string{apicommon.LabelPodGang: "pg-mvu-0"}}}},
+		"2": {{ObjectMeta: metav1.ObjectMeta{Name: "pclq-2-worker", Labels: map[string]string{apicommon.LabelPodGang: "pg-tail-0"}}}},
+	}
+
+	mutatePodGangMapping(pcsg, pclqsPerReplica)
+	assert.Equal(t, map[string]int32{"pg-mvu-0": 2, "pg-tail-0": 1}, pcsg.Status.PodGangMapping)
+}
+
+func TestMutatePodGangMapping_NoPodGangLabel(t *testing.T) {
+	pcsg := &grovecorev1alpha1.PodCliqueScalingGroup{}
+	pclqsPerReplica := map[string][]grovecorev1alpha1.PodClique{
+		"0": {{ObjectMeta: metav1.ObjectMeta{Name: "pclq-0-worker", Labels: map[string]string{}}}},
+	}
+
+	mutatePodGangMapping(pcsg, pclqsPerReplica)
+	assert.Nil(t, pcsg.Status.PodGangMapping)
+}
+
+func TestMutatePodGangMapping_EmptyReplicas(t *testing.T) {
+	pcsg := &grovecorev1alpha1.PodCliqueScalingGroup{}
+
+	mutatePodGangMapping(pcsg, map[string][]grovecorev1alpha1.PodClique{})
+	assert.Nil(t, pcsg.Status.PodGangMapping)
 }
