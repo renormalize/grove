@@ -19,6 +19,7 @@ package utils
 import (
 	"context"
 
+	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -30,6 +31,12 @@ func GetPodGangMap(ctx context.Context, cl client.Client, podGangMapName, namesp
 		return nil, err
 	}
 	return pgm, nil
+}
+
+// GetPodGangMapForPCSReplica fetches the PodGangMap for a given PCS replica.
+func GetPodGangMapForPCSReplica(ctx context.Context, cl client.Client, pcsName, namespace string, pcsReplicaIndex int) (*grovecorev1alpha1.PodGangMap, error) {
+	pgmName := apicommon.GeneratePodGangMapName(apicommon.ResourceNameReplica{Name: pcsName, Replica: pcsReplicaIndex})
+	return GetPodGangMap(ctx, cl, pgmName, namespace)
 }
 
 // FilterPodGangMapEntriesByGenerationHash returns entries that match the given PodCliqueSetGenerationHash.
