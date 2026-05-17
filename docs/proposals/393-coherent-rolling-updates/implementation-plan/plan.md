@@ -234,52 +234,66 @@ type PodGangEntry struct {
 
 ---
 
-### Step 3 — New PodGangMap component (`operator/internal/controller/podcliqueset/components/podgangmap/`)
+### Step 3 — PodGangMap component (`operator/internal/controller/podcliqueset/components/podgangmap/`)
 
-New component responsible for computing and reconciling `PodGangMap` resources. Runs **before** PodGang, PCLQ, and PCSG components in the PCS reconcile loop.
+Component responsible for computing and reconciling `PodGangMap` resources. Runs **before** PodGang, PCLQ, and PCSG components in the PCS reconcile loop. PodGangMap is the **single source of truth** for PodGang composition in all cases — it always exists and is never deleted post-update.
 
-#### `computeEntries(pcs, existingPCLQs, existingPCSGs) []PodGangEntry`
+#### Lifecycle
 
-Computes desired entries based on PCS state:
+PodGangMap resources persist for the lifetime of the PCS. They are only deleted when the PCS itself is deleted (via the finalizer cleanup flow).
 
-- **Case 1 (existing BPG/SPG, no update):** derive BPG/SPG-convention entries from `pcs.Spec` + live PCLQ/PCSG replica counts.
-- **Case 2 (MPG topology, no update):** derive MPG-convention entries from `pcs.Spec` + live PCLQ/PCSG replica counts using MVU composition rules.
-- **Case 3 (Coherent update in progress):** old entries with decremented counts + new MPG entries from `InFlightPodGangs` + current iteration MPG entry.
-- **Case 4 (RollingRecreate update):** same structure as steady-state, `PodCliqueSetGenerationHash` updated to new PCS generation hash.
+#### Sync Flow (`syncflow.go`)
 
-The component creates/updates the `PodGangMap` resource for each PCS replica. On scale-out, a new `PodGangMap` is created for the new replica. On scale-in, the `PodGangMap` for the removed replica is deleted.
+Uses `prepareSyncFlow` / `runSyncFlow` pattern:
+- `prepareSyncFlow`: fetches PCLQs grouped by PCS replica, PCSGs grouped by PCS replica, and existing PodGangMap names.
+- `runSyncFlow`: dispatches based on whether a coherent update is in progress.
 
-#### Desired state semantics per scenario
+**Dispatch logic:**
+1. If `InFlightPodGangs` is populated → skip (orchestrator is waiting for PodGangs to become Available).
+2. If coherent update in progress → `syncCoherentUpdateEntries` (compute iterative MVU entries).
+3. Otherwise → `syncSteadyStateEntries` (per-replica steady-state logic).
 
-- **RollingRecreate update:** `PodGangMap` always reflects the **complete desired state** — the full set of PodGangs that should exist with the new `PodCliqueSetGenerationHash`. PCLQ/PCSG reconcilers replace pods in-place within the same PodGangs.
-- **Regular reconcile (no update, includes scale-out/in):** `PodGangMap` reflects the **complete desired state** — adjusts pod counts per PCLQ/PCSG in each existing entry to reflect current replica counts, and adds/removes entries for new/removed replicas. Always self-consistent.
-- **Coherent update:** `PodGangMap` reflects only the **desired state for the current iteration** — one MVU at a time. It is not a complete desired end-state but a stepwise approximation that advances each time the orchestrator moves to the next iteration. Old entries are decremented as pods are taken down; new MPG entries are added one round at a time.
+#### Steady-state per-replica logic (`syncSteadyStateEntries`)
 
-This distinction is important: consumers of `PodGangMap` (PodGang, PCLQ, PCSG components) always treat it as the authoritative desired state, but under Coherent updates they should expect it to change each iteration rather than converging in a single reconcile.
+For each PCS replica:
+- **PodGangMap doesn't exist** → `createPodGangMapForReplica`:
+  - If existing PCLQs exist and no `PodGangCounter` (legacy BPG/SPG PCS) → compute BPG/SPG entries from existing resources.
+  - Otherwise (new PCS replica) → compute MVU entries from PCS spec using `computeAllMVUPodGangEntries`.
+- **PodGangMap exists** → sync entries from PCLQ/PCSG `Status.PodGangMapping` fields.
 
-**Files:** `operator/internal/controller/podcliqueset/components/podgangmap/podgangmap.go` (new)
+#### PCLQ/PCSG Status `PodGangMapping` field
+
+Each PCLQ and PCSG maintains a `PodGangMapping` field in its status (`map[string]int32`):
+- For PCLQ: maps PodGang name → number of Pods of this PCLQ assigned to that PodGang.
+- For PCSG: maps PodGang name → number of replicas of this PCSG assigned to that PodGang.
+
+These are maintained by the respective reconcilers and used by PodGangMap component's `buildEntriesFromStatuses` to reconstruct PodGangMap entries. PodGangMap entry keys use **unqualified** component names (e.g., `"frontend"` not `"my-pcs-0-frontend"`).
+
+#### Coherent update logic (`syncCoherentUpdateEntries`)
+
+Unchanged from the original design — computes entries iteratively per reconcile, deducting from old entries and creating new MVU entries. Additionally handles excess PodGangMap deletion (from PCS replica scale-in during an active update).
+
+**Files:**
+- `operator/internal/controller/podcliqueset/components/podgangmap/podgangmap.go` — resource definition, CRUD helpers, interface methods
+- `operator/internal/controller/podcliqueset/components/podgangmap/syncflow.go` — sync flow orchestration and entry computation
+- `operator/internal/controller/podcliqueset/components/podgangmap/mvu.go` — MVU iteration logic for coherent updates
 
 ---
 
-### Step 4 — Rewrite PodGang sync flow (`operator/internal/controller/podcliqueset/components/podgang/syncflow.go`)
+### Step 4 — PodGang sync flow (`operator/internal/controller/podcliqueset/components/podgang/syncflow.go`)
 
-Replace BPG+SPG computation with `PodGangMap`-driven computation:
+PodGang component always reads from PodGangMap as its single source of truth:
 
-**Remove:** `buildExpectedBasePodGangForPCSReplicas()`, `buildExpectedBasePodGangForPCSReplica()`, `buildExpectedScaledPodGangsForPCSG()`, `doBuildExpectedScaledPodGangForPCSG()`, `buildStandalonePCLQInfosForBasePodGang()`, `buildPCSGPackConstraintsAndPCLQsForBasePodGang()`, `doBuildBasePodGangPCLQsAndPCSGPackConstraints()`, `buildPodCliqueInfo()`, `determinePodCliqueReplicas()`, `determinePCSGReplicas()`.
+**`computeExpectedPodGangs(ctx, sc)`** reads the `PodGangMap` for each PCS replica and delegates to `buildPodGangInfoFromEntry()` which is decomposed into:
 
-**Replace with:** `computeExpectedPodGangs(ctx, sc)` reads `PodGangMap` per replica and delegates to `buildPodGangInfoFromEntry()` which is decomposed into:
+- `buildStandalonePCLQInfos(sc, pcsReplicaIndex, entry) []pclqInfo` — builds pclqInfo entries for standalone PodCliques referenced in the entry. Looks up entries by **unqualified** clique name.
+- `buildPCLQInfosAndTopologyConstraintsForPCSGs(sc, pcsReplicaIndex, entry, pcsgReplicaOffset) ([]pclqInfo, []TopologyConstraintGroupConfig, error)` — builds PCSG-owned pclqInfo entries and TopologyConstraintGroupConfigs. Looks up entries by **unqualified** PCSG name.
 
-- `buildStandalonePCLQInfos(sc, pcsReplicaIndex, entry) []pclqInfo` — builds pclqInfo entries for standalone PodCliques referenced in the entry.
-- `buildPCLQInfosAndTopologyConstraintsForPCSGs(sc, pcsReplicaIndex, entry, pcsgReplicaOffset) ([]pclqInfo, []TopologyConstraintGroupConfig, error)` — builds PCSG-owned pclqInfo entries and TopologyConstraintGroupConfigs. Always emits sub-group constraints for PCSG members.
+PodGang-level topology is always set to the PCS-level constraint directly in `buildPodGangInfoFromEntry`.
 
-PodGang-level topology is always set to the PCS-level constraint directly in `buildPodGangInfoFromEntry` — no separate resolution function needed.
+`prepareSyncFlow` fetches `existingPodGangs` before `computeExpectedPodGangs` so that the sync flow has access to existing PodGangs for excess detection.
 
-`getExcessPodGangNames()` requires explicit consideration for the Coherent update case. Since `PodGangMap` under Coherent represents a progressive desired state (not a complete one), a PodGang that is no longer in the current `PodGangMap` entries does not immediately mean it is excess — it may still hold pods being drained by the orchestrator. The rule is:
-
-- A PodGang is excess if and only if it is **not present in the current `PodGangMap` entries AND has no pod references** (i.e. all its pods have been moved to new MPGs or deleted). This prevents premature deletion of old BPGs/SPGs mid-drain.
-- Under RollingRecreate and steady-state reconciles, `PodGangMap` always represents the complete desired state, so the standard excess check (not in expected set) applies directly.
-
-`getExcessPodGangNames()` must be updated to enforce this condition for the Coherent case: check pod references before marking a PodGang as excess.
+`getExcessPodGangNames()` — since PodGangMap always contains the complete set of entries (including old entries during coherent update that still have pods), an existing PodGang not in the expected set derived from PodGangMap is genuinely excess and safe to delete.
 
 **Files:** `operator/internal/controller/podcliqueset/components/podgang/syncflow.go`
 
@@ -893,7 +907,8 @@ is empty — this is the signal that the orchestrator is ready for the next set 
 - PCLQ fetches latest PodGangMap. If PGM does NOT reflect the increased replicas → do NOT create extra pods, **requeue**.
 - If PGM reflects it → create pods assigned to the appropriate PodGang entry.
 
-**Post-update (no PGM exists):**
+**Post-update steady state:**
+- PodGangMap always exists. PCLQ/PCSG reconcilers update their `Status.PodGangMapping` fields, and PodGangMap component syncs from those statuses.
 - Scale-out: assign new pod to highest-numbered MVU PodGang (use `grove.io/minimum-viable-unit` label to query).
 - Scale-in: use existing `DeletionSorter` criteria (unchanged from today).
 
@@ -901,19 +916,33 @@ is empty — this is the signal that the orchestrator is ready for the next set 
 
 ### R1.8 — Shared Utility Functions
 
-**File**: `operator/internal/controller/common/component/utils/podgangmap.go` (new)
+**File**: `operator/internal/controller/common/component/utils/mvu.go`
 
 ```go
-// GetHighestIndexedMVUPodGang returns the MVU entry with the highest index.
-// MVU entries have non-empty PodCliques map (full serving units).
-// Tail-PGs (PCSG-only) are excluded.
-func GetHighestIndexedMVUPodGang(entries []PodGangEntry) *PodGangEntry
+// MVUTemplate describes the composition of one MVU PodGang.
+type MVUTemplate struct {
+	StandalonePCLQs map[string]int32
+	PCSGs           map[string]int32
+}
 
-// IsMVUEntry returns true if the entry is an MVU (has standalone PCLQ pods).
-func IsMVUEntry(entry PodGangEntry) bool
+// PodGangEntryBuilder creates PodGangEntry values with sequentially-numbered names.
+type PodGangEntryBuilder func(standalonePCLQReplicas map[string]int32, pcsgReplicas map[string]int32) PodGangEntry
 
-// GetPodGangMapEntriesByGenerationHash filters entries by PodCliqueSetGenerationHash.
-func GetPodGangMapEntriesByGenerationHash(entries []PodGangEntry, hash string) []PodGangEntry
+func ComputeMVUTemplateFromPCS(pcs *PodCliqueSet) MVUTemplate
+func NewPodGangEntryBuilder(pcsName string, pcsReplicaIndex int32, pcsGenerationHash string, podGangIndex *int32) PodGangEntryBuilder
+func GetStandalonePCLQReplicasFromPCS(pcs *PodCliqueSet) map[string]int32
+func GetStandalonePCLQMinAvailableFromPCS(pcs *PodCliqueSet) map[string]int32
+func GetPCSGReplicasFromPCS(pcs *PodCliqueSet) map[string]int32
+func GetPCSGMinAvailableFromPCS(pcs *PodCliqueSet) map[string]int32
+```
+
+**File**: `operator/internal/controller/common/component/utils/podgangmap.go`
+
+```go
+func GetPodGangMap(ctx context.Context, cl client.Client, podGangMapName, namespace string) (*PodGangMap, error)
+func FilterPodGangMapEntriesByGenerationHash(entries []PodGangEntry, hash string) []PodGangEntry
+func GetPodGangMapEntriesForPCLQ(entries []PodGangEntry, pclqName string) []PodGangEntry
+func GetPodGangMapEntriesForPCSG(entries []PodGangEntry, pcsgName string) []PodGangEntry
 ```
 
 ---
@@ -924,8 +953,12 @@ func GetPodGangMapEntriesByGenerationHash(entries []PodGangEntry, hash string) [
 |---|---|
 | `scheduler/api/core/v1alpha1/podgang.go` | Add `PodGangConditionTypeAvailable`, reason constants |
 | `operator/api/common/labels.go` | Add `LabelMinimumViableUnit` constant |
-| `operator/internal/controller/common/component/utils/podgangmap.go` | **New** — shared MVU utility functions |
+| `operator/api/core/v1alpha1/podclique.go` | Add `PodGangMapping` status field |
+| `operator/api/core/v1alpha1/scalinggroup.go` | Add `PodGangMapping` status field |
+| `operator/internal/controller/common/component/utils/mvu.go` | **New** — MVUTemplate, PodGangEntryBuilder, spec helper functions |
+| `operator/internal/controller/common/component/utils/podgangmap.go` | GetPodGangMap, FilterPodGangMapEntriesByGenerationHash, entry filters |
 | `operator/internal/controller/podclique/register.go` | Add PodGangMap watcher |
 | `operator/internal/controller/podcliquescalinggroup/register.go` | Add PodGangMap watcher |
-| `operator/internal/controller/podcliqueset/components/podgang/syncflow.go` | Add Available condition logic, minReplicas=0 sequencing |
-| `operator/internal/controller/podcliqueset/components/podgang/podgang.go` | Add `setOrUpdateAvailableCondition` helper |
+| `operator/internal/controller/podcliqueset/components/podgang/syncflow.go` | Simplified `computeExpectedPodGangs` — always reads from PodGangMap; uses unqualified entry keys |
+| `operator/internal/controller/podcliqueset/components/podgangmap/podgangmap.go` | Interface methods, resource helpers |
+| `operator/internal/controller/podcliqueset/components/podgangmap/syncflow.go` | **New** — sync flow with steady-state (BPG/SPG + MVU from spec + status sync) and coherent update paths |

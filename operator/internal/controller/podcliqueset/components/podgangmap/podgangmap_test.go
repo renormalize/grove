@@ -31,7 +31,6 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestSync_NoPGMsExist_NoCoherentUpdate_NoOp(t *testing.T) {
@@ -58,43 +57,6 @@ func TestSync_RollingRecreate_NoPGMsExist_NoOp(t *testing.T) {
 
 	err := r.Sync(context.Background(), logr.Discard(), pcs)
 	require.NoError(t, err)
-}
-
-func TestSync_StalePGMsDeleted_WhenNoCoherentUpdate(t *testing.T) {
-	pcs := newTestPCS("my-pcs", "abc12xyz", nil, nil)
-	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{
-		Type: grovecorev1alpha1.CoherentStrategy,
-	}
-
-	pgm := &grovecorev1alpha1.PodGangMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "my-pcs-0",
-			Namespace: "default",
-			Labels:    getLabels("my-pcs", 0),
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: grovecorev1alpha1.SchemeGroupVersion.String(),
-					Kind:       "PodCliqueSet",
-					Name:       "my-pcs",
-					UID:        pcs.UID,
-					Controller: ptr.To(true),
-				},
-			},
-		},
-		Spec: grovecorev1alpha1.PodGangMapSpec{
-			PodCliqueSetReplicaIndex: 0,
-		},
-	}
-
-	cl := testutils.NewTestClientBuilder().WithObjects(pcs, pgm).Build()
-	r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
-
-	err := r.Sync(context.Background(), logr.Discard(), pcs)
-	require.NoError(t, err)
-
-	pgmList := &grovecorev1alpha1.PodGangMapList{}
-	require.NoError(t, cl.List(context.Background(), pgmList, client.InNamespace("default")))
-	assert.Empty(t, pgmList.Items)
 }
 
 func TestBuildEntryFromPodGang(t *testing.T) {
@@ -227,7 +189,7 @@ func TestExtractCliqueName(t *testing.T) {
 // MVU template: {Frontend: 2 pods, Prefill: 1 replica}
 //
 // Expected: old BPG reduced {F:3, P:0}, SPG unchanged {P:1}, new MVU entry {F:2, P:1}.
-func TestComputeCoherentUpdateEntries_FirstReconcile(t *testing.T) {
+func TestComputeCoherentUpdateEntries_PodGangMapNotFound(t *testing.T) {
 	oldHash := "oldhash12345"
 	newHash := "newhash12345"
 
