@@ -78,8 +78,20 @@ func GroupPCLQsByPodGangName(pclqs []grovecorev1alpha1.PodClique) map[string][]g
 }
 
 // GroupPCLQsByPCSGReplicaIndex filters PCLQs that have a PodCliqueScalingGroupReplicaIndex label and groups them by the PCSG replica.
-func GroupPCLQsByPCSGReplicaIndex(pclqs []grovecorev1alpha1.PodClique) map[string][]grovecorev1alpha1.PodClique {
-	return groupPCLQsByLabel(pclqs, apicommon.LabelPodCliqueScalingGroupReplicaIndex)
+func GroupPCLQsByPCSGReplicaIndex(pclqs []grovecorev1alpha1.PodClique) (map[int][]grovecorev1alpha1.PodClique, error) {
+	grouped := make(map[int][]grovecorev1alpha1.PodClique)
+	for _, pclq := range pclqs {
+		labelValue, ok := pclq.Labels[apicommon.LabelPodCliqueScalingGroupReplicaIndex]
+		if !ok {
+			continue
+		}
+		replicaIndex, err := strconv.Atoi(labelValue)
+		if err != nil {
+			return nil, fmt.Errorf("%s label on PodClique %s is not a valid integer: %q", apicommon.LabelPodCliqueScalingGroupReplicaIndex, pclq.Name, labelValue)
+		}
+		grouped[replicaIndex] = append(grouped[replicaIndex], pclq)
+	}
+	return grouped, nil
 }
 
 // GroupPCLQsByPCSReplicaIndex filters PCLQs that have a PodCliqueSetReplicaIndex label and groups them by the PCS replica.

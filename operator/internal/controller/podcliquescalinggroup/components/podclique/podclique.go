@@ -64,6 +64,7 @@ const (
 	errCodeComputePendingPodCliqueScalingGroupUpdateWork grovecorev1alpha1.ErrorCode = "ERR_COMPUTE_PENDINGUPDATE_WORK"
 	errCodeCreateOrUpdatePodCliques                      grovecorev1alpha1.ErrorCode = "ERR_CREATE_OR_UPDATE_PODCLIQUES"
 	errCodeSyncPCSGResourceClaim                         grovecorev1alpha1.ErrorCode = "ERR_SYNC_PCSG_RESOURCE_CLAIM"
+	errCodeGetPodGangMap                                 grovecorev1alpha1.ErrorCode = "ERR_GET_PODGANGMAP"
 )
 
 var (
@@ -179,22 +180,23 @@ func (r _resource) triggerDeletionOfPodCliques(ctx context.Context, logger logr.
 }
 
 // createDeleteTasks creates deletion tasks for PodCliques belonging to specific PCSG replica indices
-func (r _resource) createDeleteTasks(logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, pcsgName string, pcsgReplicasToDelete []string, reason string) []utils.Task {
+func (r _resource) createDeleteTasks(logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, pcsgName string, pcsgReplicasToDelete []int, reason string) []utils.Task {
 	deletionTasks := make([]utils.Task, 0, len(pcsgReplicasToDelete))
 	for _, pcsgReplicaIndex := range pcsgReplicasToDelete {
+		pcsgReplicaIndexStr := strconv.Itoa(pcsgReplicaIndex)
 		task := utils.Task{
-			Name: "DeletePCSGReplicaPodCliques-" + pcsgReplicaIndex,
+			Name: "DeletePCSGReplicaPodCliques-" + pcsgReplicaIndexStr,
 			Fn: func(ctx context.Context) error {
 				if err := r.client.DeleteAllOf(ctx,
 					&grovecorev1alpha1.PodClique{},
 					client.InNamespace(pcs.Namespace),
-					client.MatchingLabels(getLabelsToDeletePCSGReplicaIndexPCLQs(pcs.Name, pcsgName, pcsgReplicaIndex))); err != nil {
-					r.eventRecorder.Eventf(pcs, corev1.EventTypeWarning, constants.ReasonPodCliqueScalingGroupReplicaDeleteFailed, "Error deleting PodCliqueScalingGroup %s ReplicaIndex %s : %v", pcsgName, pcsgReplicaIndex, err)
+					client.MatchingLabels(getLabelsToDeletePCSGReplicaIndexPCLQs(pcs.Name, pcsgName, pcsgReplicaIndexStr))); err != nil {
+					r.eventRecorder.Eventf(pcs, corev1.EventTypeWarning, constants.ReasonPodCliqueScalingGroupReplicaDeleteFailed, "Error deleting PodCliqueScalingGroup %s ReplicaIndex %d : %v", pcsgName, pcsgReplicaIndex, err)
 					logger.Error(err, "failed to delete PodCliques for PCSG replica index", "pcsgReplicaIndex", pcsgReplicaIndex, "reason", reason)
 					return err
 				}
 				logger.Info("Deleting PodCliqueScalingGroup replica", "pcsgName", pcsgName, "pcsgReplicaIndex", pcsgReplicaIndex)
-				r.eventRecorder.Eventf(pcs, corev1.EventTypeNormal, constants.ReasonPodCliqueScalingGroupReplicaDeleteSuccessful, "Deleted PodCliqueScalingGroup %s replicaIndex: %s", pcsgName, pcsgReplicaIndex)
+				r.eventRecorder.Eventf(pcs, corev1.EventTypeNormal, constants.ReasonPodCliqueScalingGroupReplicaDeleteSuccessful, "Deleted PodCliqueScalingGroup %s replicaIndex: %d", pcsgName, pcsgReplicaIndex)
 				return nil
 			},
 		}

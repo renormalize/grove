@@ -511,15 +511,57 @@ No special handling in PCLQ pod component. The PCSG reconciler handles the lifec
 
 ---
 
-### Step 8 — PCSG controller: use PodGangMap for pod creation (`operator/internal/controller/podcliquescalinggroup/`)
+### Step 8 — PCSG controller: PodGang assignment and coherent update (`operator/internal/controller/podcliquescalinggroup/components/podclique/`)
 
-#### 8a — `processUpdate()` early-exit for Coherent (`reconcilespec.go` line 71)
+#### 8a — `runSyncFlow` reorganization (`syncflow.go`)
 
-Same 3-line guard as Step 7a.
+The flow is split into three phases, each guarded by `isPCSGCoherentUpdateInProgress` (true when `IsCoherentUpdateInProgress(pcs) && IsPCSGUpdateInProgress(pcsg)`):
 
-#### 8b — Pod sync: read PodGangMap
+```
+Phase 1 (steady-state replica management) — skipped during coherent update:
+  triggerDeletionOfExcessPCSGReplicas
+  createOrUpdatePCLQs (OnDelete) | createExpectedPCLQs (auto strategies)
 
-Same pattern as Step 7b — PCSG reconciler reads `PodGangMap` entries to determine how many PCSG replicas belong to each PodGang and creates them with correct `grove.io/podgang` label at creation time.
+Phase 2 (update handling):
+  if isPCSGCoherentUpdateInProgress: processCoherentUpdate (coherentupdate.go)
+  elif RollingRecreate && PCSGUpdateInProgress: processPendingUpdates
+
+Phase 3 (gang termination) — only when no PCSG update is in progress:
+  processMinAvailableBreachedPCSGReplicas
+```
+
+During coherent update both excess deletion and standard PCLQ creation are skipped — `processCoherentUpdate` owns the full lifecycle for the PCSG replicas being moved into in-flight PodGangs.
+
+#### 8b — `processCoherentUpdate` (coherentupdate.go — new file)
+
+1. Early exit if `CurrentlyUpdating` is empty or `InFlightPodGangs` is empty (orchestrator hasn't selected this iteration's PodGangs yet).
+2. Reads PodGangMap for this PCS replica via `GetPodGangMapForPCSReplica`.
+3. Extracts the unqualified PCSG name from the PCSG FQN via `ExtractScalingGroupNameFromPCSGFQN`.
+4. `computeInFlightPCSGDeficits`: for each in-flight PodGang, computes `desired - existing` PCSG replicas, where existing comes from counting unique PCSG replica indices on existing PCLQs grouped by PodGang label.
+5. `getReplicaIndicesFromDecrementedPodGangs`: walks PodGangMap entries that are NOT in the in-flight set, finds those where `existing replicas > desired` (decremented), and returns those replica indices as deletion candidates.
+6. Trims candidates to `min(totalDeficit, len(candidates))` — only delete what's needed.
+7. `deleteReplicasForCoherentUpdate` deletes the selected PCSG replicas (cascades to all PCLQs of those replicas via label selector).
+8. `createReplicasForInFlightPodGangs`:
+   - `buildReplicaAssignments` pairs each in-flight PodGang's deficit slot with a freed replica index — returns `map[int]string` (PCSG replica index → PodGang name).
+   - For each assignment, creates one PCLQ per `pcsgConfig.CliqueNames` via concurrent tasks, calling `doCreateWithPodGangName` which builds the standard PCLQ resource then overrides `Labels[grove.io/podgang]` to the assigned PodGang name.
+
+Reusing freed replica indices preserves index continuity within the PCSG — no need for an "allocate next available index" lookup.
+
+#### 8c — Label-parsing strictness
+
+`groupPCSGReplicaIndicesByPodGang` and the shared util `componentutils.GroupPCLQsByPCSGReplicaIndex` (also tightened in this step) return an error if `LabelPodCliqueScalingGroupReplicaIndex` is non-numeric. The label is controller-managed so this should never fire in practice; surfacing it as an error rather than silently skipping prevents undefined coherent-update behaviour from a corrupt label. Reuses the existing `errCodeParsePodCliqueScalingGroupReplicaIndex` error code. The util change ripples cleanly into `reconcilestatus.go` (status path: `mutateReplicas`, `mutatePodGangMapping`, `mutateMinAvailableBreachedCondition`, `pruneStrayPCSGPCLQs`, `computeReplicaStatus`, `computeMinAvailableBreachedReplicas`, `getPodCliquesPerPCSGReplica`) and `rollingupdate.go` (`computePendingUpdateWork`, `isCurrentReplicaUpdateComplete`, `deleteOldPendingAndUnavailableReplicas`) — all now use `[]int` / `map[int][]PodClique` and drop the redundant `strconv.Itoa`/`Atoi` round-trips that previously crossed the string-keyed boundary. `createDeleteTasks` is the single point where int → string conversion still happens, since K8s label match values are strings.
+
+**Files:**
+- `operator/internal/controller/podcliquescalinggroup/components/podclique/syncflow.go` — `runSyncFlow` reorganized into 3 phases; `getMinAvailableBreachedPCSGIndices` and `computePCSGReplicasToDelete` switched to `[]int`; `prepareSyncContext` propagates the parse error
+- `operator/internal/controller/podcliquescalinggroup/components/podclique/podclique.go` — `createDeleteTasks` takes `[]int`, stringifies inside only at the K8s label boundary; new `errCodeGetPodGangMap` constant
+- `operator/internal/controller/podcliquescalinggroup/components/podclique/rollingupdate.go` — drops `strconv.Itoa` / `lo.Map` int→string round-trips; `isCurrentReplicaUpdateComplete` returns `(bool, error)`
+- `operator/internal/controller/podcliquescalinggroup/components/podclique/coherentupdate.go` — **New**: `processCoherentUpdate`, `computeInFlightPCSGDeficits`, `getReplicaIndicesFromDecrementedPodGangs`, `groupPCSGReplicaIndicesByPodGang`, `countExistingPCSGReplicasPerPodGang`, `deleteReplicasForCoherentUpdate`, `createReplicasForInFlightPodGangs`, `buildReplicaAssignments`, `buildPCLQCreationTasks`, `doCreateWithPodGangName`, `sumPCSGDeficits`
+- `operator/internal/controller/podcliquescalinggroup/components/podclique/coherentupdate_test.go` — **New**: unit tests for all pure functions
+- `operator/internal/controller/podcliquescalinggroup/components/podclique/syncflow_test.go` — **New**: tests for `getMinAvailableBreachedPCSGIndices`, `computePCSGReplicasToDelete`
+- `operator/internal/controller/podcliquescalinggroup/reconcilestatus.go` — switched to `map[int][]PodClique`; dropped `strconv` import; removed inline `Atoi` from `pruneStrayPCSGPCLQs`
+- `operator/internal/controller/podcliquescalinggroup/reconcilestatus_test.go` — fixtures updated to int keys
+- `operator/internal/controller/common/component/utils/podclique.go` — `GroupPCLQsByPCSGReplicaIndex` now returns `(map[int][]PodClique, error)` with parsing
+- `operator/internal/controller/common/component/utils/podclique_test.go` — added `TestGroupPCLQsByPCSGReplicaIndex`
 
 ---
 
@@ -975,7 +1017,12 @@ func GetPodGangMapEntriesForPCSG(entries []PodGangEntry, pcsgName string) []PodG
 | `operator/internal/controller/podclique/components/pod/syncflow.go` | PodGang assignment via PodGangMap; `resolvePodGangNamesForNewPods`, `assignPodsToDeficitPodGangs`; coherent update dispatch |
 | `operator/internal/controller/podclique/components/pod/coherentupdate.go` | **New** — `processCoherentUpdate`, pod selection from decremented PodGangs, replacement creation |
 | `operator/internal/controller/podclique/reconcilestatus.go` | `mutatePodGangMapping` — counts pods per PodGang from labels |
-| `operator/internal/controller/podcliquescalinggroup/reconcilestatus.go` | `mutatePodGangMapping` — reads PodGang label from constituent PCLQs |
+| `operator/internal/controller/podcliquescalinggroup/reconcilestatus.go` | `mutatePodGangMapping` — reads PodGang label from constituent PCLQs; switched to `map[int][]PodClique` |
+| `operator/internal/controller/podcliquescalinggroup/components/podclique/syncflow.go` | `runSyncFlow` 3-phase reorganization for coherent update; `[]int` indices |
+| `operator/internal/controller/podcliquescalinggroup/components/podclique/podclique.go` | `createDeleteTasks` takes `[]int`; `errCodeGetPodGangMap` constant |
+| `operator/internal/controller/podcliquescalinggroup/components/podclique/rollingupdate.go` | Drops int→string round-trips; `isCurrentReplicaUpdateComplete` returns error |
+| `operator/internal/controller/podcliquescalinggroup/components/podclique/coherentupdate.go` | **New** — PCSG coherent update: replica reassignment from decremented PodGangs to in-flight PodGangs |
+| `operator/internal/controller/common/component/utils/podclique.go` | `GroupPCLQsByPCSGReplicaIndex` returns `(map[int][]PodClique, error)` with strict parsing |
 | `operator/internal/controller/podcliqueset/reconcilestatus.go` | `mutatePodGangCounter` — counts PodGangMap entries per generation hash |
 | `operator/internal/controller/podcliqueset/components/podgang/syncflow.go` | Simplified `computeExpectedPodGangs` — always reads from PodGangMap; uses unqualified entry keys |
 | `operator/internal/controller/podcliqueset/components/podgangmap/podgangmap.go` | Interface methods, resource helpers |
