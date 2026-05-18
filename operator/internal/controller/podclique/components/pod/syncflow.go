@@ -126,18 +126,6 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 	return sc, nil
 }
 
-// getAssociatedPodGangName gets the associated PodGang name from PodClique labels. Returns an error if the label is not found.
-func (r _resource) getAssociatedPodGangName(pclqObjectMeta metav1.ObjectMeta) (string, error) {
-	podGangName, ok := pclqObjectMeta.GetLabels()[apicommon.LabelPodGang]
-	if !ok {
-		return "", groveerr.New(errCodeMissingPodGangLabelOnPCLQ,
-			component.OperationSync,
-			fmt.Sprintf("PodClique: %v is missing required label: %s", k8sutils.GetObjectKeyFromObjectMeta(pclqObjectMeta), apicommon.LabelPodGang),
-		)
-	}
-	return podGangName, nil
-}
-
 // getPCSReplicaIndexFromPCLQ extracts the PCS replica index from the PCLQ's labels.
 func getPCSReplicaIndexFromPCLQ(pclq *grovecorev1alpha1.PodClique) (int, error) {
 	indexStr, ok := pclq.Labels[apicommon.LabelPodCliqueSetReplicaIndex]
@@ -151,12 +139,31 @@ func getPCSReplicaIndexFromPCLQ(pclq *grovecorev1alpha1.PodClique) (int, error) 
 	return idx, nil
 }
 
-// isStandalonePCLQCoherentUpdate returns true when this PCLQ is a standalone PCLQ
-// that is part of an in-progress coherent update.
-func isStandalonePCLQCoherentUpdate(sc *syncContext) bool {
-	return sc.isStandalonePCLQ &&
-		componentutils.IsCoherentUpdateInProgress(sc.pcs) &&
-		componentutils.IsPCLQAutoUpdateInProgress(sc.pclq)
+// getPodCliqueExpectationsStoreKey creates the PodClique key against which expectations will be stored in the ExpectationStore.
+func getPodCliqueExpectationsStoreKey(logger logr.Logger, operation string, pclqObjMeta metav1.ObjectMeta) (string, error) {
+	pclqObjKey := k8sutils.GetObjectKeyFromObjectMeta(pclqObjMeta)
+	pclqExpStoreKey, err := expect.ControlleeKeyFunc(&grovecorev1alpha1.PodClique{ObjectMeta: pclqObjMeta})
+	if err != nil {
+		logger.Error(err, "failed to construct expectations store key", "pclq", pclqObjKey)
+		return "", groveerr.WrapError(err,
+			errCodeCreatePodCliqueExpectationsStoreKey,
+			operation,
+			fmt.Sprintf("failed to construct expectations store key for PodClique %v", pclqObjKey),
+		)
+	}
+	return pclqExpStoreKey, nil
+}
+
+// getAssociatedPodGangName gets the associated PodGang name from PodClique labels. Returns an error if the label is not found.
+func (r _resource) getAssociatedPodGangName(pclqObjectMeta metav1.ObjectMeta) (string, error) {
+	podGangName, ok := pclqObjectMeta.GetLabels()[apicommon.LabelPodGang]
+	if !ok {
+		return "", groveerr.New(errCodeMissingPodGangLabelOnPCLQ,
+			component.OperationSync,
+			fmt.Sprintf("PodClique: %v is missing required label: %s", k8sutils.GetObjectKeyFromObjectMeta(pclqObjectMeta), apicommon.LabelPodGang),
+		)
+	}
+	return podGangName, nil
 }
 
 // getPodNamesUpdatedInAssociatedPodGang gathers all Pod names that are already updated in PodGroups defined in the PodGang resource.
@@ -245,6 +252,121 @@ func getTerminatingAndNonTerminatingPodUIDs(existingPCLQPods []*corev1.Pod) (ter
 		}
 	}
 	return
+}
+
+// isStandalonePCLQCoherentUpdate returns true when this PCLQ is a standalone PCLQ
+// that is part of an in-progress coherent update.
+func isStandalonePCLQCoherentUpdate(sc *syncContext) bool {
+	return sc.isStandalonePCLQ &&
+		componentutils.IsCoherentUpdateInProgress(sc.pcs) &&
+		componentutils.IsPCLQAutoUpdateInProgress(sc.pclq)
+}
+
+// createPods creates the specified number of new pods for the PodClique with proper indexing and concurrency control
+func (r _resource) createPods(ctx context.Context, logger logr.Logger, sc *syncContext, numPods int) (int, error) {
+	availableIndices, err := index.GetAvailableIndices(logger, sc.existingPCLQPods, numPods)
+	if err != nil {
+		return 0, groveerr.WrapError(err,
+			errCodeGetAvailablePodHostNameIndices,
+			component.OperationSync,
+			fmt.Sprintf("error getting available indices for Pods in PodClique %v", client.ObjectKeyFromObject(sc.pclq)),
+		)
+	}
+
+	podGangNames, err := r.resolvePodGangNamesForNewPods(ctx, sc, numPods)
+	if err != nil {
+		return 0, err
+	}
+
+	createTasks := make([]utils.Task, 0, numPods)
+	for i := range numPods {
+		createTasks = append(createTasks, r.createPodCreationTask(logger, sc.pcs, sc.pclq, podGangNames[i], sc.pclqExpectationsStoreKey, i, availableIndices[i]))
+	}
+	runResult := utils.RunConcurrentlyWithSlowStart(ctx, logger, 1, createTasks)
+	if runResult.HasErrors() {
+		err = runResult.GetAggregatedError()
+		logger.Error(err, "failed to create pods for PCLQ", "runSummary", runResult.GetSummary())
+		return 0, err
+	}
+	return len(runResult.SuccessfulTasks), nil
+}
+
+// resolvePodGangNamesForNewPods determines which PodGang each new pod should be assigned to.
+func (r _resource) resolvePodGangNamesForNewPods(ctx context.Context, sc *syncContext, numPods int) ([]string, error) {
+	if !sc.isStandalonePCLQ {
+		names := make([]string, numPods)
+		for i := range names {
+			names[i] = sc.associatedPodGangName
+		}
+		return names, nil
+	}
+
+	pgm, err := componentutils.GetPodGangMapForPCSReplica(ctx, r.client, sc.pcs.Name, sc.pclq.Namespace, sc.pcsReplicaIndex)
+	if err != nil {
+		return nil, groveerr.WrapError(err,
+			errCodeGetPodGang,
+			component.OperationSync,
+			fmt.Sprintf("failed to get PodGangMap for PCS replica %d", sc.pcsReplicaIndex),
+		)
+	}
+
+	return assignPodsToDeficitPodGangs(pgm.Spec.Entries, sc.cliqueName, sc.existingPCLQPods, numPods), nil
+}
+
+// assignPodsToDeficitPodGangs assigns pods to PodGangs that have fewer pods than desired per PodGangMap entries.
+// For scale-out beyond PodGangMap desired counts, assigns to highest-indexed MVU PodGang.
+func assignPodsToDeficitPodGangs(entries []grovecorev1alpha1.PodGangEntry, cliqueName string, existingPods []*corev1.Pod, numPods int) []string {
+	existingPodsPerPodGang := countPodsPerPodGang(existingPods)
+
+	var assignments []string
+	for _, entry := range entries {
+		desired, ok := entry.PodCliques[cliqueName]
+		if !ok {
+			continue
+		}
+		deficit := desired - existingPodsPerPodGang[entry.Name]
+		if deficit <= 0 {
+			continue
+		}
+		for range min(int(deficit), numPods-len(assignments)) {
+			assignments = append(assignments, entry.Name)
+		}
+		if len(assignments) >= numPods {
+			return assignments
+		}
+	}
+
+	if remaining := numPods - len(assignments); remaining > 0 {
+		highestMVU := findHighestMVUPodGangForClique(entries, cliqueName)
+		for range remaining {
+			assignments = append(assignments, highestMVU)
+		}
+	}
+
+	return assignments
+}
+
+// countPodsPerPodGang counts existing pods grouped by their PodGang label.
+func countPodsPerPodGang(pods []*corev1.Pod) map[string]int32 {
+	counts := make(map[string]int32)
+	for _, pod := range pods {
+		if pgName, ok := pod.Labels[apicommon.LabelPodGang]; ok {
+			counts[pgName]++
+		}
+	}
+	return counts
+}
+
+// findHighestMVUPodGangForClique returns the name of the last PodGangMap entry that references
+// the given clique. Entries are ordered lowest-index first, so last match = highest.
+func findHighestMVUPodGangForClique(entries []grovecorev1alpha1.PodGangEntry, cliqueName string) string {
+	var highest string
+	for _, entry := range entries {
+		if _, ok := entry.PodCliques[cliqueName]; ok {
+			highest = entry.Name
+		}
+	}
+	return highest
 }
 
 // deleteExcessPods deletes `diff` number of excess Pods from this PodClique concurrently.
@@ -364,6 +486,24 @@ func (r _resource) checkAndRemovePodSchedulingGates(sc *syncContext, logger logr
 	return skippedScheduleGatedPods, nil
 }
 
+// checkBasePodGangScheduledForPodClique determines if there's a base PodGang for the PodClique. If there is one,
+// this function checks if it is scheduled.
+func (r _resource) checkBasePodGangScheduledForPodClique(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) (bool, string, error) {
+	// Check if this PodClique has a base PodGang dependency
+	basePodGangName, hasBasePodGangLabel := pclq.GetLabels()[apicommon.LabelBasePodGang]
+	if !hasBasePodGangLabel {
+		// This PodClique is a base PodGang itself - no dependency
+		return true, "", nil
+	}
+
+	scheduled, err := r.isBasePodGangScheduled(ctx, logger, pclq.Namespace, basePodGangName)
+	if err != nil {
+		return false, basePodGangName, err
+	}
+
+	return scheduled, basePodGangName, nil
+}
+
 // isBasePodGangScheduled checks if the base PodGang (identified by name) is scheduled, returning errors for API failures.
 // A base PodGang is considered "scheduled" when ALL of its constituent PodCliques have achieved
 // their minimum required number of scheduled pods (PodClique.Status.ScheduledReplicas >= PodGroup.MinReplicas).
@@ -408,24 +548,6 @@ func (r _resource) isBasePodGangScheduled(ctx context.Context, logger logr.Logge
 	return true, nil
 }
 
-// checkBasePodGangScheduledForPodClique determines if there's a base PodGang for the PodClique. If there is one,
-// this function checks if it is scheduled.
-func (r _resource) checkBasePodGangScheduledForPodClique(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) (bool, string, error) {
-	// Check if this PodClique has a base PodGang dependency
-	basePodGangName, hasBasePodGangLabel := pclq.GetLabels()[apicommon.LabelBasePodGang]
-	if !hasBasePodGangLabel {
-		// This PodClique is a base PodGang itself - no dependency
-		return true, "", nil
-	}
-
-	scheduled, err := r.isBasePodGangScheduled(ctx, logger, pclq.Namespace, basePodGangName)
-	if err != nil {
-		return false, basePodGangName, err
-	}
-
-	return scheduled, basePodGangName, nil
-}
-
 // shouldSkipPodSchedulingGateRemoval implements the core PodGang scheduling gate logic.
 // It returns true if the pod scheduling gate removal should be skipped, false otherwise.
 func (r _resource) shouldSkipPodSchedulingGateRemoval(logger logr.Logger, pod *corev1.Pod, basePodGangReady bool, basePodGangName string) bool {
@@ -455,113 +577,6 @@ func hasPodGangSchedulingGate(pod *corev1.Pod) bool {
 	return slices.ContainsFunc(pod.Spec.SchedulingGates, func(schedulingGate corev1.PodSchedulingGate) bool {
 		return podGangSchedulingGate == schedulingGate.Name
 	})
-}
-
-// createPods creates the specified number of new pods for the PodClique with proper indexing and concurrency control
-func (r _resource) createPods(ctx context.Context, logger logr.Logger, sc *syncContext, numPods int) (int, error) {
-	availableIndices, err := index.GetAvailableIndices(logger, sc.existingPCLQPods, numPods)
-	if err != nil {
-		return 0, groveerr.WrapError(err,
-			errCodeGetAvailablePodHostNameIndices,
-			component.OperationSync,
-			fmt.Sprintf("error getting available indices for Pods in PodClique %v", client.ObjectKeyFromObject(sc.pclq)),
-		)
-	}
-
-	podGangNames, err := r.resolvePodGangNamesForNewPods(ctx, sc, numPods)
-	if err != nil {
-		return 0, err
-	}
-
-	createTasks := make([]utils.Task, 0, numPods)
-	for i := range numPods {
-		createTasks = append(createTasks, r.createPodCreationTask(logger, sc.pcs, sc.pclq, podGangNames[i], sc.pclqExpectationsStoreKey, i, availableIndices[i]))
-	}
-	runResult := utils.RunConcurrentlyWithSlowStart(ctx, logger, 1, createTasks)
-	if runResult.HasErrors() {
-		err = runResult.GetAggregatedError()
-		logger.Error(err, "failed to create pods for PCLQ", "runSummary", runResult.GetSummary())
-		return 0, err
-	}
-	return len(runResult.SuccessfulTasks), nil
-}
-
-// resolvePodGangNamesForNewPods determines which PodGang each new pod should be assigned to.
-func (r _resource) resolvePodGangNamesForNewPods(ctx context.Context, sc *syncContext, numPods int) ([]string, error) {
-	if !sc.isStandalonePCLQ {
-		names := make([]string, numPods)
-		for i := range names {
-			names[i] = sc.associatedPodGangName
-		}
-		return names, nil
-	}
-
-	pgm, err := componentutils.GetPodGangMapForPCSReplica(ctx, r.client, sc.pcs.Name, sc.pclq.Namespace, sc.pcsReplicaIndex)
-	if err != nil {
-		return nil, groveerr.WrapError(err,
-			errCodeGetPodGang,
-			component.OperationSync,
-			fmt.Sprintf("failed to get PodGangMap for PCS replica %d", sc.pcsReplicaIndex),
-		)
-	}
-
-	return assignPodsToDeficitPodGangs(pgm.Spec.Entries, sc.cliqueName, sc.existingPCLQPods, numPods), nil
-}
-
-// assignPodsToDeficitPodGangs assigns pods to PodGangs that have fewer pods than desired per PodGangMap entries.
-// For scale-out beyond PodGangMap desired counts, assigns to highest-indexed MVU PodGang.
-func assignPodsToDeficitPodGangs(entries []grovecorev1alpha1.PodGangEntry, cliqueName string, existingPods []*corev1.Pod, numPods int) []string {
-	existingPodsPerPodGang := countPodsPerPodGang(existingPods)
-
-	var assignments []string
-	for _, entry := range entries {
-		desired, ok := entry.PodCliques[cliqueName]
-		if !ok {
-			continue
-		}
-		deficit := desired - existingPodsPerPodGang[entry.Name]
-		if deficit <= 0 {
-			continue
-		}
-		for range min(int(deficit), numPods-len(assignments)) {
-			assignments = append(assignments, entry.Name)
-		}
-		if len(assignments) >= numPods {
-			return assignments
-		}
-	}
-
-	if remaining := numPods - len(assignments); remaining > 0 {
-		highestMVU := findHighestMVUPodGangForClique(entries, cliqueName)
-		for range remaining {
-			assignments = append(assignments, highestMVU)
-		}
-	}
-
-	return assignments
-}
-
-// countPodsPerPodGang counts existing pods grouped by their PodGang label.
-func countPodsPerPodGang(pods []*corev1.Pod) map[string]int32 {
-	counts := make(map[string]int32)
-	for _, pod := range pods {
-		if pgName, ok := pod.Labels[apicommon.LabelPodGang]; ok {
-			counts[pgName]++
-		}
-	}
-	return counts
-}
-
-// findHighestMVUPodGangForClique returns the name of the last PodGangMap entry that references
-// the given clique. Entries are ordered lowest-index first, so last match = highest.
-func findHighestMVUPodGangForClique(entries []grovecorev1alpha1.PodGangEntry, cliqueName string) string {
-	var highest string
-	for _, entry := range entries {
-		if _, ok := entry.PodCliques[cliqueName]; ok {
-			highest = entry.Name
-		}
-	}
-	return highest
 }
 
 // Convenience functions, types and methods on these types that are used during sync flow run.
@@ -614,19 +629,4 @@ func (sfr *syncFlowResult) recordPendingScheduleGatedPods(podNames []string) {
 // hasErrors returns true if any errors occurred during the sync flow
 func (sfr *syncFlowResult) hasErrors() bool {
 	return len(sfr.errs) > 0
-}
-
-// getPodCliqueExpectationsStoreKey creates the PodClique key against which expectations will be stored in the ExpectationStore.
-func getPodCliqueExpectationsStoreKey(logger logr.Logger, operation string, pclqObjMeta metav1.ObjectMeta) (string, error) {
-	pclqObjKey := k8sutils.GetObjectKeyFromObjectMeta(pclqObjMeta)
-	pclqExpStoreKey, err := expect.ControlleeKeyFunc(&grovecorev1alpha1.PodClique{ObjectMeta: pclqObjMeta})
-	if err != nil {
-		logger.Error(err, "failed to construct expectations store key", "pclq", pclqObjKey)
-		return "", groveerr.WrapError(err,
-			errCodeCreatePodCliqueExpectationsStoreKey,
-			operation,
-			fmt.Sprintf("failed to construct expectations store key for PodClique %v", pclqObjKey),
-		)
-	}
-	return pclqExpStoreKey, nil
 }
