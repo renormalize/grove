@@ -47,8 +47,8 @@ type syncContext struct {
 	pcsReplicaIndex                int
 	existingPCLQs                  []grovecorev1alpha1.PodClique
 	existingPCLQNameSet            componentutils.Set[string]
-	pcsgIndicesToTerminate         []string
-	pcsgIndicesToRequeue           []string
+	pcsgIndicesToTerminate         []int
+	pcsgIndicesToRequeue           []int
 	expectedPCLQFQNsPerPCSGReplica map[int][]string
 	expectedPCLQPodTemplateHashMap map[string]string
 }
@@ -91,7 +91,13 @@ func (r _resource) prepareSyncContext(ctx context.Context, logger logr.Logger, p
 	// compute the PCSG indices that have their MinAvailableBreached condition set to true. Segregated these into two
 	// pcsgIndicesToTerminate will have the indices for which the TerminationDelay has expired.
 	// pcsgIndicesToRequeue will have the indices for which the TerminationDelay has not yet expired.
-	syncCtx.pcsgIndicesToTerminate, syncCtx.pcsgIndicesToRequeue = getMinAvailableBreachedPCSGIndices(logger, syncCtx.existingPCLQs, syncCtx.pcs.Spec.Template.TerminationDelay.Duration)
+	syncCtx.pcsgIndicesToTerminate, syncCtx.pcsgIndicesToRequeue, err = getMinAvailableBreachedPCSGIndices(logger, syncCtx.existingPCLQs, syncCtx.pcs.Spec.Template.TerminationDelay.Duration)
+	if err != nil {
+		return nil, groveerr.WrapError(err,
+			errCodeParsePodCliqueScalingGroupReplicaIndex,
+			component.OperationSync,
+			fmt.Sprintf("failed to compute min-available-breached PCSG indices for %v", client.ObjectKeyFromObject(pcsg)))
+	}
 
 	// pre-compute expected PodTemplateHash for each PCLQ
 	syncCtx.expectedPCLQPodTemplateHashMap = getExpectedPCLQPodTemplateHashMap(syncCtx.pcs, pcsg)
@@ -106,26 +112,37 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) error {
 		return err
 	}
 
-	// If there are excess PodCliques than expected, delete the ones that are no longer expected but existing.
-	// This can happen when PCSG replicas have been scaled-in.
-	if err := r.triggerDeletionOfExcessPCSGReplicas(logger, sc); err != nil {
-		return err
-	}
-	// Create or update the expected PodCliques as per the PodCliqueScalingGroup configurations defined in the PodCliqueSet.
-	// For OnDelete update strategy, use createOrUpdatePCLQs which performs in-place updates.
-	// For RollingRecreate (default) update strategy, use createExpectedPCLQs which only creates missing PodCliques.
-	if componentutils.IsOnDeleteStrategy(sc.pcs) {
-		if err := r.createOrUpdatePCLQs(logger, sc); err != nil {
+	isPCSGCoherentUpdateInProgress := componentutils.IsCoherentUpdateInProgress(sc.pcs) && componentutils.IsPCSGUpdateInProgress(sc.pcsg)
+
+	// Steady-state replica management: deletion of excess and creation of missing PCLQs.
+	// Skipped during coherent update since processCoherentUpdate manages the lifecycle.
+	if !isPCSGCoherentUpdateInProgress {
+		if err := r.triggerDeletionOfExcessPCSGReplicas(logger, sc); err != nil {
 			return err
 		}
-	} else {
-		if err := r.createExpectedPCLQs(logger, sc); err != nil {
+		if componentutils.IsOnDeleteStrategy(sc.pcs) {
+			if err := r.createOrUpdatePCLQs(logger, sc); err != nil {
+				return err
+			}
+		} else {
+			if err := r.createExpectedPCLQs(logger, sc); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Update handling.
+	if isPCSGCoherentUpdateInProgress {
+		if err := r.processCoherentUpdate(logger, sc); err != nil {
+			return err
+		}
+	} else if componentutils.IsRollingRecreateUpdateInProgress(sc.pcs) && componentutils.IsPCSGUpdateInProgress(sc.pcsg) {
+		if err := r.processPendingUpdates(logger, sc); err != nil {
 			return err
 		}
 	}
 
-	// Only if the rolling update is not in progress, check for a possibility of gang termination and execute it only if
-	// the pcsg.spec.minAvailable is not breached.
+	// Gang termination: only evaluated when no update is in progress.
 	if !componentutils.IsPCSGUpdateInProgress(sc.pcsg) {
 		if err := r.processMinAvailableBreachedPCSGReplicas(logger, sc); err != nil {
 			if errors.Is(err, errPCCGMinAvailableBreached) {
@@ -133,12 +150,6 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) error {
 				return nil
 			}
 			return err
-		}
-	} else {
-		if componentutils.IsRollingRecreateUpdateInProgress(sc.pcs) {
-			if err := r.processPendingUpdates(logger, sc); err != nil {
-				return err
-			}
 		}
 	}
 
@@ -190,10 +201,10 @@ func getExistingNonTerminatingPCSGReplicas(existingPCLQs []grovecorev1alpha1.Pod
 }
 
 // computePCSGReplicasToDelete generates the replica indices that should be deleted when scaling down
-func computePCSGReplicasToDelete(existingReplicas, expectedReplicas int) []string {
-	indices := make([]string, 0, existingReplicas-expectedReplicas)
+func computePCSGReplicasToDelete(existingReplicas, expectedReplicas int) []int {
+	indices := make([]int, 0, existingReplicas-expectedReplicas)
 	for i := expectedReplicas; i < existingReplicas; i++ {
-		indices = append(indices, strconv.Itoa(i))
+		indices = append(indices, i)
 	}
 	return indices
 }
@@ -285,10 +296,13 @@ func (r _resource) processMinAvailableBreachedPCSGReplicas(logger logr.Logger, s
 }
 
 // getMinAvailableBreachedPCSGIndices categorizes PCSG replicas based on MinAvailable breach status and termination delay
-func getMinAvailableBreachedPCSGIndices(logger logr.Logger, existingPCLQs []grovecorev1alpha1.PodClique, terminationDelay time.Duration) (pcsgIndicesToTerminate []string, pcsgIndicesToRequeue []string) {
+func getMinAvailableBreachedPCSGIndices(logger logr.Logger, existingPCLQs []grovecorev1alpha1.PodClique, terminationDelay time.Duration) (pcsgIndicesToTerminate []int, pcsgIndicesToRequeue []int, err error) {
 	now := time.Now()
 	// group existing PCLQs by PCSG replica index. These are PCLQs that belong to one replica of PCSG.
-	pcsgReplicaIndexPCLQs := componentutils.GroupPCLQsByPCSGReplicaIndex(existingPCLQs)
+	pcsgReplicaIndexPCLQs, err := componentutils.GroupPCLQsByPCSGReplicaIndex(existingPCLQs)
+	if err != nil {
+		return nil, nil, err
+	}
 	// For each PCSG replica check if minAvailable for any constituent PCLQ has been violated. Those PCSG replicas should be marked for termination.
 	for pcsgReplicaIndex, pclqs := range pcsgReplicaIndexPCLQs {
 		pclqNames, minWaitFor := componentutils.GetMinAvailableBreachedPCLQInfo(pclqs, terminationDelay, now)
