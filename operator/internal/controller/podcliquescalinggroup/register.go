@@ -25,6 +25,7 @@ import (
 	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	ctrlutils "github.com/ai-dynamo/grove/operator/internal/controller/utils"
 	"github.com/ai-dynamo/grove/operator/internal/utils"
+	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
 
 	"github.com/samber/lo"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -63,6 +64,10 @@ func (r *Reconciler) RegisterWithManager(mgr manager.Manager) error {
 		Watches(&grovecorev1alpha1.PodClique{},
 			handler.EnqueueRequestsFromMapFunc(mapPCLQToPCSG()),
 			builder.WithPredicates(podCliquePredicate()),
+		).
+		Watches(&grovecorev1alpha1.PodGangMap{},
+			handler.EnqueueRequestsFromMapFunc(mapPodGangMapToPCSGs()),
+			builder.WithPredicates(podGangMapPredicate()),
 		).
 		Complete(r)
 }
@@ -186,5 +191,53 @@ func podCliquePredicate() predicate.Predicate {
 		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
 			return ctrlutils.IsManagedPodClique(updateEvent.ObjectOld, constants.KindPodCliqueScalingGroup)
 		},
+	}
+}
+
+// mapPodGangMapToPCSGs maps a PodGangMap to reconcile.Requests for the PodCliqueScalingGroups
+// referenced by its entries.
+func mapPodGangMapToPCSGs() handler.MapFunc {
+	return func(_ context.Context, obj client.Object) []reconcile.Request {
+		pgm, ok := obj.(*grovecorev1alpha1.PodGangMap)
+		if !ok {
+			return nil
+		}
+		pcsOwnerRef := k8sutils.FindOwnerRefByKind(pgm.OwnerReferences, constants.KindPodCliqueSet)
+		if pcsOwnerRef == nil {
+			return nil
+		}
+		pcsReplica := apicommon.ResourceNameReplica{Name: pcsOwnerRef.Name, Replica: int(pgm.Spec.PodCliqueSetReplicaIndex)}
+		seen := make(map[string]struct{})
+		var requests []reconcile.Request
+		for _, entry := range pgm.Spec.Entries {
+			for pcsgName := range entry.PodCliqueScalingGroups {
+				fqn := apicommon.GeneratePodCliqueScalingGroupName(pcsReplica, pcsgName)
+				if _, dup := seen[fqn]; dup {
+					continue
+				}
+				seen[fqn] = struct{}{}
+				requests = append(requests, reconcile.Request{
+					NamespacedName: client.ObjectKey{Name: fqn, Namespace: pgm.Namespace},
+				})
+			}
+		}
+		return requests
+	}
+}
+
+// podGangMapPredicate triggers PodCliqueScalingGroup reconciliation on PodGangMap creation and spec changes.
+// Deletion is skipped — PodGangMap deletion is driven by PodCliqueSet deletion, which already cascades to
+// owned PodCliqueScalingGroups via owner references.
+func podGangMapPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return ctrlutils.IsManagedPodGangMap(e.Object)
+		},
+		DeleteFunc: func(_ event.DeleteEvent) bool { return false },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return ctrlutils.IsManagedPodGangMap(e.ObjectOld) &&
+				e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
+		},
+		GenericFunc: func(_ event.GenericEvent) bool { return false },
 	}
 }
