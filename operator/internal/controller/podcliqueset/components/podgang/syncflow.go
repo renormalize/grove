@@ -147,6 +147,25 @@ func (r _resource) getExistingPCLQsForPCS(ctx context.Context, pcs *grovecorev1a
 	return pclqList.Items, nil
 }
 
+// getExistingPCSGsForPCS fetches all existing PCSGs for the PodCliqueSet.
+func (r _resource) getExistingPCSGsForPCS(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet) ([]grovecorev1alpha1.PodCliqueScalingGroup, error) {
+	pcsgList := &grovecorev1alpha1.PodCliqueScalingGroupList{}
+	if err := r.client.List(ctx,
+		pcsgList,
+		client.InNamespace(pcs.Namespace),
+		client.MatchingLabels(
+			lo.Assign(
+				apicommon.GetDefaultLabelsForPodCliqueSetManagedResources(pcs.Name),
+			),
+		),
+	); err != nil {
+		return nil, err
+	}
+	return lo.Filter(pcsgList.Items, func(pcsg grovecorev1alpha1.PodCliqueScalingGroup, _ int) bool {
+		return metav1.IsControlledBy(&pcsg, pcs)
+	}), nil
+}
+
 // computeExpectedPodGangs computes expected PodGangs by reading the PodGangMap for each PCS replica.
 // PodGangMap is the single source of truth for PodGang composition in all cases.
 func (r _resource) computeExpectedPodGangs(ctx context.Context, sc *syncContext) error {
@@ -281,25 +300,6 @@ func createTopologyPackConstraint(sc *syncContext, nsName types.NamespacedName, 
 	return lo.Ternary(pgPackConstraint != nil, &groveschedulerv1alpha1.TopologyConstraint{PackConstraint: pgPackConstraint}, nil)
 }
 
-// getExistingPCSGsForPCS fetches all existing PCSGs for the PodCliqueSet.
-func (r _resource) getExistingPCSGsForPCS(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet) ([]grovecorev1alpha1.PodCliqueScalingGroup, error) {
-	pcsgList := &grovecorev1alpha1.PodCliqueScalingGroupList{}
-	if err := r.client.List(ctx,
-		pcsgList,
-		client.InNamespace(pcs.Namespace),
-		client.MatchingLabels(
-			lo.Assign(
-				apicommon.GetDefaultLabelsForPodCliqueSetManagedResources(pcs.Name),
-			),
-		),
-	); err != nil {
-		return nil, err
-	}
-	return lo.Filter(pcsgList.Items, func(pcsg grovecorev1alpha1.PodCliqueScalingGroup, _ int) bool {
-		return metav1.IsControlledBy(&pcsg, pcs)
-	}), nil
-}
-
 // getExistingPodsByPCLQForPCS fetches all non-terminating pods grouped by PodClique.
 // It returns a map where the key is the PodClique FQN and the value is a slice of Pods belonging to that PodClique.
 func (r _resource) getExistingPodsByPCLQForPCS(ctx context.Context, pcsObjectKey client.ObjectKey) (map[string][]corev1.Pod, error) {
@@ -414,29 +414,102 @@ func (r _resource) createOrUpdatePodGangs(ctx context.Context, sc *syncContext) 
 	return result
 }
 
-// patchPodGangCondition patches a condition on the PodGang status.
-func (r _resource) patchPodGangCondition(ctx context.Context, sc *syncContext, podGangName string, conditionType groveschedulerv1alpha1.PodGangConditionType, status metav1.ConditionStatus, reason, message string) error {
-	statusPatch := &groveschedulerv1alpha1.PodGang{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      podGangName,
-			Namespace: sc.pcs.Namespace,
-		},
+// createOrUpdatePodGang creates or updates a single PodGang resource.
+func (r _resource) createOrUpdatePodGang(ctx context.Context, sc *syncContext, pgInfo *podGangInfo) error {
+	pgObjectKey := client.ObjectKey{
+		Namespace: sc.pcs.Namespace,
+		Name:      pgInfo.fqn,
 	}
-	condition := metav1.Condition{
-		Type:               string(conditionType),
-		Status:             status,
-		ObservedGeneration: statusPatch.Generation,
-		LastTransitionTime: metav1.Now(),
-		Reason:             reason,
-		Message:            message,
+	pg := emptyPodGang(pgObjectKey)
+	sc.logger.Info("CreateOrPatch PodGang", "objectKey", pgObjectKey)
+	_, err := controllerutil.CreateOrPatch(ctx, r.client, pg, func() error {
+		return r.buildResource(sc.pcs, pgInfo, pg)
+	})
+	if err != nil {
+		r.eventRecorder.Eventf(sc.pcs, corev1.EventTypeWarning, constants.ReasonPodGangCreateOrUpdateFailed, "Error Creating/Updating PodGang %v: %v", pgObjectKey, err)
+		return groveerr.WrapError(err,
+			errCodeCreateOrPatchPodGang,
+			component.OperationSync,
+			fmt.Sprintf("Failed to CreateOrPatch PodGang %v", pgObjectKey),
+		)
 	}
-	meta.SetStatusCondition(&statusPatch.Status.Conditions, condition)
-	if err := r.client.Status().Patch(ctx, statusPatch, client.Merge); err != nil {
-		return err
+
+	// Update status with Initialized=False condition if not already set.
+	// This needs to be done separately since CreateOrPatch doesn't handle updates/patches to status subresource.
+	if !k8sutils.HasCondition(pg.Status.Conditions, string(groveschedulerv1alpha1.PodGangConditionTypeInitialized)) {
+		if err = r.patchPodGangCondition(ctx, sc, pg.Name, groveschedulerv1alpha1.PodGangConditionTypeInitialized, metav1.ConditionFalse, groveschedulerv1alpha1.ConditionReasonPodGangPodsCreationPending, "Not all constituent pods have been created yet"); err != nil {
+			return err
+		}
 	}
-	sc.logger.Info("Successfully patched PodGang condition",
-		"podGang", podGangName, "conditionType", conditionType, "status", status)
+
+	r.eventRecorder.Eventf(sc.pcs, corev1.EventTypeNormal, constants.ReasonPodGangCreateOrUpdateSuccessful, "Created/Updated PodGang %v", pgObjectKey)
+	sc.logger.Info("Triggered CreateOrPatch of PodGang", "objectKey", pgObjectKey)
 	return nil
+}
+
+// verifyAllPodsCreated checks if all required pods exist before updating PodGang
+func (r _resource) verifyAllPodsCreated(sc *syncContext, pgi *podGangInfo) error {
+	pclqs := sc.getPodCliques(pgi)
+	if len(pclqs) != len(pgi.pclqs) {
+		// Not all constituent PCLQs exist yet
+		sc.logger.Info("Not all constituent PCLQs exist yet", "podGang", pgi.fqn, "expected", len(pgi.pclqs), "actual", len(pclqs))
+		return groveerr.New(groveerr.ErrCodeRequeueAfter,
+			component.OperationSync,
+			fmt.Sprintf("Waiting for all pods to be created for PodGang %s", pgi.fqn),
+		)
+	}
+	// check the health of each podclique
+	numPendingPods := r.getPodsPendingCreationOrAssociation(sc, pgi)
+	if numPendingPods > 0 {
+		sc.logger.Info("skipping creation of PodGang as all desired replicas have not yet been created or assigned", "podGang", pgi.fqn, "numPendingPodsToCreateOrAssociate", numPendingPods)
+		return groveerr.New(groveerr.ErrCodeRequeueAfter,
+			component.OperationSync,
+			fmt.Sprintf("Waiting for all pods to be created or assigned for PodGang %s", pgi.fqn),
+		)
+	}
+	return nil
+}
+
+// getPodsPendingCreationOrAssociation counts pods not yet created or labeled for the PodGang.
+func (r _resource) getPodsPendingCreationOrAssociation(sc *syncContext, podGang *podGangInfo) int {
+	// Find the number of expected pods from PodCliques that are pending creation
+	numPodsPendingPCLQCreate := r.getPodsForPodCliquesPendingCreation(sc, podGang)
+
+	// Find the number of pods pending creation of existing PodCliques
+	var numPodsPendingCreateOrAssociate int
+	pclqs := sc.getPodCliques(podGang)
+	for _, pclq := range pclqs {
+		existingPCLQPods := sc.existingPCLQPods[pclq.Name]
+		// If there is a difference between the expected replicas and the existing pods, we need to account for that.
+		// If the difference is positive, it means there are pending pods to create.
+		// If the difference is negative, it means there are more existing pods than expected. In this case, we do not need to create any new pods, therefore we can ignore the negative difference.
+		numPodsPendingCreateOrAssociate += max(0, int(pclq.Spec.Replicas)-len(existingPCLQPods))
+
+		// For all existing pods in the PCLQ, check if they have the PodGang label set. If that is not set then add them to numPodsPendingCreateOrAssociate.
+		for _, existingPod := range existingPCLQPods {
+			podGangLabelValue, ok := existingPod.GetLabels()[apicommon.LabelPodGang]
+			if !ok {
+				sc.logger.Info("Pod does not have a PodGang label yet", "podObjectKey", client.ObjectKeyFromObject(&existingPod), "expectedPodGangName", podGang.fqn)
+				numPodsPendingCreateOrAssociate += 1
+				continue
+			}
+			if podGangLabelValue != podGang.fqn {
+				sc.logger.Error(nil, "PodGang label does not match expected PodGang name. This should ideally never happen and indicates a coding error", "podObjectKey", client.ObjectKeyFromObject(&existingPod), "expectedPodGangName", podGang.fqn, "podGangLabelValue", podGangLabelValue)
+				numPodsPendingCreateOrAssociate += 1
+			}
+		}
+	}
+	return numPodsPendingPCLQCreate + numPodsPendingCreateOrAssociate
+}
+
+// getPodsForPodCliquesPendingCreation counts expected pods from non-existent PodCliques.
+func (r _resource) getPodsForPodCliquesPendingCreation(sc *syncContext, podGang *podGangInfo) int {
+	return lo.Reduce(podGang.pclqs, func(agg int, pclq pclqInfo, _ int) int {
+		if _, ok := sc.existingPCLQByName[pclq.fqn]; !ok {
+			return agg + int(pclq.replicas)
+		}
+		return agg
+	}, 0)
 }
 
 // arePodGangMinReplicasReady returns true if, for each PodGroup in the PodGang, at least
@@ -487,101 +560,28 @@ func (r _resource) releaseMinReplicasConstraint(ctx context.Context, sc *syncCon
 	return nil
 }
 
-// verifyAllPodsCreated checks if all required pods exist before updating PodGang
-func (r _resource) verifyAllPodsCreated(sc *syncContext, pgi *podGangInfo) error {
-	pclqs := sc.getPodCliques(pgi)
-	if len(pclqs) != len(pgi.pclqs) {
-		// Not all constituent PCLQs exist yet
-		sc.logger.Info("Not all constituent PCLQs exist yet", "podGang", pgi.fqn, "expected", len(pgi.pclqs), "actual", len(pclqs))
-		return groveerr.New(groveerr.ErrCodeRequeueAfter,
-			component.OperationSync,
-			fmt.Sprintf("Waiting for all pods to be created for PodGang %s", pgi.fqn),
-		)
+// patchPodGangCondition patches a condition on the PodGang status.
+func (r _resource) patchPodGangCondition(ctx context.Context, sc *syncContext, podGangName string, conditionType groveschedulerv1alpha1.PodGangConditionType, status metav1.ConditionStatus, reason, message string) error {
+	statusPatch := &groveschedulerv1alpha1.PodGang{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podGangName,
+			Namespace: sc.pcs.Namespace,
+		},
 	}
-	// check the health of each podclique
-	numPendingPods := r.getPodsPendingCreationOrAssociation(sc, pgi)
-	if numPendingPods > 0 {
-		sc.logger.Info("skipping creation of PodGang as all desired replicas have not yet been created or assigned", "podGang", pgi.fqn, "numPendingPodsToCreateOrAssociate", numPendingPods)
-		return groveerr.New(groveerr.ErrCodeRequeueAfter,
-			component.OperationSync,
-			fmt.Sprintf("Waiting for all pods to be created or assigned for PodGang %s", pgi.fqn),
-		)
+	condition := metav1.Condition{
+		Type:               string(conditionType),
+		Status:             status,
+		ObservedGeneration: statusPatch.Generation,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
 	}
-	return nil
-}
-
-// getPodsForPodCliquesPendingCreation counts expected pods from non-existent PodCliques.
-func (r _resource) getPodsForPodCliquesPendingCreation(sc *syncContext, podGang *podGangInfo) int {
-	return lo.Reduce(podGang.pclqs, func(agg int, pclq pclqInfo, _ int) int {
-		if _, ok := sc.existingPCLQByName[pclq.fqn]; !ok {
-			return agg + int(pclq.replicas)
-		}
-		return agg
-	}, 0)
-}
-
-// getPodsPendingCreationOrAssociation counts pods not yet created or labeled for the PodGang.
-func (r _resource) getPodsPendingCreationOrAssociation(sc *syncContext, podGang *podGangInfo) int {
-	// Find the number of expected pods from PodCliques that are pending creation
-	numPodsPendingPCLQCreate := r.getPodsForPodCliquesPendingCreation(sc, podGang)
-
-	// Find the number of pods pending creation of existing PodCliques
-	var numPodsPendingCreateOrAssociate int
-	pclqs := sc.getPodCliques(podGang)
-	for _, pclq := range pclqs {
-		existingPCLQPods := sc.existingPCLQPods[pclq.Name]
-		// If there is a difference between the expected replicas and the existing pods, we need to account for that.
-		// If the difference is positive, it means there are pending pods to create.
-		// If the difference is negative, it means there are more existing pods than expected. In this case, we do not need to create any new pods, therefore we can ignore the negative difference.
-		numPodsPendingCreateOrAssociate += max(0, int(pclq.Spec.Replicas)-len(existingPCLQPods))
-
-		// For all existing pods in the PCLQ, check if they have the PodGang label set. If that is not set then add them to numPodsPendingCreateOrAssociate.
-		for _, existingPod := range existingPCLQPods {
-			podGangLabelValue, ok := existingPod.GetLabels()[apicommon.LabelPodGang]
-			if !ok {
-				sc.logger.Info("Pod does not have a PodGang label yet", "podObjectKey", client.ObjectKeyFromObject(&existingPod), "expectedPodGangName", podGang.fqn)
-				numPodsPendingCreateOrAssociate += 1
-				continue
-			}
-			if podGangLabelValue != podGang.fqn {
-				sc.logger.Error(nil, "PodGang label does not match expected PodGang name. This should ideally never happen and indicates a coding error", "podObjectKey", client.ObjectKeyFromObject(&existingPod), "expectedPodGangName", podGang.fqn, "podGangLabelValue", podGangLabelValue)
-				numPodsPendingCreateOrAssociate += 1
-			}
-		}
+	meta.SetStatusCondition(&statusPatch.Status.Conditions, condition)
+	if err := r.client.Status().Patch(ctx, statusPatch, client.Merge); err != nil {
+		return err
 	}
-	return numPodsPendingPCLQCreate + numPodsPendingCreateOrAssociate
-}
-
-// createOrUpdatePodGang creates or updates a single PodGang resource.
-func (r _resource) createOrUpdatePodGang(ctx context.Context, sc *syncContext, pgInfo *podGangInfo) error {
-	pgObjectKey := client.ObjectKey{
-		Namespace: sc.pcs.Namespace,
-		Name:      pgInfo.fqn,
-	}
-	pg := emptyPodGang(pgObjectKey)
-	sc.logger.Info("CreateOrPatch PodGang", "objectKey", pgObjectKey)
-	_, err := controllerutil.CreateOrPatch(ctx, r.client, pg, func() error {
-		return r.buildResource(sc.pcs, pgInfo, pg)
-	})
-	if err != nil {
-		r.eventRecorder.Eventf(sc.pcs, corev1.EventTypeWarning, constants.ReasonPodGangCreateOrUpdateFailed, "Error Creating/Updating PodGang %v: %v", pgObjectKey, err)
-		return groveerr.WrapError(err,
-			errCodeCreateOrPatchPodGang,
-			component.OperationSync,
-			fmt.Sprintf("Failed to CreateOrPatch PodGang %v", pgObjectKey),
-		)
-	}
-
-	// Update status with Initialized=False condition if not already set.
-	// This needs to be done separately since CreateOrPatch doesn't handle updates/patches to status subresource.
-	if !k8sutils.HasCondition(pg.Status.Conditions, string(groveschedulerv1alpha1.PodGangConditionTypeInitialized)) {
-		if err = r.patchPodGangCondition(ctx, sc, pg.Name, groveschedulerv1alpha1.PodGangConditionTypeInitialized, metav1.ConditionFalse, groveschedulerv1alpha1.ConditionReasonPodGangPodsCreationPending, "Not all constituent pods have been created yet"); err != nil {
-			return err
-		}
-	}
-
-	r.eventRecorder.Eventf(sc.pcs, corev1.EventTypeNormal, constants.ReasonPodGangCreateOrUpdateSuccessful, "Created/Updated PodGang %v", pgObjectKey)
-	sc.logger.Info("Triggered CreateOrPatch of PodGang", "objectKey", pgObjectKey)
+	sc.logger.Info("Successfully patched PodGang condition",
+		"podGang", podGangName, "conditionType", conditionType, "status", status)
 	return nil
 }
 
