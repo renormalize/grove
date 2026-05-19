@@ -255,13 +255,12 @@ func (r _resource) buildPCLQCreationTasks(logger logr.Logger, sc *syncContext, a
 }
 
 // doCreateWithPodGangName creates a PCLQ with a specific PodGang name for coherent update.
-// It builds the resource using the standard buildResource and then overrides the PodGang label.
+// It builds the resource using the standard buildResource passing the assigned PodGang name.
 func (r _resource) doCreateWithPodGangName(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pcsgReplicaIndex int, pclqObjectKey client.ObjectKey, podGangName string) error {
 	pclq := emptyPodClique(pclqObjectKey)
-	if err := r.buildResource(logger, pcs, pcsg, pcsgReplicaIndex, pclq, false); err != nil {
+	if err := r.buildResource(logger, pcs, pcsg, pcsgReplicaIndex, pclq, false, podGangName); err != nil {
 		return err
 	}
-	pclq.Labels[apicommon.LabelPodGang] = podGangName
 
 	if err := r.client.Create(ctx, pclq); err != nil {
 		r.eventRecorder.Eventf(pcsg, corev1.EventTypeWarning, constants.ReasonPodCliqueCreateOrUpdateFailed, "PodClique %v creation failed: %v", pclqObjectKey, err)
