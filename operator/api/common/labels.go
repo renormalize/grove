@@ -41,6 +41,9 @@ const (
 	LabelMinimumViableUnit = "grove.io/minimum-viable-unit"
 	// LabelPodCliqueSetReplicaIndex is a key for a label that sets the replica index of a PodCliqueSet.
 	LabelPodCliqueSetReplicaIndex = "grove.io/podcliqueset-replica-index"
+	// LabelPodCliqueSetGenerationHash is set on PodGang resources to record the PCS generation hash
+	// they were created for.
+	LabelPodCliqueSetGenerationHash = "grove.io/podcliqueset-generation-hash"
 	// LabelPodCliqueScalingGroup is a key for a label that sets the PodCliqueScalingGroup name.
 	LabelPodCliqueScalingGroup = "grove.io/podcliquescalinggroup"
 	// LabelPodCliqueScalingGroupReplicaIndex is a key for a label that sets the replica index of a PodCliqueScalingGroup within PodCliqueSet.

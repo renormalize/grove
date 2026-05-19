@@ -29,7 +29,7 @@ The PodGang component, PCLQ pod component, and PCSG podclique component all read
 |---|---|---|
 | `PodGangMap` | `operator/api/core/v1alpha1/podgangmap.go:31` | Per-PCS-replica desired PodGang composition. Cluster-scoped name: `<pcs-name>-<pcs-replica-index>`. |
 | `PodGangMapSpec` | `operator/api/core/v1alpha1/podgangmap.go:50` | `PodCliqueSetReplicaIndex` + ordered list of `Entries`. |
-| `PodGangEntry` | `operator/api/core/v1alpha1/podgangmap.go:61` | One desired PodGang: name, generation hash, standalone PCLQ pod counts, PCSG replica counts. |
+| `PodGangEntry` | `operator/api/core/v1alpha1/podgangmap.go:61` | One desired PodGang: name, generation hash, standalone PCLQ pod counts, PCSG replica counts, dependency list. |
 | `PodGangMapList` | `operator/api/core/v1alpha1/podgangmap.go:42` | List type for PodGangMap. |
 
 `PodGangEntry.PodCliques` and `PodGangEntry.PodCliqueScalingGroups` use **unqualified** clique/PCSG names (e.g. `frontend`, not `simple1-0-frontend`).
@@ -66,6 +66,8 @@ Both are populated by their respective `reconcilestatus.go` (`mutatePodGangMappi
 |---|---|---|
 | `grove.io/podgang` (`LabelPodGang`) | `operator/api/common/labels.go:34` | Existing per-pod label naming the PodGang the pod belongs to. Set at pod creation. |
 | `grove.io/minimum-viable-unit` (`LabelMinimumViableUnit`) | `operator/api/common/labels.go:41` | Marks MVU-shaped PodGangs (containing `minAvailable` of all updated standalone PCLQs/PCSGs). Reserved for future scale-in/out targeting. |
+| `grove.io/podcliqueset-replica-index` (`LabelPodCliqueSetReplicaIndex`) | `operator/api/common/labels.go:43` | Set on every PodGang resource at creation/patch (`podgang.go:buildResource`) to record the owning PCS replica index. Read by the PodGangMap component to attribute existing PodGangs to a replica when bootstrapping old entries. Legacy PodGangs (created before this label was stamped) fall back to name parsing via `getPodGangPCSReplicaIndex`. |
+| `grove.io/podcliqueset-generation-hash` (`LabelPodCliqueSetGenerationHash`) | `operator/api/common/labels.go:46` | Set on every PodGang resource at creation/patch (`podgang.go:buildResource`) from `pcs.Status.CurrentGenerationHash`. Lets `buildOldEntriesFromExistingPodGangs` distinguish old-hash from current-hash PodGangs without depending on PodGangMap state — old means "label absent or differs from current". |
 | `LabelComponentNamePodGangMap` | `operator/api/common/labels.go:96` | Component value for PodGangMap resources. |
 
 ### 2.6 Naming functions
@@ -88,7 +90,7 @@ All in `operator/api/common/namegen.go`:
 `operator/internal/controller/common/component/utils/mvu.go`:
 
 - `MVUTemplate` — `{StandalonePCLQs, PCSGs}` map of unqualified-name → minAvailable. (line 27)
-- `PodGangEntryBuilder` — closure that emits `PodGangEntry` values with sequentially-numbered names. (line 36)
+- `PodGangEntryBuilder` — closure that emits `PodGangEntry` values with sequentially-numbered names; takes optional `dependsOn` names that are stamped onto the produced entry. (line 36)
 - `ComputeMVUTemplateFromPCS` (line 39), `GetStandalonePCLQReplicasFromPCS` (line 59), `GetStandalonePCLQMinAvailableFromPCS` (line 47), `GetPCSGReplicasFromPCS` (line 80), `GetPCSGMinAvailableFromPCS` (line 71), `NewPodGangEntryBuilder` (line 90).
 
 `operator/internal/controller/common/component/utils/podgangmap.go`:
@@ -129,10 +131,22 @@ PodGangEntry{
   PodCliqueSetGenerationHash:  "<hash>",                            // identifies which spec version this PodGang serves
   PodCliques:                  {"frontend": 2, ...},                // unqualified name → pod count (standalone only)
   PodCliqueScalingGroups:      {"prefill": 1, ...},                 // unqualified name → replica count
+  DependsOn:                   []string{"<other-pg-name>", ...},    // PodGangs in this replica that must be scheduled first
 }
 ```
 
 Multiple entries can exist with the same generation hash. During an active update both old-hash and new-hash entries coexist — the new-hash entries grow as the update progresses, old-hash entries shrink and disappear.
+
+`DependsOn` encodes the gate-removal contract uniformly across all PodGang kinds:
+
+| Kind | DependsOn |
+|---|---|
+| BPG | `nil` |
+| SPG | `[BPG name]` |
+| MPG | `nil` |
+| TailPG | `[all sibling MPG names]` |
+
+Pods in a PodGang with empty `DependsOn` may have their scheduling gates removed once the PodGang resource lists them in `PodGroups[].PodReferences`. Pods in a PodGang with non-empty `DependsOn` additionally wait until each named PodGang is scheduled.
 
 ## 4. Component Flow
 
@@ -151,10 +165,10 @@ Top-level guard in `Sync` (`podgangmap.go:78`): if `hasInFlightPodGangs(pcs)` is
 Otherwise dispatches:
 
 - `IsCoherentUpdateInProgress(pcs)` → `syncCoherentUpdateEntries` (`syncflow.go:126`):
-  - For each PCS replica, calls `computeCoherentUpdateEntries` (`syncflow.go:168`) which reads existing PodGangMap if present (`getOldAndNewEntries`, line 200), bootstraps from live PodGangs on the first reconcile (`buildOldEntriesFromExistingPodGangs`, line 228), runs one MVU iteration via `computeNextPodGangMapState` (mvu.go:124), and emits the merged set of entries.
+  - For each PCS replica, calls `computeCoherentUpdateEntries` (`syncflow.go:168`) which reads existing PodGangMap if present (`getOldAndNewEntries`, line 200), bootstraps from live PodGangs on the first reconcile (`buildOldEntriesFromExistingPodGangs`, line 240, filtering by `getPodGangPCSReplicaIndex` + generation-hash mismatch), runs one MVU iteration via `computeNextPodGangMapState` (mvu.go:124), and emits the merged set of entries. `populateDependsOnForReconstructedEntries` (line 271) then populates `DependsOn` on bootstrapped entries: entries with empty `PodCliques` (SPG/Tail-PG shape) depend on every sibling that has non-empty `PodCliques` (BPG/MPG shape).
   - Deletes excess PodGangMaps for replica indices removed by scale-in.
 - Otherwise → `syncSteadyStateEntries` (`syncflow.go:335`):
-  - For each PCS replica, if no PodGangMap exists, calls `createPodGangMapForReplica` (line 356) which chooses between BPG/SPG-shape (`buildBaseAndScaledPodGangEntries`, line 372) and MVU-shape (`computeMVUEntriesFromSpec`, line 438) based on `hasMVUPodGangs(pcs)` (true iff `Status.PodGangCounter` is non-empty).
+  - For each PCS replica, if no PodGangMap exists, calls `createPodGangMapForReplica` (line 356) which chooses between BPG/SPG-shape (`buildBaseAndScaledPodGangEntries`, line 372) and MVU-shape (`computeMVUEntriesFromSpec`, line 438) based on `hasMVUPodGangs(pcs)` (true iff `Status.PodGangCounter` is non-empty). Both builders set `DependsOn` directly: SPG entries point at the BPG name; Tail-PG entries point at all sibling MPG names emitted in the same call.
   - If a PodGangMap exists, `buildEntriesFromStatuses` (line 514) reconstructs entries from PCLQ and PCSG `Status.PodGangMapping` fields.
 
 **MVU iteration** (`mvu.go`)
@@ -378,26 +392,27 @@ The legacy `GenerateBasePodGangName` collides numerically with `GeneratePodGangM
 
 | File | Role |
 |---|---|
-| `operator/api/core/v1alpha1/podgangmap.go` | New CRD types: `PodGangMap`, `PodGangMapSpec`, `PodGangEntry`, `PodGangMapList`. |
+| `operator/api/core/v1alpha1/podgangmap.go` | New CRD types: `PodGangMap`, `PodGangMapSpec`, `PodGangEntry` (with `DependsOn`), `PodGangMapList`. |
 | `operator/api/core/v1alpha1/podcliqueset.go` | `CoherentStrategy` constant, kubebuilder default `Coherent`, `PodGangCounter`, `InFlightPodGangs`, `ErrorMessage`. |
 | `operator/api/core/v1alpha1/podclique.go` | `PodCliqueStatus.PodGangMapping`. |
 | `operator/api/core/v1alpha1/scalinggroup.go` | `PodCliqueScalingGroupStatus.PodGangMapping`. |
 | `operator/api/common/namegen.go` | `GeneratePodGangName`, `GeneratePodGangMapName`, `ExtractScalingGroupNameFromPCSGFQN`, `podGangNameShortHashLength` constant. |
-| `operator/api/common/labels.go` | `LabelMinimumViableUnit`, `LabelComponentNamePodGangMap`. |
+| `operator/api/common/labels.go` | `LabelMinimumViableUnit`, `LabelComponentNamePodGangMap`, `LabelPodCliqueSetGenerationHash`. |
 | `scheduler/api/core/v1alpha1/podgang.go` | `PodGangConditionTypeAvailable` and reason constants. |
-| `operator/internal/controller/common/component/utils/mvu.go` | `MVUTemplate`, `PodGangEntryBuilder`, spec helpers (`ComputeMVUTemplateFromPCS`, `GetStandalonePCLQReplicasFromPCS`, `GetPCSGReplicasFromPCS`, etc.), `NewPodGangEntryBuilder`. |
+| `operator/internal/controller/common/component/utils/mvu.go` | `MVUTemplate`, `PodGangEntryBuilder` (takes `dependsOn` arg), spec helpers (`ComputeMVUTemplateFromPCS`, `GetStandalonePCLQReplicasFromPCS`, `GetPCSGReplicasFromPCS`, etc.), `NewPodGangEntryBuilder`. |
 | `operator/internal/controller/common/component/utils/podgangmap.go` | `GetPodGangMap`, `GetPodGangMapForPCSReplica`, `FilterPodGangMapEntriesByGenerationHash`, entry filters by PCLQ / PCSG. |
 | `operator/internal/controller/common/component/utils/podcliqueset.go` | `IsCoherentStrategy`, `IsCoherentUpdateInProgress`, `IsRollingRecreateUpdateInProgress` (and existing helpers). |
 | `operator/internal/controller/common/component/utils/podclique.go` | `GroupPCLQsByPCSGReplicaIndex` returns `(map[int][]PodClique, error)` with strict label parsing. |
 | `operator/internal/controller/podcliqueset/reconcilespec.go` | `initUpdateProgress` Coherent branch; `getKindSyncGroups` orders PodGangMap into G0. |
 | `operator/internal/controller/podcliqueset/reconcilestatus.go` | `mutatePodGangCounter` recomputes counters from PodGangMap each reconcile. |
 | `operator/internal/controller/podcliqueset/components/podgangmap/podgangmap.go` | Component scaffolding: `Sync`/`Delete`/`GetExistingResourceNames`, `buildResource`, label helpers. |
-| `operator/internal/controller/podcliqueset/components/podgangmap/syncflow.go` | `prepareSyncFlow`, `runSyncFlow`, `syncCoherentUpdateEntries`, `computeCoherentUpdateEntries`, `getOldAndNewEntries`, `buildOldEntriesFromExistingPodGangs`, `syncSteadyStateEntries`, `createPodGangMapForReplica`, BPG/SPG entry builders, `computeMVUEntriesFromSpec`, `computeAllMVUPodGangEntries`, `buildEntriesFromStatuses`. |
+| `operator/internal/controller/podcliqueset/components/podgangmap/syncflow.go` | `prepareSyncFlow`, `runSyncFlow`, `syncCoherentUpdateEntries`, `computeCoherentUpdateEntries`, `getOldAndNewEntries`, `buildOldEntriesFromExistingPodGangs`, `populateDependsOnForReconstructedEntries`, `getPodGangPCSReplicaIndex`, `collectMPGNamesFromEntries`, `syncSteadyStateEntries`, `createPodGangMapForReplica`, BPG/SPG entry builders, `computeMVUEntriesFromSpec`, `computeAllMVUPodGangEntries`, `buildEntriesFromStatuses`. |
 | `operator/internal/controller/podcliqueset/components/podgangmap/mvu.go` | `mvuTemplate`, `computeMVUTemplate`, `findUpdatedPodCliques`, `computeNextPodGangMapState`, `computeNextMVUPodGang`, `computeTailPodGangs`, deduction/empty-removal helpers. |
 | `operator/internal/controller/podcliqueset/components/podcliquesetreplica/podcliquesetreplica.go` | Strategy dispatch in `Sync`. |
 | `operator/internal/controller/podcliqueset/components/podcliquesetreplica/coherentupdate.go` | `orchestrateCoherentUpdate`, `checkAndAdvanceCoherentUpdate`, `computeCoherentPendingWork`, `populateInFlightPodGangs`, `coherentPendingWork`. |
 | `operator/internal/controller/podcliqueset/components/podcliquesetreplica/updateprogress.go` | Shared replica-progress helpers: `pcsReplicaInfo`, `computeUpdateProgress`, `getPCSReplicaInfos`, `patchUpdateProgressStatus`, `markCurrentReplicaUpdateDone`. |
-| `operator/internal/controller/podcliqueset/components/podgang/syncflow.go` | `computeExpectedPodGangs` reads PodGangMap; `buildPodGangInfoFromEntry`, `buildStandalonePCLQInfos`, `buildPCLQInfosAndTopologyConstraintsForPCSGs`; `arePodGangMinReplicasReady`, `releaseMinReplicasConstraint`; `Initialized` and `Available` condition patches. |
+| `operator/internal/controller/podcliqueset/components/podgang/syncflow.go` | `computeExpectedPodGangs` reads PodGangMap; `buildPodGangInfoFromEntry` records `pcsReplicaIndex` on `podGangInfo`; `buildStandalonePCLQInfos`, `buildPCLQInfosAndTopologyConstraintsForPCSGs`; `arePodGangMinReplicasReady`, `releaseMinReplicasConstraint`; `Initialized` and `Available` condition patches. |
+| `operator/internal/controller/podcliqueset/components/podgang/podgang.go` | `buildResource` stamps `LabelPodCliqueSetGenerationHash` and `LabelPodCliqueSetReplicaIndex` on every PodGang. |
 | `operator/internal/controller/podclique/register.go` | PodGangMap watch + `mapPodGangMapToPCLQs` + `podGangMapPredicate`. |
 | `operator/internal/controller/podclique/reconcilestatus.go` | `mutatePodGangMapping` derives `Status.PodGangMapping` from pod labels. |
 | `operator/internal/controller/podclique/components/pod/syncflow.go` | `prepareSyncFlow` resolves `isStandalonePCLQ`/`pcsReplicaIndex`/`cliqueName`; coherent-update dispatch; `resolvePodGangNamesForNewPods`, `assignPodsToDeficitPodGangs`, `findHighestMVUPodGangForClique`, `countPodsPerPodGang`. |

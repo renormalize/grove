@@ -21,6 +21,7 @@ import (
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	groveschedulerv1alpha1 "github.com/ai-dynamo/grove/scheduler/api/core/v1alpha1"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -440,4 +441,77 @@ func TestBuildBaseAndScaledPodGangEntries(t *testing.T) {
 	assert.Equal(t, map[string]int32{"prefill": 1}, entries[1].PodCliqueScalingGroups)
 	assert.Equal(t, "my-pcs-0-prefill-1", entries[2].Name)
 	assert.Equal(t, map[string]int32{"prefill": 1}, entries[2].PodCliqueScalingGroups)
+}
+
+func TestGetPodGangPCSReplicaIndex(t *testing.T) {
+	const pcsName = "my-pcs"
+	tests := []struct {
+		name        string
+		pgName      string
+		labels      map[string]string
+		expectIndex int
+		expectOK    bool
+	}{
+		{
+			name:        "label present and valid",
+			pgName:      "my-pcs-3-abc12-0",
+			labels:      map[string]string{apicommon.LabelPodCliqueSetReplicaIndex: "3"},
+			expectIndex: 3,
+			expectOK:    true,
+		},
+		{
+			name:        "legacy BPG without label",
+			pgName:      "my-pcs-2",
+			labels:      nil,
+			expectIndex: 2,
+			expectOK:    true,
+		},
+		{
+			name:        "legacy SPG without label",
+			pgName:      "my-pcs-2-prefill-1",
+			labels:      nil,
+			expectIndex: 2,
+			expectOK:    true,
+		},
+		{
+			name:        "label has invalid integer falls back to name",
+			pgName:      "my-pcs-4-prefill-1",
+			labels:      map[string]string{apicommon.LabelPodCliqueSetReplicaIndex: "not-a-number"},
+			expectIndex: 4,
+			expectOK:    true,
+		},
+		{
+			name:     "name does not start with pcs name prefix",
+			pgName:   "other-pcs-0",
+			labels:   nil,
+			expectOK: false,
+		},
+		{
+			name:     "name has pcs prefix but non-numeric replica segment",
+			pgName:   "my-pcs-x-prefill-0",
+			labels:   nil,
+			expectOK: false,
+		},
+		{
+			name:     "name equals pcs name with no replica segment",
+			pgName:   "my-pcs",
+			labels:   nil,
+			expectOK: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pg := groveschedulerv1alpha1.PodGang{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   tc.pgName,
+					Labels: tc.labels,
+				},
+			}
+			idx, ok := getPodGangPCSReplicaIndex(pg, pcsName)
+			assert.Equal(t, tc.expectOK, ok)
+			if tc.expectOK {
+				assert.Equal(t, tc.expectIndex, idx)
+			}
+		})
+	}
 }

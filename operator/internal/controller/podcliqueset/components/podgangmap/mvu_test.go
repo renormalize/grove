@@ -56,7 +56,7 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQUpdated(t *testing.T) {
 	builder := makeTestEntryBuilder(&counter)
 
 	// Iteration 1
-	state := computeNextPodGangMapState(template, oldEntries, builder)
+	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
@@ -65,7 +65,7 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQUpdated(t *testing.T) {
 	assert.Equal(t, int32(3), state.oldEntries[0].PodCliques["frontend"])
 
 	// Iteration 2: absorbs remaining 1F
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(3), state.newEntries[0].PodCliques["frontend"])
@@ -75,7 +75,7 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQUpdated(t *testing.T) {
 	assert.Equal(t, int32(1), state.oldEntries[0].PodCliqueScalingGroups["prefill"])
 
 	// Iteration 3: done (no PCSGs in template, remaining F=0)
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
 }
@@ -107,7 +107,7 @@ func TestComputeNextPodGangMapState_MultipleStandalonePCLQsUpdated(t *testing.T)
 	builder := makeTestEntryBuilder(&counter)
 
 	// Iteration 1
-	state := computeNextPodGangMapState(template, oldEntries, builder)
+	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
@@ -117,7 +117,7 @@ func TestComputeNextPodGangMapState_MultipleStandalonePCLQsUpdated(t *testing.T)
 	assert.Equal(t, int32(2), state.oldEntries[0].PodCliques["backend"])
 
 	// Iteration 2: absorbs remaining F=1, B=1
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(3), state.newEntries[0].PodCliques["frontend"])
@@ -125,7 +125,7 @@ func TestComputeNextPodGangMapState_MultipleStandalonePCLQsUpdated(t *testing.T)
 	assert.Empty(t, state.oldEntries)
 
 	// Iteration 3: done
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
 }
@@ -157,7 +157,7 @@ func TestComputeNextPodGangMapState_SinglePCSGUpdated(t *testing.T) {
 	builder := makeTestEntryBuilder(&counter)
 
 	// Iteration 1: takes from bpg-0 (lowest index)
-	state := computeNextPodGangMapState(template, oldEntries, builder)
+	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
@@ -166,7 +166,7 @@ func TestComputeNextPodGangMapState_SinglePCSGUpdated(t *testing.T) {
 
 	// Iterations 2-4: each takes from next lowest SPG
 	for i := range 3 {
-		state = computeNextPodGangMapState(template, state.oldEntries, builder)
+		state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 		require.False(t, state.done, "iteration %d should not be done", i+2)
 		require.Len(t, state.newEntries, 1)
 		assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
@@ -177,7 +177,7 @@ func TestComputeNextPodGangMapState_SinglePCSGUpdated(t *testing.T) {
 	assert.Equal(t, int32(5), state.oldEntries[0].PodCliques["frontend"])
 
 	// Iteration 5: done
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
 }
@@ -218,7 +218,7 @@ func TestComputeNextPodGangMapState_MultiplePCSGsUpdated(t *testing.T) {
 	// Iterations 1-3: MVU {P:1, D:1}
 	state := podGangMapState{oldEntries: oldEntries}
 	for i := range 3 {
-		state = computeNextPodGangMapState(template, state.oldEntries, builder)
+		state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 		require.False(t, state.done, "iteration %d should not be done", i+1)
 		require.Len(t, state.newEntries, 1)
 		assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
@@ -226,13 +226,13 @@ func TestComputeNextPodGangMapState_MultiplePCSGsUpdated(t *testing.T) {
 	}
 
 	// Iteration 4: cannot form MVU (D=0 < 1). Tail-PG: {P:1}
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
 
 	// Iteration 5: done
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
 }
@@ -270,21 +270,21 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQAndSinglePCSGUpdated(t *
 	builder := makeTestEntryBuilder(&counter)
 
 	// Iteration 1
-	state := computeNextPodGangMapState(template, oldEntries, builder)
+	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
 	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
 
 	// Iteration 2: absorbs remaining 1F
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(3), state.newEntries[0].PodCliques["frontend"])
 	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
 
 	// Iteration 3: Tail-PGs
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 2)
 	for _, e := range state.newEntries {
@@ -293,7 +293,7 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQAndSinglePCSGUpdated(t *
 	}
 
 	// Iteration 4: done
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
 }
@@ -333,7 +333,7 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQAndMultiplePCSGsUpdated(
 	builder := makeTestEntryBuilder(&counter)
 
 	// Iteration 1
-	state := computeNextPodGangMapState(template, oldEntries, builder)
+	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
@@ -341,7 +341,7 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQAndMultiplePCSGsUpdated(
 	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["decode"])
 
 	// Iteration 2: absorbs remaining 1F
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(3), state.newEntries[0].PodCliques["frontend"])
@@ -349,7 +349,7 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQAndMultiplePCSGsUpdated(
 	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["decode"])
 
 	// Iteration 3: Tail-PGs
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 3)
 	prefillTails := 0
@@ -366,7 +366,7 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQAndMultiplePCSGsUpdated(
 	assert.Equal(t, 1, decodeTails)
 
 	// Iteration 4: done
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
 }
@@ -404,7 +404,7 @@ func TestComputeNextPodGangMapState_MultipleStandalonePCLQsAndSinglePCSGUpdated(
 	builder := makeTestEntryBuilder(&counter)
 
 	// Iteration 1
-	state := computeNextPodGangMapState(template, oldEntries, builder)
+	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
@@ -412,7 +412,7 @@ func TestComputeNextPodGangMapState_MultipleStandalonePCLQsAndSinglePCSGUpdated(
 	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
 
 	// Iteration 2: absorbs F=1, B=1
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(3), state.newEntries[0].PodCliques["frontend"])
@@ -420,7 +420,7 @@ func TestComputeNextPodGangMapState_MultipleStandalonePCLQsAndSinglePCSGUpdated(
 	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
 
 	// Iteration 3: Tail-PGs
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 2)
 	for _, e := range state.newEntries {
@@ -429,7 +429,7 @@ func TestComputeNextPodGangMapState_MultipleStandalonePCLQsAndSinglePCSGUpdated(
 	}
 
 	// Iteration 4: done
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
 }
@@ -468,7 +468,7 @@ func TestComputeNextPodGangMapState_MultipleStandalonePCLQsAndMultiplePCSGsUpdat
 	builder := makeTestEntryBuilder(&counter)
 
 	// Iteration 1
-	state := computeNextPodGangMapState(template, oldEntries, builder)
+	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
@@ -477,7 +477,7 @@ func TestComputeNextPodGangMapState_MultipleStandalonePCLQsAndMultiplePCSGsUpdat
 	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["decode"])
 
 	// Iteration 2: absorbs F=1, B=1
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(3), state.newEntries[0].PodCliques["frontend"])
@@ -486,7 +486,7 @@ func TestComputeNextPodGangMapState_MultipleStandalonePCLQsAndMultiplePCSGsUpdat
 	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["decode"])
 
 	// Iteration 3: Tail-PGs
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 3)
 	prefillTails := 0
@@ -503,7 +503,7 @@ func TestComputeNextPodGangMapState_MultipleStandalonePCLQsAndMultiplePCSGsUpdat
 	assert.Equal(t, 1, decodeTails)
 
 	// Iteration 4: done
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
 }
@@ -534,7 +534,7 @@ func TestComputeNextPodGangMapState_ExactMultipleOfMinAvailable(t *testing.T) {
 	builder := makeTestEntryBuilder(&counter)
 
 	// Iteration 1
-	state := computeNextPodGangMapState(template, oldEntries, builder)
+	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
@@ -542,14 +542,14 @@ func TestComputeNextPodGangMapState_ExactMultipleOfMinAvailable(t *testing.T) {
 	assert.Equal(t, int32(2), state.oldEntries[0].PodCliques["frontend"])
 
 	// Iteration 2
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
 	assert.Empty(t, state.oldEntries)
 
 	// Iteration 3: done
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
 }
@@ -564,7 +564,7 @@ func TestComputeNextPodGangMapState_NothingRemaining(t *testing.T) {
 	counter := 0
 	builder := makeTestEntryBuilder(&counter)
 
-	state := computeNextPodGangMapState(template, nil, builder)
+	state := computeNextPodGangMapState(template, nil, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
 }
@@ -595,7 +595,7 @@ func TestComputeNextPodGangMapState_OnlyTailPGsFromStart(t *testing.T) {
 	builder := makeTestEntryBuilder(&counter)
 
 	// Cannot form MVU (F=0 < 2). Directly produces Tail-PGs.
-	state := computeNextPodGangMapState(template, oldEntries, builder)
+	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 2)
 	for _, e := range state.newEntries {
@@ -605,7 +605,7 @@ func TestComputeNextPodGangMapState_OnlyTailPGsFromStart(t *testing.T) {
 	assert.Empty(t, state.oldEntries)
 
 	// Next call: done
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
 }
@@ -642,7 +642,7 @@ func TestComputeNextPodGangMapState_DeductsFromLowestIndexFirst(t *testing.T) {
 	builder := makeTestEntryBuilder(&counter)
 
 	// Iteration 1: takes 1 from pg-0 (exhausts it) and 1 from pg-1
-	state := computeNextPodGangMapState(template, oldEntries, builder)
+	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
@@ -654,14 +654,14 @@ func TestComputeNextPodGangMapState_DeductsFromLowestIndexFirst(t *testing.T) {
 	assert.Equal(t, int32(1), state.oldEntries[1].PodCliques["frontend"])
 
 	// Iteration 2: takes 2 from pg-1, remaining F=1 < 2. Absorbs 1 from pg-2.
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(3), state.newEntries[0].PodCliques["frontend"])
 	assert.Empty(t, state.oldEntries)
 
 	// Iteration 3: done
-	state = computeNextPodGangMapState(template, state.oldEntries, builder)
+	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
 }
@@ -669,7 +669,7 @@ func TestComputeNextPodGangMapState_DeductsFromLowestIndexFirst(t *testing.T) {
 // makeTestEntryBuilder creates a simple entryBuilder that produces entries with an incrementing
 // name and the given composition.
 func makeTestEntryBuilder(counter *int) componentutils.PodGangEntryBuilder {
-	return func(standalonePCLQPods map[string]int32, pcsgReplicas map[string]int32) grovecorev1alpha1.PodGangEntry {
+	return func(standalonePCLQPods map[string]int32, pcsgReplicas map[string]int32, dependsOn []string) grovecorev1alpha1.PodGangEntry {
 		name := fmt.Sprintf("mvu-%d", *counter)
 		*counter++
 		return grovecorev1alpha1.PodGangEntry{
@@ -677,6 +677,7 @@ func makeTestEntryBuilder(counter *int) componentutils.PodGangEntryBuilder {
 			PodCliqueSetGenerationHash: "new-hash",
 			PodCliques:                 standalonePCLQPods,
 			PodCliqueScalingGroups:     pcsgReplicas,
+			DependsOn:                  dependsOn,
 		}
 	}
 }

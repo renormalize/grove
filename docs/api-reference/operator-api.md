@@ -673,6 +673,7 @@ _Appears in:_
 | `podCliqueSetGenerationHash` _string_ | PodCliqueSetGenerationHash is the PodCliqueSet generation hash that pods in this PodGang<br />must match. Used by PodClique and PodCliqueScalingGroup reconcilers to create pods at the<br />correct spec version and to distinguish old pods from new pods during a coherent update. |  |  |
 | `podCliques` _object (keys:string, values:integer)_ | PodCliques maps standalone PodClique name to the number of pods that belong to this PodGang.<br />Only standalone PodCliques (not owned by a PodCliqueScalingGroup) are listed here.<br />PodCliques owned by a PodCliqueScalingGroup derive their PodGang association via<br />PodCliqueScalingGroups below. |  |  |
 | `podCliqueScalingGroups` _object (keys:string, values:integer)_ | PodCliqueScalingGroups maps PodCliqueScalingGroup name to the number of replicas of that<br />PodCliqueScalingGroup that belong to this PodGang. A PodClique reconciler for a<br />PodCliqueScalingGroup-owned PodClique uses this field to find its target PodGang by looking<br />up its owning PodCliqueScalingGroup name here. |  |  |
+| `dependsOn` _string array_ | DependsOn lists the PodGang names within the same PodCliqueSet replica whose pods must be<br />scheduled before pods in this PodGang have their scheduling gates removed. |  |  |
 
 
 #### PodGangMap

@@ -53,6 +53,13 @@ spec:
                   description: PodGangEntry describes the desired composition of a
                     single PodGang.
                   properties:
+                    dependsOn:
+                      description: |-
+                        DependsOn lists the PodGang names within the same PodCliqueSet replica whose pods must be
+                        scheduled before pods in this PodGang have their scheduling gates removed.
+                      items:
+                        type: string
+                      type: array
                     name:
                       description: Name is the name of the PodGang this entry corresponds
                         to.

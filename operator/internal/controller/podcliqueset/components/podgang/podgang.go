@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
@@ -139,6 +140,8 @@ func (r _resource) buildResource(pcs *grovecorev1alpha1.PodCliqueSet, pgi *podGa
 	} else {
 		delete(pg.Labels, apicommon.LabelSchedulerName)
 	}
+	pg.Labels[apicommon.LabelPodCliqueSetGenerationHash] = *pcs.Status.CurrentGenerationHash
+	pg.Labels[apicommon.LabelPodCliqueSetReplicaIndex] = strconv.Itoa(pgi.pcsReplicaIndex)
 	pg.Annotations = mirrorPCSMetadata(pg.Annotations, pcs.Annotations, nil)
 	if r.tasConfig.Enabled && podGangHasTranslatedTopologyConstraints(pgi) {
 		if topologyName, err := componentutils.ResolveTopologyNameForPodCliqueSet(pcs); err == nil && topologyName != "" {

@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -39,8 +40,17 @@ import (
 // (additions and removals on the PCS propagate); grove.io/-prefixed keys are
 // operator-managed and persist independent of PCS state.
 func TestBuildResource(t *testing.T) {
-	const pcsName = "test-pcs"
-	expectedDefaultLabels := getLabels(pcsName)
+	const (
+		pcsName        = "test-pcs"
+		generationHash = "testhash"
+	)
+	expectedDefaultLabels := lo.Assign(
+		getLabels(pcsName),
+		map[string]string{
+			apicommon.LabelPodCliqueSetGenerationHash: generationHash,
+			apicommon.LabelPodCliqueSetReplicaIndex:   "0",
+		},
+	)
 
 	tests := []struct {
 		name                      string
@@ -211,6 +221,9 @@ func TestBuildResource(t *testing.T) {
 							},
 						},
 					},
+				},
+				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					CurrentGenerationHash: ptr.To(generationHash),
 				},
 			}
 
