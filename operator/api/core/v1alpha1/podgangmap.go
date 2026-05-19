@@ -77,4 +77,8 @@ type PodGangEntry struct {
 	// up its owning PodCliqueScalingGroup name here.
 	// +optional
 	PodCliqueScalingGroups map[string]int32 `json:"podCliqueScalingGroups,omitempty"`
+	// DependsOn lists the PodGang names within the same PodCliqueSet replica whose pods must be
+	// scheduled before pods in this PodGang have their scheduling gates removed.
+	// +optional
+	DependsOn []string `json:"dependsOn,omitempty"`
 }

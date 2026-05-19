@@ -195,7 +195,7 @@ func (r _resource) computeExpectedPodGangs(ctx context.Context, sc *syncContext)
 // allowing the correct PCLQ FQNs and TopologyConstraintGroupConfig names to be derived
 // without scanning the full entry list.
 func (r _resource) buildPodGangInfoFromEntry(sc *syncContext, pcsReplicaIndex int, pgEntry grovecorev1alpha1.PodGangEntry, pcsgReplicaOffset map[string]int32) (*podGangInfo, error) {
-	pg := &podGangInfo{fqn: pgEntry.Name}
+	pg := &podGangInfo{fqn: pgEntry.Name, pcsReplicaIndex: pcsReplicaIndex}
 
 	pg.pclqs = buildStandalonePCLQInfos(sc, pcsReplicaIndex, pgEntry)
 	pcsgPCLQs, pcsgConstraints, err := buildPCLQInfosAndTopologyConstraintsForPCSGs(sc, pcsReplicaIndex, pgEntry, pcsgReplicaOffset)
@@ -729,6 +729,8 @@ func (sfr *syncFlowResult) getAggregatedError() error {
 type podGangInfo struct {
 	// fqn is a fully qualified name of a PodGang.
 	fqn string
+	// pcsReplicaIndex is the PCS replica index this PodGang belongs to.
+	pcsReplicaIndex int
 	// pclqs holds the relevant information for all constituent PodCliques for this PodGang.
 	pclqs []pclqInfo
 	// topologyConstraint holds the topology pack constraint applicable at the PodGang level.

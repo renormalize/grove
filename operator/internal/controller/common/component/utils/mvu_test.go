@@ -140,13 +140,15 @@ func TestNewPodGangEntryBuilder(t *testing.T) {
 	var index int32
 	builder := NewPodGangEntryBuilder("my-pcs", 0, "abc123", &index)
 
-	entry1 := builder(map[string]int32{"worker": 2}, map[string]int32{"sg": 1})
+	entry1 := builder(map[string]int32{"worker": 2}, map[string]int32{"sg": 1}, nil)
 	assert.Equal(t, "abc123", entry1.PodCliqueSetGenerationHash)
 	assert.Equal(t, map[string]int32{"worker": 2}, entry1.PodCliques)
 	assert.Equal(t, map[string]int32{"sg": 1}, entry1.PodCliqueScalingGroups)
+	assert.Nil(t, entry1.DependsOn)
 	assert.Equal(t, int32(1), index)
 
-	entry2 := builder(map[string]int32{"worker": 3}, nil)
+	entry2 := builder(map[string]int32{"worker": 3}, nil, []string{entry1.Name})
 	assert.Equal(t, int32(2), index)
 	assert.NotEqual(t, entry1.Name, entry2.Name)
+	assert.Equal(t, []string{entry1.Name}, entry2.DependsOn)
 }

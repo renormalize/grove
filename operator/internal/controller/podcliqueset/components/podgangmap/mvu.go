@@ -120,10 +120,13 @@ type podGangMapState struct {
 // Parameters:
 //   - template: the fixed MVU template for this update
 //   - oldEntries: existing old-hash PodGang entries ordered by index (lowest first)
+//   - mpgNames: names of MVU PodGangs already created in previous iterations of this update
+//     (Tail-PGs created in the current iteration depend on them)
 //   - entryBuilder: a function that creates a PodGangEntry given the composition
 func computeNextPodGangMapState(
 	template mvuTemplate,
 	oldEntries []grovecorev1alpha1.PodGangEntry,
+	mpgNames []string,
 	entryBuilder componentutils.PodGangEntryBuilder,
 ) podGangMapState {
 	if canFormMVUPodGang(template, oldEntries) {
@@ -131,7 +134,7 @@ func computeNextPodGangMapState(
 		return podGangMapState{oldEntries: oldEntries, newEntries: newEntries, done: false}
 	}
 	// Only Tail-PGs remain. Create PodGangEntries for Tail-PGs.
-	oldEntries, newEntries, done := computeTailPodGangs(template, oldEntries, entryBuilder)
+	oldEntries, newEntries, done := computeTailPodGangs(template, oldEntries, mpgNames, entryBuilder)
 	return podGangMapState{oldEntries: oldEntries, newEntries: newEntries, done: done}
 }
 
@@ -187,21 +190,23 @@ func computeNextMVUPodGang(
 
 	// Remove old entries that have no pods and no replicas left.
 	updatedOldEntries = removeEmptyEntries(oldEntries)
-	newEntries = []grovecorev1alpha1.PodGangEntry{entryBuilder(nextMVUStandalonePCLQs, template.pcsgs)}
+	newEntries = []grovecorev1alpha1.PodGangEntry{entryBuilder(nextMVUStandalonePCLQs, template.pcsgs, nil)}
 	return
 }
 
 // computeTailPodGangs creates one Tail-PG per remaining PCSG replica in the old entries.
-// Deducts replicas from old entries (lowest-indexed first).
+// Deducts replicas from old entries (lowest-indexed first). Each Tail-PG depends on the
+// supplied MVU PodGang names.
 func computeTailPodGangs(
 	template mvuTemplate,
 	oldEntries []grovecorev1alpha1.PodGangEntry,
+	mpgNames []string,
 	entryBuilder componentutils.PodGangEntryBuilder,
 ) (updatedOldEntries []grovecorev1alpha1.PodGangEntry, newEntries []grovecorev1alpha1.PodGangEntry, done bool) {
 	for pcsgName := range template.pcsgs {
 		remaining := sumPCSGReplicasInEntries(oldEntries, pcsgName)
 		for range remaining {
-			newEntries = append(newEntries, entryBuilder(nil, map[string]int32{pcsgName: 1}))
+			newEntries = append(newEntries, entryBuilder(nil, map[string]int32{pcsgName: 1}, mpgNames))
 			oldEntries = deductPCSGReplicasFromOldEntries(oldEntries, pcsgName, 1)
 		}
 	}

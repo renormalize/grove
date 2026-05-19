@@ -32,8 +32,8 @@ type MVUTemplate struct {
 }
 
 // PodGangEntryBuilder is a function that creates a PodGangEntry given standalone PCLQ replicas
-// and PCSG replicas for the PodGang.
-type PodGangEntryBuilder func(standalonePCLQReplicas map[string]int32, pcsgReplicas map[string]int32) grovecorev1alpha1.PodGangEntry
+// and PCSG replicas for the PodGang, and the names of PodGangs this entry depends on.
+type PodGangEntryBuilder func(standalonePCLQReplicas map[string]int32, pcsgReplicas map[string]int32, dependsOn []string) grovecorev1alpha1.PodGangEntry
 
 // ComputeMVUTemplateFromPCS computes the MVU template for a PCS from its spec.
 func ComputeMVUTemplateFromPCS(pcs *grovecorev1alpha1.PodCliqueSet) MVUTemplate {
@@ -88,7 +88,7 @@ func GetPCSGReplicasFromPCS(pcs *grovecorev1alpha1.PodCliqueSet) map[string]int3
 // NewPodGangEntryBuilder returns a closure that creates PodGangEntry values with
 // sequentially-numbered names. The counter is incremented on each call.
 func NewPodGangEntryBuilder(pcsName string, pcsReplicaIndex int32, pcsGenerationHash string, podGangIndex *int32) PodGangEntryBuilder {
-	return func(standalonePCLQReplicas map[string]int32, pcsgReplicas map[string]int32) grovecorev1alpha1.PodGangEntry {
+	return func(standalonePCLQReplicas map[string]int32, pcsgReplicas map[string]int32, dependsOn []string) grovecorev1alpha1.PodGangEntry {
 		name := apicommon.GeneratePodGangName(pcsName, pcsReplicaIndex, pcsGenerationHash, *podGangIndex)
 		*podGangIndex++
 		return grovecorev1alpha1.PodGangEntry{
@@ -96,6 +96,7 @@ func NewPodGangEntryBuilder(pcsName string, pcsReplicaIndex int32, pcsGeneration
 			PodCliqueSetGenerationHash: pcsGenerationHash,
 			PodCliques:                 standalonePCLQReplicas,
 			PodCliqueScalingGroups:     pcsgReplicas,
+			DependsOn:                  dependsOn,
 		}
 	}
 }

@@ -32,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -43,13 +44,18 @@ func TestBuildResource(t *testing.T) {
 	const (
 		pcsName              = "test-pcs"
 		defaultSchedulerName = "default-scheduler"
+		generationHash       = "testhash"
 	)
 	// expectedDefaultLabels reflects what every PodGang carries after buildResource:
 	// the operator-managed label set from getLabels plus the scheduler name resolved
 	// from the fake registry (testutils.NewDefaultFakeRegistry returns "default-scheduler").
 	expectedDefaultLabels := lo.Assign(
 		getLabels(pcsName),
-		map[string]string{apicommon.LabelSchedulerName: defaultSchedulerName},
+		map[string]string{
+			apicommon.LabelSchedulerName:              defaultSchedulerName,
+			apicommon.LabelPodCliqueSetGenerationHash: generationHash,
+			apicommon.LabelPodCliqueSetReplicaIndex:   "0",
+		},
 	)
 
 	tests := []struct {
@@ -221,6 +227,9 @@ func TestBuildResource(t *testing.T) {
 							},
 						},
 					},
+				},
+				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					CurrentGenerationHash: ptr.To(generationHash),
 				},
 			}
 
