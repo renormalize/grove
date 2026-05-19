@@ -22,8 +22,8 @@ import (
 	"testing"
 
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
-	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
+	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 	testutils "github.com/ai-dynamo/grove/operator/test/utils"
 
@@ -365,20 +365,20 @@ func TestCheckAndAdvanceCoherentUpdate(t *testing.T) {
 	}
 
 	tests := []struct {
-		name              string
-		inFlightPodGangs             []string
-		podGangs                     []*groveschedulerv1alpha1.PodGang
-		podGangMap                   *grovecorev1alpha1.PodGangMap
-		currentGenerationHash        *string
-		replicaDone                  bool
-		expectRequeue                bool
-		expectReplicaDone            bool
+		name                          string
+		inFlightPodGangs              []string
+		podGangs                      []*groveschedulerv1alpha1.PodGang
+		podGangMap                    *grovecorev1alpha1.PodGangMap
+		currentGenerationHash         *string
+		replicaDone                   bool
+		expectRequeue                 bool
+		expectReplicaDone             bool
 		expectInFlightPodGangsCleared bool
-		expectInFlightPodGangsSet    []string
+		expectInFlightPodGangsSet     []string
 	}{
 		{
-			name:             "empty InFlightPodGangs populates from PodGangMap",
-			inFlightPodGangs: nil,
+			name:                  "empty InFlightPodGangs populates from PodGangMap",
+			inFlightPodGangs:      nil,
 			currentGenerationHash: ptrString("new-hash"),
 			podGangMap: &grovecorev1alpha1.PodGangMap{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-pcs-0", Namespace: "default"},
@@ -393,15 +393,15 @@ func TestCheckAndAdvanceCoherentUpdate(t *testing.T) {
 			expectInFlightPodGangsSet: []string{"pg-new-0"},
 		},
 		{
-			name:             "empty InFlightPodGangs with no PodGangMap requeues",
-			inFlightPodGangs: nil,
+			name:                  "empty InFlightPodGangs with no PodGangMap requeues",
+			inFlightPodGangs:      nil,
 			currentGenerationHash: ptrString("new-hash"),
-			podGangMap:       nil,
-			expectRequeue:    true,
+			podGangMap:            nil,
+			expectRequeue:         true,
 		},
 		{
-			name:             "empty InFlightPodGangs with all new-hash entries Available requeues",
-			inFlightPodGangs: nil,
+			name:                  "empty InFlightPodGangs with all new-hash entries Available requeues",
+			inFlightPodGangs:      nil,
 			currentGenerationHash: ptrString("new-hash"),
 			podGangMap: &grovecorev1alpha1.PodGangMap{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-pcs-0", Namespace: "default"},
@@ -441,7 +441,7 @@ func TestCheckAndAdvanceCoherentUpdate(t *testing.T) {
 			podGangs: []*groveschedulerv1alpha1.PodGang{
 				makePodGang("pg-0", "default", true),
 			},
-			replicaDone:              false,
+			replicaDone:                   false,
 			expectInFlightPodGangsCleared: true,
 		},
 	}
