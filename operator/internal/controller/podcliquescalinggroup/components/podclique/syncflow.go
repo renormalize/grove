@@ -36,6 +36,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -45,6 +46,7 @@ type syncContext struct {
 	pcsg                           *grovecorev1alpha1.PodCliqueScalingGroup
 	pcsgConfig                     *grovecorev1alpha1.PodCliqueScalingGroupConfig
 	pcsReplicaIndex                int
+	podGangMap                     *grovecorev1alpha1.PodGangMap
 	existingPCLQs                  []grovecorev1alpha1.PodClique
 	existingPCLQNameSet            componentutils.Set[string]
 	pcsgIndicesToTerminate         []int
@@ -79,6 +81,22 @@ func (r _resource) prepareSyncContext(ctx context.Context, logger logr.Logger, p
 		return nil, err
 	}
 	syncCtx.pcsgConfig = resourceclaim.FindPCSGConfig(syncCtx.pcs, pcsg, syncCtx.pcsReplicaIndex)
+
+	// Fetch the PodGangMap for this PCS replica. PodGangMap is the single source of truth
+	// for resolving the PodGang name for each PCSG replica; if it does not yet exist, requeue
+	// until the PodGangMap component reconciles it.
+	syncCtx.podGangMap, err = componentutils.GetPodGangMapForPCSReplica(ctx, r.client, syncCtx.pcs.Name, pcsg.Namespace, syncCtx.pcsReplicaIndex)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, groveerr.New(groveerr.ErrCodeRequeueAfter,
+				component.OperationSync,
+				fmt.Sprintf("PodGangMap not yet created for PodCliqueSet %s replica index %d; requeuing", syncCtx.pcs.Name, syncCtx.pcsReplicaIndex))
+		}
+		return nil, groveerr.WrapError(err,
+			errCodeGetPodGangMap,
+			component.OperationSync,
+			fmt.Sprintf("failed to get PodGangMap for PodCliqueSet %s replica index %d", syncCtx.pcs.Name, syncCtx.pcsReplicaIndex))
+	}
 
 	// compute the expected state and get existing state.
 	syncCtx.expectedPCLQFQNsPerPCSGReplica = getExpectedPodCliqueFQNsByPCSGReplica(pcsg)
@@ -383,8 +401,16 @@ func (sc *syncContext) refreshExistingPCLQs(pcsg *grovecorev1alpha1.PodCliqueSca
 
 // createExpectedPCLQs creates any missing PodCliques needed to satisfy the desired PCSG replica configuration
 func (r _resource) createExpectedPCLQs(logger logr.Logger, sc *syncContext) error {
+	pcsgConfigName := apicommon.ExtractScalingGroupNameFromPCSGFQN(sc.pcsg.Name, apicommon.ResourceNameReplica{Name: sc.pcs.Name, Replica: sc.pcsReplicaIndex})
 	var tasks []utils.Task
 	for pcsgReplicaIndex, expectedPCLQNames := range sc.expectedPCLQFQNsPerPCSGReplica {
+		// All PCLQs of a single PCSG replica share the same PodGang.
+		podGangName, ok := resolvePodGangNameFromPGM(sc.podGangMap, pcsgConfigName, pcsgReplicaIndex)
+		if !ok {
+			return groveerr.New(groveerr.ErrCodeRequeueAfter,
+				component.OperationSync,
+				fmt.Sprintf("PodGangMap %s has no entry for PCSG %s replica index %d; requeuing until PodGangMap is updated", sc.podGangMap.Name, sc.pcsg.Name, pcsgReplicaIndex))
+		}
 		for _, pclqFQN := range expectedPCLQNames {
 			if sc.existingPCLQNameSet.Has(pclqFQN) {
 				continue
@@ -396,7 +422,7 @@ func (r _resource) createExpectedPCLQs(logger logr.Logger, sc *syncContext) erro
 			createTask := utils.Task{
 				Name: fmt.Sprintf("CreatePodClique-%s", pclqObjectKey),
 				Fn: func(ctx context.Context) error {
-					return r.doCreate(ctx, logger, sc.pcs, sc.pcsg, pcsgReplicaIndex, pclqObjectKey)
+					return r.doCreate(ctx, logger, sc.pcs, sc.pcsg, pcsgReplicaIndex, pclqObjectKey, podGangName)
 				},
 			}
 			tasks = append(tasks, createTask)
@@ -415,8 +441,16 @@ func (r _resource) createExpectedPCLQs(logger logr.Logger, sc *syncContext) erro
 // createOrUpdatePCLQs creates or updates all expected PodCliques for the PodCliqueScalingGroup.
 // This is used for the OnDelete update strategy where changes are applied in place rather than through recreation.
 func (r _resource) createOrUpdatePCLQs(logger logr.Logger, sc *syncContext) error {
+	pcsgConfigName := apicommon.ExtractScalingGroupNameFromPCSGFQN(sc.pcsg.Name, apicommon.ResourceNameReplica{Name: sc.pcs.Name, Replica: sc.pcsReplicaIndex})
 	var tasks []utils.Task
 	for pcsgReplicaIndex, expectedPCLQNames := range sc.expectedPCLQFQNsPerPCSGReplica {
+		// All PCLQs of a single PCSG replica share the same PodGang.
+		podGangName, ok := resolvePodGangNameFromPGM(sc.podGangMap, pcsgConfigName, pcsgReplicaIndex)
+		if !ok {
+			return groveerr.New(groveerr.ErrCodeRequeueAfter,
+				component.OperationSync,
+				fmt.Sprintf("PodGangMap %s has no entry for PCSG %s replica index %d; requeuing until PodGangMap is updated", sc.podGangMap.Name, sc.pcsg.Name, pcsgReplicaIndex))
+		}
 		for _, pclqFQN := range expectedPCLQNames {
 			pclqObjectKey := client.ObjectKey{
 				Name:      pclqFQN,
@@ -426,7 +460,7 @@ func (r _resource) createOrUpdatePCLQs(logger logr.Logger, sc *syncContext) erro
 			createOrUpdateTask := utils.Task{
 				Name: fmt.Sprintf("CreateOrUpdatePodClique-%s", pclqObjectKey),
 				Fn: func(ctx context.Context) error {
-					return r.doCreateOrUpdate(ctx, logger, sc.pcs, sc.pcsg, pcsgReplicaIndex, pclqObjectKey, pclqExists)
+					return r.doCreateOrUpdate(ctx, logger, sc.pcs, sc.pcsg, pcsgReplicaIndex, pclqObjectKey, pclqExists, podGangName)
 				},
 			}
 			tasks = append(tasks, createOrUpdateTask)

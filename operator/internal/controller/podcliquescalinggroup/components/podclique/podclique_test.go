@@ -1027,7 +1027,7 @@ func TestBuildResource_MNNVLInjection(t *testing.T) {
 				eventRecorder: &record.FakeRecorder{},
 			}
 
-			err := operator.buildResource(logr.Discard(), pcs, pcsg, pcsgReplicaIndex, pclq, false)
+			err := operator.buildResource(logr.Discard(), pcs, pcsg, pcsgReplicaIndex, pclq, false, "test-podgang")
 			require.NoError(t, err)
 
 			// Verify pod-level claims
@@ -1107,7 +1107,7 @@ func TestBuildResource_StripsTopologyAnnotation(t *testing.T) {
 	}
 
 	operator := &_resource{scheme: groveclientscheme.Scheme}
-	err := operator.buildResource(logr.Discard(), pcs, pcsg, 0, pclq, false)
+	err := operator.buildResource(logr.Discard(), pcs, pcsg, 0, pclq, false, "test-podgang")
 	require.NoError(t, err)
 	require.NotNil(t, pclq.Annotations)
 	assert.Equal(t, "yes", pclq.Annotations["example.com/keep"])
@@ -1132,4 +1132,105 @@ func triageContainersByMNNVLClaim(containers []corev1.Container) (withClaim, wit
 		}
 	}
 	return withClaim, withoutClaim
+}
+
+func TestResolvePodGangNameFromPGM(t *testing.T) {
+	const pcsgConfigName = "prefill"
+	pgm := &grovecorev1alpha1.PodGangMap{
+		Spec: grovecorev1alpha1.PodGangMapSpec{
+			Entries: []grovecorev1alpha1.PodGangEntry{
+				{
+					Name: "pcs-0-abc12-0",
+					PodCliqueScalingGroups: map[string]int32{
+						pcsgConfigName: 2,
+					},
+				},
+				{
+					Name: "pcs-0-abc12-1",
+					PodCliqueScalingGroups: map[string]int32{
+						"other-pcsg": 1,
+					},
+				},
+				{
+					Name: "pcs-0-abc12-2",
+					PodCliqueScalingGroups: map[string]int32{
+						pcsgConfigName: 3,
+					},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name           string
+		pgm            *grovecorev1alpha1.PodGangMap
+		pcsgConfigName string
+		replicaIndex   int
+		expectName     string
+		expectOK       bool
+	}{
+		{
+			name:           "replica index falls within first matching entry's count",
+			pgm:            pgm,
+			pcsgConfigName: pcsgConfigName,
+			replicaIndex:   0,
+			expectName:     "pcs-0-abc12-0",
+			expectOK:       true,
+		},
+		{
+			name:           "replica index at upper boundary of first matching entry",
+			pgm:            pgm,
+			pcsgConfigName: pcsgConfigName,
+			replicaIndex:   1,
+			expectName:     "pcs-0-abc12-0",
+			expectOK:       true,
+		},
+		{
+			name:           "intermediate entry without this PCSG is skipped without inflating cumulative offset",
+			pgm:            pgm,
+			pcsgConfigName: pcsgConfigName,
+			replicaIndex:   2,
+			expectName:     "pcs-0-abc12-2",
+			expectOK:       true,
+		},
+		{
+			name:           "replica index at upper boundary of last matching entry",
+			pgm:            pgm,
+			pcsgConfigName: pcsgConfigName,
+			replicaIndex:   4,
+			expectName:     "pcs-0-abc12-2",
+			expectOK:       true,
+		},
+		{
+			name:           "replica index exceeds total replicas across all matching entries (scale-out before PGM update)",
+			pgm:            pgm,
+			pcsgConfigName: pcsgConfigName,
+			replicaIndex:   5,
+			expectOK:       false,
+		},
+		{
+			name:           "PCSG name absent from every entry",
+			pgm:            pgm,
+			pcsgConfigName: "missing-pcsg",
+			replicaIndex:   0,
+			expectOK:       false,
+		},
+		{
+			name:           "PGM has no entries",
+			pgm:            &grovecorev1alpha1.PodGangMap{},
+			pcsgConfigName: pcsgConfigName,
+			replicaIndex:   0,
+			expectOK:       false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			name, ok := resolvePodGangNameFromPGM(tc.pgm, tc.pcsgConfigName, tc.replicaIndex)
+			assert.Equal(t, tc.expectOK, ok)
+			if tc.expectOK {
+				assert.Equal(t, tc.expectName, name)
+			}
+		})
+	}
 }
