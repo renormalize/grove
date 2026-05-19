@@ -499,15 +499,6 @@ func getLabels(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex int, pcsg *g
 		apicommon.LabelPodTemplateHash:                   componentutils.ComputePCLQPodTemplateHash(pclqTemplateSpec, pcs.Spec.Template.PriorityClassName),
 	}
 
-	// Add base-podgang label for scaled PodGang pods (beyond minAvailable)
-	basePodGangName := apicommon.GenerateBasePodGangName(
-		apicommon.ResourceNameReplica{Name: pcs.Name, Replica: pcsReplicaIndex},
-	)
-	if podGangName != basePodGangName {
-		// This pod belongs to a scaled PodGang - add the base PodGang label
-		pclqComponentLabels[apicommon.LabelBasePodGang] = basePodGangName
-	}
-
 	return lo.Assign(
 		pclqTemplateSpec.Labels,
 		apicommon.GetDefaultLabelsForPodCliqueSetManagedResources(pcs.Name),
