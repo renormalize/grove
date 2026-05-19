@@ -79,7 +79,7 @@ func (r _resource) orchestrateCoherentUpdate(ctx context.Context, logger logr.Lo
 // updated, it marks the replica as done. Otherwise, it clears InFlightPodGangs and re-queues
 // so that the PodGangMap component can compute the next iteration's entries.
 func (r _resource) checkAndAdvanceCoherentUpdate(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, updateWork *coherentPendingWork) error {
-	// NOTE: While the API allows more than one PCS replica to be updated concurrently, none of the update strategies
+	// NOTE: While the API make a provision in the PCS status to potentially allow more than one PCS replica to be updated concurrently, none of the update strategies
 	// currently supported allow more than one PCS replica to be updated. Therefore, we only check for index 0 of `CurrentlyUpdating`
 	// If and when concurrent PCS replica update is supported then we should iterate over all currently updating replicas.
 	currentProgress := &pcs.Status.UpdateProgress.CurrentlyUpdating[0]
