@@ -96,21 +96,23 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 		return nil, err
 	}
 
-	// get the associated PodGang name.
-	sc.associatedPodGangName, err = r.getAssociatedPodGangName(pclq.ObjectMeta)
-	if err != nil {
-		return nil, err
-	}
+	if !sc.isStandalonePCLQ {
+		// get the associated PodGang name.
+		sc.pcsgReplicaPodGangName, err = r.getAssociatedPodGangName(pclq.ObjectMeta)
+		if err != nil {
+			return nil, err
+		}
 
-	// Get the associated PodGang resource.
-	existingPodGang, err := componentutils.GetPodGang(ctx, r.client, sc.associatedPodGangName, pclq.Namespace)
-	if err = lo.Ternary(apierrors.IsNotFound(err), nil, err); err != nil {
-		return nil, err
-	}
+		// Get the associated PodGang resource.
+		existingPodGang, err := componentutils.GetPodGang(ctx, r.client, sc.pcsgReplicaPodGangName, pclq.Namespace)
+		if err = lo.Ternary(apierrors.IsNotFound(err), nil, err); err != nil {
+			return nil, err
+		}
 
-	// initialize the Pod names that are updated in the PodGang resource for this PCLQ.
-	sc.podNamesUpdatedInPCLQPodGangs = r.getPodNamesUpdatedInAssociatedPodGang(existingPodGang, pclq.Name)
-	sc.podNamesUpdatedInPCLQPodGangSet = componentutils.NewSet(sc.podNamesUpdatedInPCLQPodGangs)
+		// initialize the Pod names that are updated in the PodGang resource for this PCLQ.
+		sc.podNamesUpdatedInPCLQPodGangs = r.getPodNamesUpdatedInAssociatedPodGang(existingPodGang, pclq.Name)
+		sc.podNamesUpdatedInPCLQPodGangSet = componentutils.NewSet(sc.podNamesUpdatedInPCLQPodGangs)
+	}
 
 	// Get all existing pods for this PCLQ.
 	sc.existingPCLQPods, err = componentutils.GetPCLQPods(ctx, r.client, sc.pcs.Name, pclq)
@@ -296,7 +298,7 @@ func (r _resource) resolvePodGangNamesForNewPods(ctx context.Context, sc *syncCo
 	if !sc.isStandalonePCLQ {
 		names := make([]string, numPods)
 		for i := range names {
-			names[i] = sc.associatedPodGangName
+			names[i] = sc.pcsgReplicaPodGangName
 		}
 		return names, nil
 	}
@@ -584,13 +586,15 @@ func hasPodGangSchedulingGate(pod *corev1.Pod) bool {
 
 // syncContext holds the relevant state required during the sync flow run.
 type syncContext struct {
-	ctx                             context.Context
-	pcs                             *grovecorev1alpha1.PodCliqueSet
-	pclq                            *grovecorev1alpha1.PodClique
-	isStandalonePCLQ                bool
-	pcsReplicaIndex                 int
-	cliqueName                      string
-	associatedPodGangName           string
+	ctx              context.Context
+	pcs              *grovecorev1alpha1.PodCliqueSet
+	pclq             *grovecorev1alpha1.PodClique
+	isStandalonePCLQ bool
+	pcsReplicaIndex  int
+	cliqueName       string
+	// pcsReplicaPodGangName is the name of the PodGang associated to a PCSG replica.
+	// All constituent PCLQs will share a common PodGang, all Pods of all PCLQs in a PCSG will inherit it from the PCLQ.
+	pcsgReplicaPodGangName          string
 	existingPCLQPods                []*corev1.Pod
 	podNamesUpdatedInPCLQPodGangs   []string
 	podNamesUpdatedInPCLQPodGangSet componentutils.Set[string]
