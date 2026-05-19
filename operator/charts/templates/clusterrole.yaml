@@ -30,6 +30,7 @@ rules:
   - clustertopologies
   - clustertopologies/status
   - podcliquescalinggroups/status
+  - podgangmaps
   verbs:
   - create
   - get
