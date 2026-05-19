@@ -195,7 +195,7 @@ spec:
                   by the controller.
                 format: int64
                 type: integer
-              podGangReplicaMap:
+              podGangMapping:
                 additionalProperties:
                   format: int32
                   type: integer

@@ -108,7 +108,7 @@ type PodCliqueScalingGroupStatus struct {
 	// PodGangMapping maps PodGangs to replicas of a PodCliqueScalingGroup.
 	// The key of this map is the name of the PodGang and the value is the replicas of the PodCliqueScalingGroup that
 	// are associated to this PodGang.
-	PodGangMapping map[string]int32 `json:"podGangReplicaMap,omitempty"`
+	PodGangMapping map[string]int32 `json:"podGangMapping,omitempty"`
 }
 
 // PodCliqueScalingGroupUpdateProgress provides details about the ongoing update of the PodCliqueScalingGroup.

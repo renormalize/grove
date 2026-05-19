@@ -169,7 +169,7 @@ Otherwise dispatches:
   - Deletes excess PodGangMaps for replica indices removed by scale-in.
 - Otherwise → `syncSteadyStateEntries` (`syncflow.go:335`):
   - For each PCS replica, if no PodGangMap exists, calls `createPodGangMapForReplica` (line 356) which chooses between BPG/SPG-shape (`buildBaseAndScaledPodGangEntries`, line 372) and MVU-shape (`computeMVUEntriesFromSpec`, line 438) based on `hasMVUPodGangs(pcs)` (true iff `Status.PodGangCounter` is non-empty). Both builders set `DependsOn` directly: SPG entries point at the BPG name; Tail-PG entries point at all sibling MPG names emitted in the same call.
-  - If a PodGangMap exists, `buildEntriesFromStatuses` (line 514) reconstructs entries from PCLQ and PCSG `Status.PodGangMapping` fields.
+  - If a PodGangMap exists, it is only updated from status when `isPodGangMappingSettled` returns true — that is, when every PCLQ and PCSG in the replica has `PodGangMapping != nil` and `sum(PodGangMapping values) == Spec.Replicas`. When settled, `buildEntriesFromStatuses` (line 514) reconstructs entries from PCLQ and PCSG `Status.PodGangMapping` fields. When not settled (initial deployment, scale-in/out in flight), the existing PGM entries are read back unchanged via `getExistingPGMEntries`, preventing the PGM from being silently emptied.
 
 **MVU iteration** (`mvu.go`)
 
@@ -184,7 +184,8 @@ Otherwise dispatches:
 - One MVU entry per orchestrator iteration; tail-MVU iteration may create N entries simultaneously.
 - Pods/replicas are deducted from the lowest-indexed old entry first (`deductPCLQPodsFromOldEntries` / `deductPCSGReplicasFromOldEntries`).
 - Old entries with all counts zero are removed (`removeEmptyEntries`).
-- Steady-state recomputation is idempotent: if a PCLQ scaled out between reconciles, the recomputed BPG/SPG/MVU entry counts grow on the next pass.
+- `buildEntriesFromStatuses` is only invoked when `isPodGangMappingSettled` returns true for all PCLQs and PCSGs in the replica (every `PodGangMapping` is non-nil and its total equals `Spec.Replicas`). When this condition is not met, existing PGM entries are preserved unchanged. This prevents the PGM from being silently emptied during initial deployment or while scale-in/out is in flight, which would corrupt pod-label assignments.
+- Steady-state recomputation is idempotent: when all mappings are settled, recomputed BPG/SPG/MVU entry counts converge to the actual pod distribution across PodGangs.
 
 ### 4.2 PodGang component
 
