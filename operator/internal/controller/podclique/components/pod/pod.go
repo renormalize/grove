@@ -55,6 +55,7 @@ const (
 	errCodeRemovePodSchedulingGate             grovecorev1alpha1.ErrorCode = "ERR_REMOVE_POD_SCHEDULING_GATE"
 	errCodeCreatePod                           grovecorev1alpha1.ErrorCode = "ERR_CREATE_POD"
 	errCodeMissingPodGangLabelOnPCLQ           grovecorev1alpha1.ErrorCode = "ERR_MISSING_PODGANG_LABEL_ON_PODCLIQUE"
+	errCodeMissingPodGangLabelOnPod            grovecorev1alpha1.ErrorCode = "ERR_MISSING_PODGANG_LABEL_ON_POD"
 	errCodeInitContainerImageEnvVarMissing     grovecorev1alpha1.ErrorCode = "ERR_INITCONTAINER_ENVIRONMENT_VARIABLE_MISSING"
 	errCodeCreatePodCliqueExpectationsStoreKey grovecorev1alpha1.ErrorCode = "ERR_CREATE_PODCLIQUE_EXPECTATIONS_STORE_KEY"
 	errCodeDeletePodCliqueExpectations         grovecorev1alpha1.ErrorCode = "ERR_DELETE_PODCLIQUE_EXPECTATIONS_STORE_KEY"

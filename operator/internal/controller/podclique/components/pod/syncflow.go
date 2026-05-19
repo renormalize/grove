@@ -102,16 +102,6 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 		if err != nil {
 			return nil, err
 		}
-
-		// Get the associated PodGang resource.
-		existingPodGang, err := componentutils.GetPodGang(ctx, r.client, sc.pcsgReplicaPodGangName, pclq.Namespace)
-		if err = lo.Ternary(apierrors.IsNotFound(err), nil, err); err != nil {
-			return nil, err
-		}
-
-		// initialize the Pod names that are updated in the PodGang resource for this PCLQ.
-		sc.podNamesUpdatedInPCLQPodGangs = r.getPodNamesUpdatedInAssociatedPodGang(existingPodGang, pclq.Name)
-		sc.podNamesUpdatedInPCLQPodGangSet = componentutils.NewSet(sc.podNamesUpdatedInPCLQPodGangs)
 	}
 
 	// Get all existing pods for this PCLQ.
@@ -166,22 +156,6 @@ func (r _resource) getAssociatedPodGangName(pclqObjectMeta metav1.ObjectMeta) (s
 		)
 	}
 	return podGangName, nil
-}
-
-// getPodNamesUpdatedInAssociatedPodGang gathers all Pod names that are already updated in PodGroups defined in the PodGang resource.
-func (r _resource) getPodNamesUpdatedInAssociatedPodGang(existingPodGang *groveschedulerv1alpha1.PodGang, pclqFQN string) []string {
-	if existingPodGang == nil {
-		return nil
-	}
-	podGroup, ok := lo.Find(existingPodGang.Spec.PodGroups, func(podGroup groveschedulerv1alpha1.PodGroup) bool {
-		return podGroup.Name == pclqFQN
-	})
-	if !ok {
-		return nil
-	}
-	return lo.Map(podGroup.PodReferences, func(nsName groveschedulerv1alpha1.NamespacedName, _ int) string {
-		return nsName.Name
-	})
 }
 
 // runSyncFlow executes the main synchronization logic including pod creation, deletion, updates, and scheduling gate management
@@ -423,64 +397,72 @@ func (sc *syncContext) getExpectedPodTemplateHash() string {
 	return sc.pclq.Labels[apicommon.LabelPodTemplateHash]
 }
 
-// checkAndRemovePodSchedulingGates removes scheduling gates from pods when their dependencies are satisfied
+// checkAndRemovePodSchedulingGates removes scheduling gates from pods when their PodGang
+// membership is confirmed and all DependsOn PodGangs in the PodGangMap entry are scheduled.
 func (r _resource) checkAndRemovePodSchedulingGates(sc *syncContext, logger logr.Logger) ([]string, error) {
-	tasks := make([]utils.Task, 0, len(sc.existingPCLQPods))
 	skippedScheduleGatedPods := make([]string, 0, len(sc.existingPCLQPods))
 
-	// Pre-compute if the base PodGang is scheduled once for all pods in this PodClique
-	// All pods in the same PodClique have the same base PodGang
-	basePodGangScheduled, basePodGangName, err := r.checkBasePodGangScheduledForPodClique(sc.ctx, logger, sc.pclq)
+	var gatedPods []*corev1.Pod
+	for _, p := range sc.existingPCLQPods {
+		if hasPodGangSchedulingGate(p) {
+			gatedPods = append(gatedPods, p)
+		}
+	}
+	if len(gatedPods) == 0 {
+		return skippedScheduleGatedPods, nil
+	}
+
+	pgm, err := componentutils.GetPodGangMapForPCSReplica(sc.ctx, r.client, sc.pcs.Name, sc.pclq.Namespace, sc.pcsReplicaIndex)
 	if err != nil {
-		logger.Error(err, "Error checking if base PodGang is scheduled for PodClique - will requeue")
+		if apierrors.IsNotFound(err) {
+			for _, p := range gatedPods {
+				skippedScheduleGatedPods = append(skippedScheduleGatedPods, p.Name)
+			}
+			return skippedScheduleGatedPods, nil
+		}
 		return nil, groveerr.WrapError(err,
-			errCodeRemovePodSchedulingGate,
+			errCodeGetPodGang,
 			component.OperationSync,
-			"failed to check if base PodGang is scheduled for PodClique",
+			fmt.Sprintf("failed to get PodGangMap for PCS replica %d", sc.pcsReplicaIndex),
 		)
 	}
 
-	if sc.podNamesUpdatedInPCLQPodGangSet == nil {
-		sc.podNamesUpdatedInPCLQPodGangSet = componentutils.NewSet(sc.podNamesUpdatedInPCLQPodGangs)
-	}
-	for i, p := range sc.existingPCLQPods {
-		if hasPodGangSchedulingGate(p) {
-			podObjectKey := client.ObjectKeyFromObject(p)
-			if !sc.podNamesUpdatedInPCLQPodGangSet.Has(p.Name) {
-				logger.Info("Pod has scheduling gate but it has not yet been updated in PodGang", "podObjectKey", podObjectKey)
-				skippedScheduleGatedPods = append(skippedScheduleGatedPods, p.Name)
-				continue
-			}
-			shouldSkip := r.shouldSkipPodSchedulingGateRemoval(logger, p, basePodGangScheduled, basePodGangName)
-			if shouldSkip {
-				skippedScheduleGatedPods = append(skippedScheduleGatedPods, p.Name)
-				continue
-			}
-			task := utils.Task{
-				Name: fmt.Sprintf("RemoveSchedulingGate-%s-%d", p.Name, i),
-				Fn: func(ctx context.Context) error {
-					podClone := p.DeepCopy()
-					p.Spec.SchedulingGates = nil
-					if err := client.IgnoreNotFound(r.client.Patch(ctx, p, client.MergeFrom(podClone))); err != nil {
-						return err
-					}
-					logger.Info("Removed scheduling gate from pod", "podObjectKey", podObjectKey)
-					return nil
-				},
-			}
-			tasks = append(tasks, task)
+	entryByName := lo.KeyBy(pgm.Spec.Entries, func(e grovecorev1alpha1.PodGangEntry) string { return e.Name })
+	pgCache := make(map[string]*groveschedulerv1alpha1.PodGang)
+	depScheduled := make(map[string]bool)
+
+	tasks := make([]utils.Task, 0, len(gatedPods))
+	for i, p := range gatedPods {
+		remove, err := r.shouldRemoveSchedulingGate(sc, logger, p, entryByName, pgCache, depScheduled)
+		if err != nil {
+			return nil, err
 		}
+		if !remove {
+			skippedScheduleGatedPods = append(skippedScheduleGatedPods, p.Name)
+			continue
+		}
+		tasks = append(tasks, utils.Task{
+			Name: fmt.Sprintf("RemoveSchedulingGate-%s-%d", p.Name, i),
+			Fn: func(ctx context.Context) error {
+				podClone := p.DeepCopy()
+				p.Spec.SchedulingGates = nil
+				if err := client.IgnoreNotFound(r.client.Patch(ctx, p, client.MergeFrom(podClone))); err != nil {
+					return err
+				}
+				logger.Info("Removed scheduling gate from pod", "podObjectKey", client.ObjectKeyFromObject(p))
+				return nil
+			},
+		})
 	}
 
 	if len(tasks) > 0 {
-		pclqObjectKey := client.ObjectKeyFromObject(sc.pclq)
 		if runResult := utils.RunConcurrentlyWithSlowStart(sc.ctx, logger, 1, tasks); runResult.HasErrors() {
 			err := runResult.GetAggregatedError()
 			logger.Error(err, "failed to remove scheduling gates from pods for PCLQ", "runSummary", runResult.GetSummary())
 			return skippedScheduleGatedPods, groveerr.WrapError(err,
 				errCodeRemovePodSchedulingGate,
 				component.OperationSync,
-				fmt.Sprintf("failed to remove scheduling gates from Pods for PodClique %v", pclqObjectKey),
+				fmt.Sprintf("failed to remove scheduling gates from Pods for PodClique %v", client.ObjectKeyFromObject(sc.pclq)),
 			)
 		}
 	}
@@ -488,90 +470,147 @@ func (r _resource) checkAndRemovePodSchedulingGates(sc *syncContext, logger logr
 	return skippedScheduleGatedPods, nil
 }
 
-// checkBasePodGangScheduledForPodClique determines if there's a base PodGang for the PodClique. If there is one,
-// this function checks if it is scheduled.
-func (r _resource) checkBasePodGangScheduledForPodClique(ctx context.Context, logger logr.Logger, pclq *grovecorev1alpha1.PodClique) (bool, string, error) {
-	// Check if this PodClique has a base PodGang dependency
-	basePodGangName, hasBasePodGangLabel := pclq.GetLabels()[apicommon.LabelBasePodGang]
-	if !hasBasePodGangLabel {
-		// This PodClique is a base PodGang itself - no dependency
-		return true, "", nil
-	}
+// shouldRemoveSchedulingGate returns true when all conditions for gate removal are met for p.
+// Returns a hard error only for controller bugs (missing LabelPodGang) or unexpected API failures.
+func (r _resource) shouldRemoveSchedulingGate(
+	sc *syncContext,
+	logger logr.Logger,
+	p *corev1.Pod,
+	entryByName map[string]grovecorev1alpha1.PodGangEntry,
+	pgCache map[string]*groveschedulerv1alpha1.PodGang,
+	depScheduled map[string]bool,
+) (bool, error) {
+	podObjectKey := client.ObjectKeyFromObject(p)
 
-	scheduled, err := r.isBasePodGangScheduled(ctx, logger, pclq.Namespace, basePodGangName)
-	if err != nil {
-		return false, basePodGangName, err
-	}
-
-	return scheduled, basePodGangName, nil
-}
-
-// isBasePodGangScheduled checks if the base PodGang (identified by name) is scheduled, returning errors for API failures.
-// A base PodGang is considered "scheduled" when ALL of its constituent PodCliques have achieved
-// their minimum required number of scheduled pods (PodClique.Status.ScheduledReplicas >= PodGroup.MinReplicas).
-func (r _resource) isBasePodGangScheduled(ctx context.Context, logger logr.Logger, namespace, basePodGangName string) (bool, error) {
-	// Get the base PodGang - treat all errors (including NotFound) as requeue-able
-	basePodGang, err := componentutils.GetPodGang(ctx, r.client, basePodGangName, namespace)
-	if err != nil {
-		return false, groveerr.WrapError(err,
-			errCodeGetPodGang,
+	podGangName, ok := p.Labels[apicommon.LabelPodGang]
+	if !ok {
+		return false, groveerr.New(errCodeMissingPodGangLabelOnPod,
 			component.OperationSync,
-			fmt.Sprintf("failed to get base PodGang %v", client.ObjectKey{Namespace: namespace, Name: basePodGangName}),
+			fmt.Sprintf("gated pod %v is missing required label %s", podObjectKey, apicommon.LabelPodGang),
 		)
 	}
 
-	// Check if all PodGroups in the base PodGang have sufficient ready replicas
-	// Each PodGroup represents a PodClique within the base PodGang and must meet its MinReplicas requirement
-	for _, podGroup := range basePodGang.Spec.PodGroups {
-		pclqName := podGroup.Name
-		pclq := &grovecorev1alpha1.PodClique{}
-		pclqKey := client.ObjectKey{Name: pclqName, Namespace: namespace}
-		if err = r.client.Get(ctx, pclqKey, pclq); err != nil {
-			// All errors (including NotFound) should trigger requeue for reliable retry
-			// This ensures PodClique exists before we evaluate base PodGang readiness
-			return false, groveerr.WrapError(err,
-				errCodeGetPodClique,
-				component.OperationSync,
-				fmt.Sprintf("failed to get PodClique %s in namespace %s for base PodGang readiness check", pclqName, namespace),
-			)
-		}
-
-		if pclq.Status.ScheduledReplicas < podGroup.MinReplicas {
-			logger.Info("Base PodGang not scheduled: PodClique has insufficient scheduled replicas",
-				"basePodGangName", basePodGangName,
-				"pclqName", pclqName,
-				"scheduledReplicas", pclq.Status.ScheduledReplicas,
-				"minReplicas", podGroup.MinReplicas)
-			return false, nil // Not ready, but no error - legitimate state
-		}
+	entry, ok := entryByName[podGangName]
+	if !ok {
+		logger.Info("PodGangMap entry not found for pod's PodGang, skipping", "podObjectKey", podObjectKey, "podGangName", podGangName)
+		return false, nil
 	}
 
-	logger.Info("Base PodGang is ready - all PodCliques meet MinAvailable requirements", "basePodGangName", basePodGangName)
+	pg, err := r.getOrFetchPodGang(sc.ctx, pgCache, podGangName, sc.pclq.Namespace)
+	if err != nil {
+		return false, err
+	}
+	if pg == nil {
+		logger.Info("PodGang resource not found, skipping pod", "podObjectKey", podObjectKey, "podGangName", podGangName)
+		return false, nil
+	}
+
+	if !isPodInPodReferences(pg, sc.pclq.Name, p.Name) {
+		logger.Info("Pod not yet recorded in PodGang PodReferences, skipping", "podObjectKey", podObjectKey, "podGangName", podGangName)
+		return false, nil
+	}
+
+	depsScheduled, err := r.areDependenciesScheduled(sc.ctx, logger, entry.DependsOn, sc.pclq.Namespace, pgCache, depScheduled)
+	if err != nil {
+		return false, err
+	}
+	if !depsScheduled {
+		logger.Info("Dependencies not yet scheduled, skipping gate removal", "podObjectKey", podObjectKey, "dependsOn", entry.DependsOn)
+		return false, nil
+	}
+
 	return true, nil
 }
 
-// shouldSkipPodSchedulingGateRemoval implements the core PodGang scheduling gate logic.
-// It returns true if the pod scheduling gate removal should be skipped, false otherwise.
-func (r _resource) shouldSkipPodSchedulingGateRemoval(logger logr.Logger, pod *corev1.Pod, basePodGangReady bool, basePodGangName string) bool {
-	if basePodGangName == "" {
-		// BASE PODGANG POD: This PodClique has no base PodGang dependency
-		// These pods form the core gang and get their gates removed immediately once assigned to PodGang
-		// They represent the minimum viable cluster (first minAvailable replicas) that must start together
-		logger.Info("Proceeding with gate removal for base PodGang pod",
-			"podObjectKey", client.ObjectKeyFromObject(pod))
-		return false
+// getOrFetchPodGang returns a PodGang from the cache, fetching it from the API if not present.
+// Returns (nil, nil) when the PodGang does not exist.
+func (r _resource) getOrFetchPodGang(ctx context.Context, cache map[string]*groveschedulerv1alpha1.PodGang, name, namespace string) (*groveschedulerv1alpha1.PodGang, error) {
+	if pg, ok := cache[name]; ok {
+		return pg, nil
 	}
-	// SCALED PODGANG POD: This PodClique depends on a base PodGang
-	if basePodGangReady {
-		logger.Info("Base PodGang is ready, proceeding with gate removal for scaled PodGang pod",
-			"podObjectKey", client.ObjectKeyFromObject(pod),
-			"basePodGangName", basePodGangName)
-		return false
+	pg, err := componentutils.GetPodGang(ctx, r.client, name, namespace)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			cache[name] = nil
+			return nil, nil
+		}
+		return nil, groveerr.WrapError(err,
+			errCodeGetPodGang,
+			component.OperationSync,
+			fmt.Sprintf("failed to get PodGang %v", client.ObjectKey{Namespace: namespace, Name: name}),
+		)
 	}
-	logger.Info("Scaled PodGang pod has scheduling gate but base PodGang is not ready yet, skipping scheduling gate removal",
-		"podObjectKey", client.ObjectKeyFromObject(pod),
-		"basePodGangName", basePodGangName)
-	return true
+	cache[name] = pg
+	return pg, nil
+}
+
+// isPodInPodReferences returns true if podName appears in the PodGroup for pclqFQN in pg.
+func isPodInPodReferences(pg *groveschedulerv1alpha1.PodGang, pclqFQN, podName string) bool {
+	for _, podGroup := range pg.Spec.PodGroups {
+		if podGroup.Name != pclqFQN {
+			continue
+		}
+		for _, ref := range podGroup.PodReferences {
+			if ref.Name == podName {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// areDependenciesScheduled returns true when every PodGang in depNames has
+// ScheduledReplicas >= MinReplicas for each of its PodGroups.
+func (r _resource) areDependenciesScheduled(ctx context.Context, logger logr.Logger, depNames []string, namespace string, pgCache map[string]*groveschedulerv1alpha1.PodGang, depScheduled map[string]bool) (bool, error) {
+	for _, depName := range depNames {
+		if scheduled, seen := depScheduled[depName]; seen {
+			if !scheduled {
+				return false, nil
+			}
+			continue
+		}
+		pg, err := r.getOrFetchPodGang(ctx, pgCache, depName, namespace)
+		if err != nil {
+			return false, err
+		}
+		if pg == nil {
+			depScheduled[depName] = false
+			return false, nil
+		}
+		scheduled, err := r.isPodGangScheduled(ctx, logger, namespace, pg)
+		if err != nil {
+			return false, err
+		}
+		depScheduled[depName] = scheduled
+		if !scheduled {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// isPodGangScheduled returns true when every PodGroup in the PodGang has
+// ScheduledReplicas >= MinReplicas in its corresponding PodClique.
+func (r _resource) isPodGangScheduled(ctx context.Context, logger logr.Logger, namespace string, pg *groveschedulerv1alpha1.PodGang) (bool, error) {
+	for _, podGroup := range pg.Spec.PodGroups {
+		pclq := &grovecorev1alpha1.PodClique{}
+		if err := r.client.Get(ctx, client.ObjectKey{Name: podGroup.Name, Namespace: namespace}, pclq); err != nil {
+			return false, groveerr.WrapError(err,
+				errCodeGetPodClique,
+				component.OperationSync,
+				fmt.Sprintf("failed to get PodClique %s in namespace %s for PodGang scheduled check", podGroup.Name, namespace),
+			)
+		}
+		if pclq.Status.ScheduledReplicas < podGroup.MinReplicas {
+			logger.Info("PodGang not scheduled: PodClique has insufficient scheduled replicas",
+				"podGangName", pg.Name,
+				"pclqName", podGroup.Name,
+				"scheduledReplicas", pclq.Status.ScheduledReplicas,
+				"minReplicas", podGroup.MinReplicas)
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // hasPodGangSchedulingGate checks if a pod has the PodGang scheduling gate
@@ -594,12 +633,10 @@ type syncContext struct {
 	cliqueName       string
 	// pcsReplicaPodGangName is the name of the PodGang associated to a PCSG replica.
 	// All constituent PCLQs will share a common PodGang, all Pods of all PCLQs in a PCSG will inherit it from the PCLQ.
-	pcsgReplicaPodGangName          string
-	existingPCLQPods                []*corev1.Pod
-	podNamesUpdatedInPCLQPodGangs   []string
-	podNamesUpdatedInPCLQPodGangSet componentutils.Set[string]
-	pclqExpectationsStoreKey        string
-	expectedPodTemplateHash         string
+	pcsgReplicaPodGangName   string
+	existingPCLQPods         []*corev1.Pod
+	pclqExpectationsStoreKey string
+	expectedPodTemplateHash  string
 }
 
 // syncFlowResult captures the result of a sync flow run.
