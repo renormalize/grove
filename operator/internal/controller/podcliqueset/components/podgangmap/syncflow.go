@@ -399,7 +399,9 @@ func getCreatedPodGangCount(pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex in
 //			1. For a new PCS replica it uses the PCS spec to create the expected PodGangs since nothing exists yet.
 //			2. If the PCS replica exists, and it has Base and Scaled PodGangs, then it will compute expected based
 //			on what should exist when using Base and Scaled PodGangs for a PCS replica.
-//	  If the PodGangMap exists, it is synced from PCLQ/PCSG statuses.
+//	  If the PodGangMap exists, it is synced from PCLQ/PCSG statuses — but only when PodGangMapping is
+//	  fully settled (all PCLQs and PCSGs report a total pod count matching Spec.Replicas). If not settled,
+//	  the existing entries are preserved unchanged to avoid corrupting pod-label assignments in flight.
 func (r _resource) syncSteadyStateEntries(ctx context.Context, sc *syncContext) error {
 	existingPGMNames := sets.New[string](sc.existingPGMNames...)
 	for pcsReplicaIndex := range sc.pcs.Spec.Replicas {
@@ -410,12 +412,81 @@ func (r _resource) syncSteadyStateEntries(ctx context.Context, sc *syncContext) 
 			}
 			continue
 		}
-		entries := buildEntriesFromStatuses(sc.pcs, int(pcsReplicaIndex), sc.pclqsByReplica[int(pcsReplicaIndex)], sc.pcsgsByReplica[int(pcsReplicaIndex)])
+		var entries []grovecorev1alpha1.PodGangEntry
+		if isPodGangMappingSettled(sc.pclqsByReplica[int(pcsReplicaIndex)], sc.pcsgsByReplica[int(pcsReplicaIndex)]) {
+			entries = buildEntriesFromStatuses(sc.pcs, int(pcsReplicaIndex), sc.pclqsByReplica[int(pcsReplicaIndex)], sc.pcsgsByReplica[int(pcsReplicaIndex)])
+		} else {
+			var err error
+			entries, err = r.getExistingPGMEntries(ctx, sc.pcs, pgmName)
+			if err != nil {
+				return err
+			}
+		}
 		if err := r.createOrPatchPodGangMap(ctx, sc.pcs, pgmName, int(pcsReplicaIndex), entries); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// isPodGangMappingSettled returns true when every PCLQ and PCSG in the replica has a fully
+// settled PodGangMapping — i.e. PodGangMapping is non-nil and its total pod/replica count
+// equals Spec.Replicas. Only when all resources pass this check is PodGangMapping authoritative
+// enough to overwrite the PodGangMap entries.
+//
+// Returns false when both slices are empty: no resources have been created yet, so there is
+// nothing authoritative to derive entries from.
+func isPodGangMappingSettled(pclqs []grovecorev1alpha1.PodClique, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup) bool {
+	if len(pclqs) == 0 && len(pcsgs) == 0 {
+		return false
+	}
+	for i := range pclqs {
+		if !isPCLQMappingSettled(&pclqs[i]) {
+			return false
+		}
+	}
+	for i := range pcsgs {
+		if !isPCSGMappingSettled(&pcsgs[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func isPCLQMappingSettled(pclq *grovecorev1alpha1.PodClique) bool {
+	if pclq.Status.PodGangMapping == nil {
+		return false
+	}
+	var total int32
+	for _, count := range pclq.Status.PodGangMapping {
+		total += count
+	}
+	return total == pclq.Spec.Replicas
+}
+
+func isPCSGMappingSettled(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) bool {
+	if pcsg.Status.PodGangMapping == nil {
+		return false
+	}
+	var total int32
+	for _, count := range pcsg.Status.PodGangMapping {
+		total += count
+	}
+	return total == pcsg.Spec.Replicas
+}
+
+// getExistingPGMEntries reads the current entries from the named PodGangMap. Returns nil on
+// NotFound (harmless — the next reconcile will recreate the PGM via createPodGangMapForReplica).
+func (r _resource) getExistingPGMEntries(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, pgmName string) ([]grovecorev1alpha1.PodGangEntry, error) {
+	pgm, err := componentutils.GetPodGangMap(ctx, r.client, pgmName, pcs.Namespace)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, groveerr.WrapError(err, errCodeSyncPodGangMap, component.OperationSync,
+			fmt.Sprintf("Error reading existing PodGangMap %s for PodCliqueSet: %v", pgmName, client.ObjectKeyFromObject(pcs)))
+	}
+	return pgm.Spec.Entries, nil
 }
 
 // createPodGangMapForReplica creates a PodGangMap for a PCS replica that doesn't have one yet.
