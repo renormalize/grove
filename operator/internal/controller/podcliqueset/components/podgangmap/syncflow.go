@@ -660,6 +660,9 @@ func buildEntriesFromStatuses(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaInd
 	pcsGenerationHash := *pcs.Status.CurrentGenerationHash
 
 	for i := range pclqs {
+		if !componentutils.IsStandalonePCLQ(&pclqs[i]) {
+			continue
+		}
 		cliqueName, _ := utils.GetPodCliqueNameFromPodCliqueFQN(pclqs[i].ObjectMeta)
 		for pgName, podCount := range pclqs[i].Status.PodGangMapping {
 			entry := getOrCreateEntry(entryMap, pgName, pcsGenerationHash)

@@ -470,33 +470,18 @@ func (r _resource) verifyAllPodsCreated(sc *syncContext, pgi *podGangInfo) error
 	return nil
 }
 
-// getPodsPendingCreationOrAssociation counts pods not yet created or labeled for the PodGang.
+// getPodsPendingCreationOrAssociation counts how many of this PodGang's expected pods are not
+// yet created or not yet labeled for this PodGang. Pods of the same PCLQ that are associated to
+// a different PodGang (e.g. another MVU PodGang in the same PCS replica) are ignored — they
+// belong to a sibling PodGang and are not this PodGang's responsibility.
 func (r _resource) getPodsPendingCreationOrAssociation(sc *syncContext, podGang *podGangInfo) int {
-	// Find the number of expected pods from PodCliques that are pending creation
 	numPodsPendingPCLQCreate := r.getPodsForPodCliquesPendingCreation(sc, podGang)
 
-	// Find the number of pods pending creation of existing PodCliques
 	var numPodsPendingCreateOrAssociate int
-	pclqs := sc.getPodCliques(podGang)
-	for _, pclq := range pclqs {
-		existingPCLQPods := sc.existingPCLQPods[pclq.Name]
-		// If there is a difference between the expected replicas and the existing pods, we need to account for that.
-		// If the difference is positive, it means there are pending pods to create.
-		// If the difference is negative, it means there are more existing pods than expected. In this case, we do not need to create any new pods, therefore we can ignore the negative difference.
-		numPodsPendingCreateOrAssociate += max(0, int(pclq.Spec.Replicas)-len(existingPCLQPods))
-
-		// For all existing pods in the PCLQ, check if they have the PodGang label set. If that is not set then add them to numPodsPendingCreateOrAssociate.
-		for _, existingPod := range existingPCLQPods {
-			podGangLabelValue, ok := existingPod.GetLabels()[apicommon.LabelPodGang]
-			if !ok {
-				sc.logger.Info("Pod does not have a PodGang label yet", "podObjectKey", client.ObjectKeyFromObject(&existingPod), "expectedPodGangName", podGang.fqn)
-				numPodsPendingCreateOrAssociate += 1
-				continue
-			}
-			if podGangLabelValue != podGang.fqn {
-				sc.logger.Error(nil, "PodGang label does not match expected PodGang name. This should ideally never happen and indicates a coding error", "podObjectKey", client.ObjectKeyFromObject(&existingPod), "expectedPodGangName", podGang.fqn, "podGangLabelValue", podGangLabelValue)
-				numPodsPendingCreateOrAssociate += 1
-			}
+	for _, pclq := range podGang.pclqs {
+		deficit := int(pclq.replicas) - len(pclq.associatedPodNames)
+		if deficit > 0 {
+			numPodsPendingCreateOrAssociate += deficit
 		}
 	}
 	return numPodsPendingPCLQCreate + numPodsPendingCreateOrAssociate
