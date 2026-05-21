@@ -105,9 +105,12 @@ type PodCliqueScalingGroupStatus struct {
 	CurrentPodCliqueSetGenerationHash *string `json:"currentPodCliqueSetGenerationHash,omitempty"`
 	// UpdateProgress provides details about the ongoing update of the PodCliqueScalingGroup.
 	UpdateProgress *PodCliqueScalingGroupUpdateProgress `json:"updateProgress,omitempty"`
-	// PodGangMapping maps PodGangs to replicas of a PodCliqueScalingGroup.
-	// The key of this map is the name of the PodGang and the value is the replicas of the PodCliqueScalingGroup that
-	// are associated to this PodGang.
+	// PodGangMapping captures the desired state of per-PodGang replica distribution.
+	// During an update, this is derived from PodGangMap resource as that is a single source of truth during updates.
+	// In steady state (post update) this field becomes a source of truth. Any scale-in and scale-out of the PodCliqueScalingGroup
+	// is reflected in the desired state. PodGangMap resource will be synced from the desired state as captured in this
+	// field during steady state.
+	// Key is the PodGang name; value is the number of PCSG replicas associated to that PodGang.
 	PodGangMapping map[string]int32 `json:"podGangMapping,omitempty"`
 }
 

@@ -393,7 +393,8 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#condition-v1-meta) array_ | Conditions represents the latest available observations of the PodCliqueScalingGroup by its controller. |  |  |
 | `currentPodCliqueSetGenerationHash` _string_ | CurrentPodCliqueSetGenerationHash establishes a correlation to PodCliqueSet generation hash indicating<br />that the spec of the PodCliqueSet at this generation is fully realized in the PodCliqueScalingGroup. |  |  |
 | `updateProgress` _[PodCliqueScalingGroupUpdateProgress](#podcliquescalinggroupupdateprogress)_ | UpdateProgress provides details about the ongoing update of the PodCliqueScalingGroup. |  |  |
-| `podGangReplicaMap` _object (keys:string, values:integer)_ | PodGangMapping maps PodGangs to replicas of a PodCliqueScalingGroup.<br />The key of this map is the name of the PodGang and the value is the replicas of the PodCliqueScalingGroup that<br />are associated to this PodGang. |  |  |
+| `podGangMapping` _object (keys:string, values:integer)_ | PodGangMapping captures the per-PodGang replica distribution as decided by the PCSG reconciler.<br />Maintained on scale-in/out decisions; not derived from live PCLQs.<br />Source of truth in steady state; reconciled from PodGangMap during a coherent update.<br />Key is the PodGang name; value is the number of PCSG replicas associated to that PodGang. |  |  |
+| `scaledPodGangCounter` _integer_ | ScaledPodGangCounter tracks the number of Scaled-PGs created for this PodCliqueScalingGroup<br />in steady state due to scale-out. It is a monotonically increasing counter that is also used<br />to mint unique Scaled-PG names with the format<br /><pcs-name>-<pcs-replica-index>-<pcshash>-<pcsgname>-<scaledPodGangCounter>. | 0 |  |
 
 
 #### PodCliqueScalingGroupUpdateProgress
@@ -614,7 +615,7 @@ _Appears in:_
 | `currentPodCliqueSetGenerationHash` _string_ | CurrentPodCliqueSetGenerationHash establishes a correlation to PodCliqueSet generation hash indicating<br />that the spec of the PodCliqueSet at this generation is fully realized in the PodClique. |  |  |
 | `currentPodTemplateHash` _string_ | CurrentPodTemplateHash establishes a correlation to PodClique template hash indicating<br />that the spec of the PodClique at this template hash is fully realized in the PodClique. |  |  |
 | `updateProgress` _[PodCliqueUpdateProgress](#podcliqueupdateprogress)_ | UpdateProgress provides details about the ongoing update of the PodClique. |  |  |
-| `podGangReplicaMap` _object (keys:string, values:integer)_ | PodGangMapping maps PodGangs to pods of a PodClique.<br />The key of this map is the name of the PodGang and the value is the number of Pods that<br />are associated to this PodGang. |  |  |
+| `podGangMapping` _object (keys:string, values:integer)_ | PodGangMapping captures the per-PodGang pod distribution as decided by the PCLQ pod component.<br />Maintained on scale-in/out decisions; not derived from live pods.<br />Source of truth in steady state; reconciled from PodGangMap during a coherent update.<br />Key is the PodGang name; value is the number of pods of this PodClique associated to that PodGang. |  |  |
 
 
 #### PodCliqueTemplateSpec

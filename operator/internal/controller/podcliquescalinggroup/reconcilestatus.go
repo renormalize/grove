@@ -74,7 +74,6 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, logger logr.Logger, pc
 	// mutateReplicas already ignores them via its [0, Spec.Replicas) loop bounds.
 	pclqsPerPCSGReplica = pruneStrayPCSGPCLQs(pcsg, pclqsPerPCSGReplica)
 	mutateReplicas(logger, pcs.Status.CurrentGenerationHash, pcsg, pclqsPerPCSGReplica)
-	mutatePodGangMapping(pcsg, pclqsPerPCSGReplica)
 	mutateMinAvailableBreachedCondition(logger, pcsg, pclqsPerPCSGReplica)
 	r.emitAllScheduledReplicasLostIfNeeded(pcsg, originalStatus.ScheduledReplicas)
 
@@ -137,28 +136,6 @@ func mutateReplicas(logger logr.Logger, currentPCSGenerationHash *string, pcsg *
 	if pcsg.Status.UpdateProgress != nil {
 		pcsg.Status.UpdateProgress.UpdatedPodCliquesCount = updatedPCLQs
 		pcsg.Status.UpdateProgress.TotalPodCliquesCount = totalPCLQs
-	}
-}
-
-// mutatePodGangMapping updates PodGangMapping by reading the PodGang label from constituent PCLQs.
-// Each PCSG replica's PCLQs share the same PodGang label — one PCLQ per replica is sufficient
-// to determine the PodGang assignment.
-func mutatePodGangMapping(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pclqsPerPCSGReplica map[int][]grovecorev1alpha1.PodClique) {
-	podGangMapping := make(map[string]int32)
-	for _, pclqs := range pclqsPerPCSGReplica {
-		if len(pclqs) == 0 {
-			continue
-		}
-		pgName, ok := pclqs[0].Labels[apicommon.LabelPodGang]
-		if !ok {
-			continue
-		}
-		podGangMapping[pgName]++
-	}
-	if len(podGangMapping) > 0 {
-		pcsg.Status.PodGangMapping = podGangMapping
-	} else {
-		pcsg.Status.PodGangMapping = nil
 	}
 }
 
