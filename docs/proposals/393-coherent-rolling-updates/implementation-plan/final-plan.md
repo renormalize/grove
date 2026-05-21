@@ -424,3 +424,535 @@ The legacy `GenerateBasePodGangName` collides numerically with `GeneratePodGangM
 | `operator/internal/controller/podcliquescalinggroup/components/podclique/podclique.go` | `createDeleteTasks` takes `[]int`; `errCodeGetPodGangMap`. |
 | `operator/internal/controller/podcliquescalinggroup/components/podclique/coherentupdate.go` | `processCoherentUpdate`, `computeInFlightPCSGDeficits`, `getReplicaIndicesFromDecrementedPodGangs`, `groupPCSGReplicaIndicesByPodGang`, `countExistingPCSGReplicasPerPodGang`, `deleteReplicasForCoherentUpdate`, `createReplicasForInFlightPodGangs`, `buildReplicaAssignments`, `buildPCLQCreationTasks`, `doCreateWithPodGangName`, `sumPCSGDeficits`. |
 | `operator/internal/controller/podcliquescalinggroup/components/podclique/rollingupdate.go` | Drops int↔string round-trips; `isCurrentReplicaUpdateComplete` returns `(bool, error)`. |
+
+---
+
+## 9. PGM Scale-Out/In Livelock Fix
+
+### Context
+
+The PodGangMap (PGM) component has two related bugs:
+
+1. **Steady-state scale-out livelock**: `isPodGangMappingSettled` blocks PGM updates when `sum(PodGangMapping) < Spec.Replicas`, but pods cannot be created without a resolvable PGM entry. The PCSG/PCLQ reconcilers requeue forever.
+2. **Scale-in/out during coherent update** is fundamentally complex (stale entries, in-flight unsatisfiable PodGangs, deletion non-determinism, orphaned pods, mapping staleness). Every in-place handling approach introduces new edge cases.
+
+### Decision
+
+**Block scale-in and scale-out via validating admission webhooks while a coherent update is in progress.** The block applies to PCSG and PCLQ `Spec.Replicas` only; PCS `Spec.Replicas` (top-level replica scaling) is allowed at any time. Within steady state, redefine `PodGangMapping` on both PCLQ and PCSG status to be a **decision-driven, persistent map** of PodGang→count owned by the PCLQ pod component / PCSG PCLQ component. PGM is the source of truth during a coherent update; the PCLQ/PCSG status mappings are the source of truth in steady state.
+
+**Direction of authority by mode** (mode = `len(pcs.Status.InFlightPodGangs) > 0`):
+- **Coherent update iteration in progress** (`InFlightPodGangs` non-empty): PGM drives. PCLQ/PCSG reconcilers overwrite their status mappings from PGM each reconcile. PGM is used to orchestrate the migration — entries are recomputed iteratively (one MPG per reconcile, then TailPGs).
+- **Steady state and RollingRecreate** (`InFlightPodGangs` empty): PCLQ/PCSG status mappings drive. PGM component follows: per-entry `PodCliques[cliqueName]` and `PodCliqueScalingGroups[pcsgName]` are derived from the mappings. PGM is kept up-to-date but **not recomputed structurally** — existing PodGang entries are preserved. RollingRecreate updates pods in place via individual PCLQ/PCSG resource deletion; PGM entries don't move.
+- **Inter-iteration window during a coherent update** (`InFlightPodGangs` briefly empty between iterations): the steady-state branch runs in PCLQ/PCSG reconcilers. Scale-in/out is webhook-blocked during the broader update, so the spec-diff is zero — effectively a no-op until the orchestrator repopulates `InFlightPodGangs`.
+
+**`pcs.Status.PodGangCounter` ownership and naming conventions**:
+
+PodGangCounter on PCS status serves two purposes:
+1. Source of the counter segment in PodGang names minted **during a coherent update** (`<pcs-name>-<pcs-replica-index>-<pcshash>-<counter>`).
+2. Observability of total PodGang count per PCS replica.
+
+By mode:
+- **Coherent update**: PGM component mints MPG and TailPG names using `pcs.Status.PodGangCounter`. The PCS reconciler's `mutatePodGangCounter` keeps it consistent with PGM contents.
+- **Steady state PCSG scale-out**: PCSG reconciler mints **Scaled-PG** entries (one per new replica). Names use a different convention: `<pcs-name>-<pcs-replica-index>-<pcshash>-<pcsgname>-<counter>`. The next counter value is **derived on the fly** from existing keys in `pcsg.Status.PodGangMapping` matching the prefix `<pcs-name>-<pcs-replica-index>-<pcshash>-<pcsgname>-`: parse the trailing integer of each, take max+1. No separate counter field is stored. `pcs.Status.PodGangCounter` is updated for observability by `mutatePodGangCounter` recounting PGM, but **not** consulted to mint Scaled-PG names.
+
+This convention also distinguishes Scaled-PGs (steady-state mint, `<pcsgname>` segment in name) from MPGs/TailPGs (coherent-update mint, no `<pcsgname>` segment).
+
+Eliminates from earlier designs: trim functions during coherent update, `PodGangAssignment` typing, `ObservedGeneration` guard, in-flight entry patching, orphaned-pod cleanup, deduction-order rules, scale-out delta in coherent update path.
+
+### Design
+
+#### Reconciler ownership
+
+| Resource | Component | Role |
+|----------|-----------|------|
+| PGM | PGM component (PCS reconciler, G0) | Coherent update: mint entries iteratively. Steady state: follower — per-entry counts come from PCLQ/PCSG status mappings; new Tail-PG entries appear by mirroring PCSG status. |
+| `pclq.Status.PodGangMapping` | PCLQ reconciler pod component | Per-PodGang pod count for this PCLQ. Maintained on scale-in/out decisions. |
+| `pcsg.Status.PodGangMapping` | PCSG reconciler PCLQ component | Per-PodGang replica count for this PCSG. Maintained on scale-in/out decisions. New Tail-PG names minted here in steady state. |
+| PodGang resource | PodGang component (PCS reconciler, G2) | Created from PGM entries. Unchanged. |
+
+#### `PodGangMapping` semantics (both PCLQ and PCSG)
+
+```go
+PodGangMapping map[string]int32   // key: PodGang name, value: pod/replica count
+```
+
+Invariant when settled: `sum(values) == Spec.Replicas`. The PGM component's settled guard checks this before consuming the mapping.
+
+The mapping persists across reconciles. It is **not** derived from live pods — it represents the latest decision. Pod crashes do not perturb it (live count drops below mapped value → reconciler creates a replacement pod under the same PodGang).
+
+#### PCLQ reconciler pod component flow (standalone PCLQs only)
+
+`pclq.Status.PodGangMapping` captures the desired state for pod→PodGang assignment maintained by the PCLQ reconciler. It is the source of truth in every situation except when a coherent update iteration is in progress (i.e. `len(pcs.Status.InFlightPodGangs) > 0`).
+
+```
+Reconcile() {
+    if coherent update is in progress (len(pcs.Status.InFlightPodGangs) > 0) {
+        // update pclq.Status.PodGangMapping from ALL PGM entries (both old-hash and new-hash);
+        // sets entry name → entry.PodCliques[cliqueName] for each entry that has the clique
+    } else {
+        // Steady state
+        if len(pclq.Status.PodGangMapping) == 0 {
+            // initialize pclq.Status.PodGangMapping from ALL PGM entries (initial seed)
+        }
+        diff := pclq.Spec.Replicas - sum of pod counts across all PodGangs in pclq.Status.PodGangMapping
+        if diff > 0 {  // scale-out
+            // add `diff` to the highest-index PodGang in pclq.Status.PodGangMapping
+        } else if diff < 0 {  // scale-in
+            // run the deletion sorter to choose `|diff|` pods to delete;
+            // decrement pclq.Status.PodGangMapping per chosen pod's LabelPodGang
+        }
+    }
+
+    // At this point pclq.Status.PodGangMapping holds the desired pod distribution.
+    // Reconcile actual pods to desired:
+    currentPodGangMapping := pod-PodGang mapping built from live (non-terminating, DeletionTimestamp == nil) pods using LabelPodGang
+    desiredPodGangMapping := pclq.Status.PodGangMapping
+    // For each PodGang in desired:
+    //   delta = desired[PG] - current[PG]
+    //   delta > 0: create `delta` pods labeled PG
+    //   delta < 0: delete `|delta|` pods from PG (via deletion sorter scoped to PG)
+}
+```
+
+Notes:
+- No function names are prescribed; the comments express intent.
+- During the brief inter-iteration window of a coherent update where `InFlightPodGangs` is temporarily empty, the steady-state branch runs but spec-diff is zero (webhook blocks scaling during update), so it's effectively a no-op until `InFlightPodGangs` is repopulated.
+- Pod crashes don't perturb status: live count drops below desired for the affected PG → reconciler creates a replacement pod under the same PG.
+
+#### PCSG reconciler PCLQ component flow
+
+`pcsg.Status.PodGangMapping` captures the desired state for PCSG replica→PodGang assignment maintained by the PCSG reconciler. It is the source of truth in every situation except when a coherent update iteration is in progress.
+
+The next Scaled-PG counter is **derived on the fly** from existing keys in `pcsg.Status.PodGangMapping` matching the Scaled-PG prefix `<pcs-name>-<pcs-replica-index>-<pcshash>-<pcsgname>-` — parse trailing integer from each, take max+1. No separate counter field is stored on PCSG status; the mapping itself carries the necessary state. Format: `<pcs-name>-<pcs-replica-index>-<pcshash>-<pcsgname>-<counter>`. Each PCSG owns its own naming space (PCSG name is part of the prefix), so multiple PCSGs in the same PCS replica derive their counters independently without races.
+
+It is essential that the desired state is computed and patched into `pcsg.Status.PodGangMapping` **before** the create/delete reconciliation step runs, so that the desired state is the single source of truth for that step.
+
+```
+Reconcile() {
+    if coherent update is in progress (len(pcs.Status.InFlightPodGangs) > 0) {
+        // update pcsg.Status.PodGangMapping from ALL PGM entries (both old-hash and new-hash);
+        // sets entry name → entry.PodCliqueScalingGroups[pcsgName] for each entry that has the PCSG
+    } else {
+        // Steady state
+        if len(pcsg.Status.PodGangMapping) == 0 {
+            // initialize pcsg.Status.PodGangMapping from ALL PGM entries
+        }
+        // Update the desired state in pcsg.Status.PodGangMapping before the reconciliation step.
+        diff := pcsg.Spec.Replicas - sum of replica counts across all PodGangs in pcsg.Status.PodGangMapping
+        if diff > 0 {  // scale-out
+            // PCSG scale-out in steady state mints Scaled-PG entries (one per new replica).
+            // Each Scaled-PG name: <pcs-name>-<pcs-replica-index>-<pcshash>-<pcsgname>-<counter>
+            // Derive next counter: scan existing keys in pcsg.Status.PodGangMapping with the
+            // Scaled-PG prefix, parse trailing integer, take max+1. No separate counter field.
+            // Each entry: {newScaledPGName: 1}; add to pcsg.Status.PodGangMapping.
+        } else if diff < 0 {  // scale-in
+            // Two-tier deletion order to pick `|diff|` PCSG replica indices to remove:
+            //
+            // Tier 1 — ScaledPGs (steady-state mints, name contains <pcsgname> segment).
+            //          Sort descending by trailing-integer counter parsed from the Scaled-PG name; each holds 1 replica → decrement entry to 0.
+            // Tier 2 — MPGs and TailPGs (coherent-update mints, no <pcsgname> segment in name).
+            //          Sort descending by counter; each step decrements that entry's count by 1.
+            //          TailPGs (1 replica each) zero out first; MPGs decrement by 1 per step.
+            //
+            // Walk Tier 1 first; when exhausted, walk Tier 2 until `|diff|` is satisfied.
+            // No per-PodGang MinReplicas constraint to honor — once a PodGang is Available,
+            // its MinReplicas is set to 0 (already implemented). Breach of MinAvailable is
+            // checked at the PCS level, not at individual PodGang level.
+            // Empty entries (count = 0) are dropped by removeEmptyEntries when PGM is rewritten.
+        }
+    }
+
+    // At this point pcsg.Status.PodGangMapping holds the desired PodGang→PCSG-replica distribution.
+    // Reconcile actual PCLQs to desired:
+    currentPodGangMapping := PodGang→PCSG-replica mapping built from live (non-terminating, DeletionTimestamp == nil) PCLQs (counted by LabelPodGang on each PCLQ)
+    desiredPodGangMapping := pcsg.Status.PodGangMapping
+    // For each PodGang in desired:
+    //   delta = desired[PG] - current[PG]
+    //   delta > 0: create `delta` PCLQs labeled PG (one per PCSG replica index covered by this PG)
+    //   delta < 0: delete `|delta|` PCLQs from PG
+}
+```
+
+Notes:
+- No separate counter field on PCSG status. The next Scaled-PG counter is derived on the fly from existing keys in `pcsg.Status.PodGangMapping` matching the Scaled-PG prefix.
+- `pcs.Status.PodGangCounter` is **not** consulted in steady state for minting Scaled-PG names. It continues to be updated by the PCS reconciler's `mutatePodGangCounter` for observability (recomputed from PGM).
+- The new Scaled-PG names appear in `pcsg.Status.PodGangMapping` first; the PGM component, on its next sync, adds matching entries to PGM.
+- Status patch happens before the create/delete reconciliation step — no chicken-and-egg between status and PCLQ creation.
+
+#### PGM component `syncSteadyStateEntries` (follower)
+
+```
+for each PCS replica:
+    entries = read existing PGM (or empty list if first time)
+    
+    // 1. Mirror new entries from PCSG status mappings (Scaled-PGs minted by PCSG reconciler that aren't in PGM yet).
+    for each PCSG:
+        for each name in pcsg.Status.PodGangMapping not present in entries:
+            create new entry:
+                Name = name
+                PodCliqueSetGenerationHash = pcs.Status.CurrentGenerationHash
+                PodCliques = nil
+                PodCliqueScalingGroups = {pcsgName: pcsg.Status.PodGangMapping[name]}
+                DependsOn = collectMPGNamesFromEntries(entries)  // Scaled-PG depends on existing MPGs (or BasePG for non-MVU PGMs)
+            append to entries
+    
+    // 2. Apply status authority for per-entry counts.
+    //    No settled guard needed: PodGangMapping is the desired state, written atomically by the
+    //    reconciler in a single status patch with sum == Spec.Replicas. Empty mapping (nil/len==0)
+    //    means the reconciler hasn't initialized yet for that resource → skip that source.
+    for each entry:
+        for each standalone PCLQ:
+            if pclq.Status.PodGangMapping is non-empty:
+                entry.PodCliques[cliqueName] = pclq.Status.PodGangMapping[entry.Name]   // 0 if absent
+        for each PCSG:
+            if pcsg.Status.PodGangMapping is non-empty:
+                entry.PodCliqueScalingGroups[pcsgName] = pcsg.Status.PodGangMapping[entry.Name]   // 0 if absent
+    
+    // 3. Drop entries with all-zero counts (handles scale-in cleanup).
+    entries = removeEmptyEntries(entries)
+    
+    write PGM
+```
+
+For initial PCS replica creation (no PGM exists, no PCLQ/PCSG status yet), fall through to existing `createPodGangMapForReplica` which builds entries from spec.
+
+For non-MVU base PGMs (initial creation via `buildBaseAndScaledPodGangEntries`), Scaled-PGs depend on the BasePG (already the case today). For MVU PGMs (post-coherent-update), Scaled-PGs depend on all MPGs. `collectMPGNamesFromEntries` correctly returns either case (entries with empty `DependsOn` — BasePG or MPG).
+
+#### Coherent update path: unchanged
+
+`computeCoherentUpdateEntries`, `computeNextPodGangMapState`, `computeNextMVUPodGang`, `computeTailPodGangs`, `InFlightPodGangs` lifecycle — all unchanged. PGM mints names via `NewPodGangEntryBuilder` with `pcs.Status.PodGangCounter`. The PCLQ/PCSG reconcilers reconcile their status to PGM in step 3 of their flows.
+
+#### Webhook block on scaling during coherent update
+
+Validating admission webhooks reject `Spec.Replicas` changes on **PCSG and PCLQ** when `IsCoherentUpdateInProgress(pcs)`. PCS `Spec.Replicas` is not blocked — top-level PCS replica scaling is orthogonal to the coherent-update migration within a single PCS replica. Reuses existing webhook infrastructure.
+
+#### Delete the broken machinery
+
+- `isPodGangMappingSettled` / `isPCLQMappingSettled` / `isPCSGMappingSettled` — replaced by inline `sum == Spec.Replicas` check in PGM consumer.
+- `buildEntriesFromStatuses` / `getOrCreateEntry` — replaced by the new follower logic.
+- `mutatePodGangMapping` in both PCSG `reconcilestatus.go` and PCLQ `reconcilestatus.go` (was live-pod-derived; replaced by decision-driven writes in pod/PCLQ components).
+
+---
+
+### Scenario Walkthrough
+
+Baseline:
+- PCS replica 0
+- 1 standalone PCLQ `pca`, `Spec.Replicas=5`, `MinAvailable=2`
+- 1 PCSG `sg`, `Spec.Replicas=4`, `MinAvailable=2`
+- All MPGs have `nil` DependsOn. Tail-PGs have `DependsOn=[mpgNames...]`.
+
+Steady-state PGM (hash `xyz`):
+```
+MPG-xyz-0: PodCliques={pca:2}, PodCliqueScalingGroups={sg:2}, DependsOn=nil
+MPG-xyz-1: PodCliques={pca:3}, PodCliqueScalingGroups={sg:2}, DependsOn=nil
+```
+
+Status mappings (settled):
+```
+pca.Status.PodGangMapping = {MPG-xyz-0: 2, MPG-xyz-1: 3}
+sg.Status.PodGangMapping  = {MPG-xyz-0: 2, MPG-xyz-1: 2}
+```
+
+---
+
+#### Case 1 — PCSG scale-out in steady state (4 → 6 replicas)
+
+`sg.Spec.Replicas = 6`. Webhook allows (steady state).
+
+**PCSG reconciler PCLQ component**:
+1. Reads live PCLQs (4 PCLQs covering replica indices 0–3).
+2. Reads `sg.Status.PodGangMapping = {MPG-xyz-0: 2, MPG-xyz-1: 2}`. sum=4.
+3. totalDeficit = 6 - 4 = 2.
+4. sum(4) < Spec.Replicas(6). Mint 2 new Tail-PG names using `pcs.Status.PodGangCounter` (assume next is 2):
+   ```
+   TailPG-xyz-2, TailPG-xyz-3
+   sg.Status.PodGangMapping = {MPG-xyz-0: 2, MPG-xyz-1: 2, TailPG-xyz-2: 1, TailPG-xyz-3: 1}
+   pcs.Status.PodGangCounter[0] = 4
+   ```
+   Patch.
+5. diff per entry: TailPG-xyz-2 needs 1 PCLQ for sg replica index 4; TailPG-xyz-3 needs 1 for index 5.
+6. Creates PCLQs for indices 4 and 5, labeled `LabelPodGang=TailPG-xyz-2` and `TailPG-xyz-3`.
+
+**PGM component** on next sync:
+1. Sees TailPG-xyz-2 and TailPG-xyz-3 in `sg.Status.PodGangMapping` not in PGM → adds them with `PodCliqueScalingGroups={sg:1}`, `DependsOn=[MPG-xyz-0, MPG-xyz-1]`, hash=`xyz`.
+2. Existing entries' counts unchanged (mappings unchanged for them).
+
+**Final PGM:**
+```
+MPG-xyz-0:    PodCliques={pca:2}, PodCliqueScalingGroups={sg:2}, DependsOn=nil
+MPG-xyz-1:    PodCliques={pca:3}, PodCliqueScalingGroups={sg:2}, DependsOn=nil
+TailPG-xyz-2: PodCliqueScalingGroups={sg:1}, DependsOn=[MPG-xyz-0, MPG-xyz-1]
+TailPG-xyz-3: PodCliqueScalingGroups={sg:1}, DependsOn=[MPG-xyz-0, MPG-xyz-1]
+```
+
+**Outcome**: New entries exist in PGM; PodGang component creates `TailPG-xyz-2` and `TailPG-xyz-3` resources; pods can be scheduled. No livelock.
+
+---
+
+#### Case 2 — Standalone PCLQ scale-out in steady state (5 → 7 pods)
+
+`pca.Spec.Replicas = 7`. Webhook allows.
+
+**PCLQ reconciler pod component**:
+1. Reads live pods (5).
+2. Reads `pca.Status.PodGangMapping = {MPG-xyz-0: 2, MPG-xyz-1: 3}`. sum=5.
+3. totalDeficit = 7 - 5 = 2.
+4. sum(5) < Spec.Replicas(7). Highest-index PG = MPG-xyz-1. Increment by 2:
+   ```
+   pca.Status.PodGangMapping = {MPG-xyz-0: 2, MPG-xyz-1: 5}
+   ```
+   Patch.
+5. diff: MPG-xyz-1 has 3 live, status says 5 → create 2 pods labeled `MPG-xyz-1`.
+
+**PGM component** on next sync:
+1. No new entries in mappings.
+2. Per-entry counts: `MPG-xyz-1.PodCliques["pca"] = pca.Status.PodGangMapping["MPG-xyz-1"] = 5`. Updated.
+
+**Final PGM:**
+```
+MPG-xyz-0: PodCliques={pca:2}, PodCliqueScalingGroups={sg:2}, DependsOn=nil
+MPG-xyz-1: PodCliques={pca:5}, PodCliqueScalingGroups={sg:2}, DependsOn=nil
+```
+
+**Outcome**: PGM matches actual distribution. No livelock.
+
+---
+
+#### Case 3 — PCSG scale-in in steady state (4 → 2 replicas)
+
+`sg.Spec.Replicas = 2`. Webhook allows.
+
+**PCSG reconciler PCLQ component**:
+1. Reads live PCLQs (4).
+2. Reads `sg.Status.PodGangMapping = {MPG-xyz-0: 2, MPG-xyz-1: 2}`. sum=4.
+3. totalDeficit = 2 - 4 = -2.
+4. sum(4) > Spec.Replicas(2). Trim from highest-index entries: MPG-xyz-1 (replica indices 2, 3 are highest). Decrement by 2:
+   ```
+   sg.Status.PodGangMapping = {MPG-xyz-0: 2, MPG-xyz-1: 0}
+   ```
+   Patch.
+5. diff: MPG-xyz-1 has 2 live, status says 0 → delete 2 PCLQs from MPG-xyz-1.
+
+**PGM component** on next sync:
+1. Per-entry counts: `MPG-xyz-1.PodCliqueScalingGroups["sg"] = 0`.
+2. After update: MPG-xyz-1 has `pca:3, sg:0`. Not all zero → kept by `removeEmptyEntries`.
+
+**Final PGM:**
+```
+MPG-xyz-0: PodCliques={pca:2}, PodCliqueScalingGroups={sg:2}, DependsOn=nil
+MPG-xyz-1: PodCliques={pca:3}, PodCliqueScalingGroups={sg:0}, DependsOn=nil
+```
+
+**Outcome**: PGM reflects the 2 PCSG replicas. `resolvePodGangNameFromPGM` for indices 0, 1 walks: MPG-xyz-0 covers both. Index ≥ 2 is not consulted.
+
+---
+
+#### Case 4 — Standalone PCLQ scale-in in steady state (5 → 3 pods)
+
+`pca.Spec.Replicas = 3`. Webhook allows.
+
+**PCLQ reconciler pod component**:
+1. Reads live pods (5).
+2. Reads `pca.Status.PodGangMapping = {MPG-xyz-0: 2, MPG-xyz-1: 3}`. sum=5.
+3. totalDeficit = 3 - 5 = -2.
+4. sum(5) > Spec.Replicas(3). Run deletion sorter, suppose 1 pod from MPG-xyz-0 and 1 from MPG-xyz-1 selected.
+   ```
+   pca.Status.PodGangMapping = {MPG-xyz-0: 1, MPG-xyz-1: 2}
+   ```
+   Patch.
+5. diff: MPG-xyz-0 (2 live → 1) delete 1; MPG-xyz-1 (3 live → 2) delete 1.
+
+**PGM component** on next sync:
+1. Per-entry counts: `MPG-xyz-0.PodCliques["pca"] = 1`, `MPG-xyz-1.PodCliques["pca"] = 2`.
+
+**Final PGM:**
+```
+MPG-xyz-0: PodCliques={pca:1}, PodCliqueScalingGroups={sg:2}, DependsOn=nil
+MPG-xyz-1: PodCliques={pca:2}, PodCliqueScalingGroups={sg:2}, DependsOn=nil
+```
+
+**Outcome**: PGM reflects post-scale-in distribution.
+
+**Pod-crash robustness**: if a pod dies after the patch, kubelet recreates it via PCLQ reconciler. `local-PGMapping` shows fewer pods than `status-PGMapping`; diff > 0 for the affected PG; reconciler creates a replacement labeled with the same PG. Status mapping unchanged.
+
+---
+
+#### Case 5 — Scale-in or scale-out during coherent update (rejected for PCSG/PCLQ; allowed for PCS)
+
+User attempts `Spec.Replicas` change on PCSG or PCLQ while `IsCoherentUpdateInProgress(pcs)`.
+
+**Validating webhook** rejects:
+```
+spec.replicas changes are not allowed while a coherent update is in progress on PodCliqueSet <name>; complete the update before scaling
+```
+
+---
+
+#### Case 6 — Coherent update: unchanged behavior
+
+PGM component runs `computeCoherentUpdateEntries` as today (one MPG per reconcile, gated by `InFlightPodGangs`). PCLQ/PCSG reconcilers see `IsCoherentUpdateInProgress=true` and overwrite their `status.PodGangMapping` from PGM at the start of their reconcile, then run their flow. No new code in the coherent update path itself.
+
+---
+
+### Implementation Steps
+
+#### Step 1 — API: redefine `PodGangMapping` semantics on both PCLQ and PCSG status
+
+- `operator/api/core/v1alpha1/scalinggroup.go`:
+  - Update `PodGangMapping` godoc to describe its new desired-state semantics: source of truth in steady state; reconciled from PGM during a coherent update.
+- `operator/api/core/v1alpha1/podclique.go` — same godoc update for `PodGangMapping`.
+
+No new fields. Scaled-PG counter is derived from existing keys in `pcsg.Status.PodGangMapping` matching the Scaled-PG prefix.
+
+Run `make generate` + `make generate-api-docs`.
+
+#### Step 2 — Remove `mutatePodGangMapping` from both reconcilers
+
+- `operator/internal/controller/podcliquescalinggroup/reconcilestatus.go` — remove call (line 75) and function (line 143)
+- `operator/internal/controller/podcliquescalinggroup/reconcilestatus_test.go` — remove related tests
+- `operator/internal/controller/podclique/reconcilestatus.go` — remove call (line 72) and function (line 167)
+- `operator/internal/controller/podclique/reconcilestatus_test.go` — remove related tests
+
+#### Step 3 — Validating admission webhooks to block scaling during coherent update
+
+**Scope**: only PCSG and PCLQ `Spec.Replicas` changes are blocked during a coherent update. PCS `Spec.Replicas` is allowed at any time — adding/removing top-level PCS replicas is orthogonal to the coherent-update migration that operates within a single PCS replica's PGM.
+
+- **3a. New PCSG validating webhook** at `operator/internal/webhook/admission/pcsg/validation/{handler,register}.go`. Resolves owning PCS via owner reference. Path: `/webhooks/validate-podcliquescalinggroup`.
+- **3b. New PCLQ validating webhook** at `operator/internal/webhook/admission/pclq/validation/{handler,register}.go`. Owner-reference resolution (PCLQ → PCSG → PCS for PCSG-owned, PCLQ → PCS for standalone). Path: `/webhooks/validate-podclique`.
+- **3c. Register**: extend `operator/internal/webhook/register.go`.
+- **3d. Helm manifests**: add new validating webhook configurations under `operator/charts/`.
+
+#### Step 4 — PCLQ reconciler pod component: implement new flow (standalone PCLQs)
+
+**File**: `operator/internal/controller/podclique/components/pod/syncflow.go`
+
+Replace the standalone-PCLQ portion of `runSyncFlow` with the flow described in the Design section. Key changes:
+- Read `pclq.Status.PodGangMapping`; seed from PGM if empty.
+- If coherent update is in progress (`len(pcs.Status.InFlightPodGangs) > 0`): overwrite status mapping from PGM entries; patch.
+- In steady state, compute spec-diff and update status: scale-out increments the highest-index PodGang in the mapping; scale-in runs the deletion sorter and decrements per chosen pod's `LabelPodGang`. Patch.
+- Build `currentPodGangMapping` from live (non-terminating, `DeletionTimestamp == nil`) pods counted by `LabelPodGang`.
+- For each PodGang in the desired mapping, compute `delta = desired[PG] - current[PG]` and create/delete pods accordingly.
+
+Helpers (new):
+- `seedPodGangMappingFromPGM(pgm, cliqueName) map[string]int32` — build mapping from all PGM entries where `entry.PodCliques[cliqueName] > 0`.
+- `decrementMappingForChosenPods(mapping, chosenPods) map[string]int32` — decrement per `LabelPodGang` of each chosen pod.
+- `findHighestIndexEntryName(mapping) string` — scan keys, parse trailing counter, return name with highest counter (handles both MPG/TailPG counter and ScaledPG counter — same trailing integer position).
+- `computePerPGDelta(currentPodGangMapping, desiredPodGangMapping) map[string]int32` — `desired - current` per PG.
+
+**Retired** (replaced by status-driven per-PG diff):
+- `assignPodsToDeficitPodGangs` (line 294) — deficit-fill against PGM. No longer needed; the deficit is computed against `pclq.Status.PodGangMapping`.
+- `findHighestMVUPodGangForClique` (line 338) — overflow assignment to highest-index MPG. No longer needed; the highest-index decision happens in the status-update step (scale-out increments the highest-index PG), and pod placement follows the per-PG diff.
+- `resolvePodGangNamesForNewPods` for standalone PCLQs simplifies to: iterate `currentPodGangMapping`/`desiredPodGangMapping`, produce a list of PodGang names per pod to create. PCSG-owned PCLQ path (`!sc.isStandalonePCLQ`) is unchanged.
+
+#### Step 5 — PCSG reconciler PCLQ component: implement new flow
+
+**File**: `operator/internal/controller/podcliquescalinggroup/components/podclique/syncflow.go` and `podclique.go`
+
+Replace the steady-state portion of `runSyncFlow` with the flow described in the Design section. Key changes:
+- Read `pcsg.Status.PodGangMapping`; seed from PGM if empty.
+- If coherent update is in progress (`len(pcs.Status.InFlightPodGangs) > 0`): overwrite status mapping from PGM entries; patch.
+- In steady state, compute spec-diff and update status:
+  - **Scale-out**: derive next Scaled-PG counter on the fly (max trailing integer over keys with the Scaled-PG prefix in `pcsg.Status.PodGangMapping`, +1). Mint new Scaled-PG names with format `<pcs>-<replica>-<hash>-<pcsgname>-<counter>`. Add `{newName: 1}` to mapping per new replica.
+  - **Scale-in**: walk Tier 1 (ScaledPGs by trailing-integer counter parsed from name, descending) then Tier 2 (MPGs+TailPGs by their counter descending), decrementing entries until `|diff|` is satisfied.
+- Patch `pcsg.Status.PodGangMapping`.
+- Build `currentPodGangMapping` from live (non-terminating, `DeletionTimestamp == nil`) PCLQs counted by `LabelPodGang`.
+- For each PodGang in the desired mapping, compute `delta = desired[PG] - current[PG]` and create/delete PCLQs accordingly.
+
+Helpers (new):
+- `seedPodGangMappingFromPGMForPCSG(pgm, pcsgName) map[string]int32`
+- `mintScaledPGName(pcs, pcsg, counter) string` — generates Scaled-PG name with the steady-state naming convention.
+- `partitionEntriesForScaleIn(mapping) (tier1ScaledPGs []string, tier2Others []string)` — split by name pattern; sort each by counter descending.
+- `computePerPGDelta(currentPodGangMapping, desiredPodGangMapping) map[string]int32` — shared helper with PCLQ pod component.
+
+**Retired**:
+- `resolvePodGangNameFromPGM` (podclique.go:380) — positional walk over PGM. No longer needed; PCSG reconciler reads `pcsg.Status.PodGangMapping` directly and creates PCLQs labeled with PodGang names from the mapping.
+- `triggerDeletionOfExcessPCSGReplicas` and `computePCSGReplicasToDelete` (syncflow.go:329, 365) — replaced by the status-driven scale-in walk that decrements entries directly in the mapping; PCLQ deletion is then driven by the per-PG diff.
+
+#### Step 6 — PGM component `syncSteadyStateEntries`: implement follower logic
+
+**File**: `operator/internal/controller/podcliqueset/components/podgangmap/syncflow.go`
+
+Replace the settled/unsettled branch with:
+
+```go
+entries, _ := r.getExistingPGMEntries(ctx, sc.pcs, pgmName)
+
+// Mirror new Scaled-PG entries from PCSG status mappings.
+addPCSGStatusEntries(&entries, sc.pcs, sc.pcsgsByReplica[pcsReplicaIndex])
+
+// Apply per-entry counts from status mappings (with settled guard).
+applyStatusMappingsToEntries(entries, sc.pclqsByReplica[pcsReplicaIndex], sc.pcsgsByReplica[pcsReplicaIndex])
+
+// Remove entries with all-zero counts.
+entries = removeEmptyEntries(entries)
+
+return r.createOrPatchPodGangMap(ctx, sc.pcs, pgmName, pcsReplicaIndex, entries)
+```
+
+Helpers (new):
+- `addPCSGStatusEntries(entries, pcs, pcsgs)` — for each Scaled-PG name in any PCSG status mapping not present in entries, append a new entry. Set: `Name=name`, `PodCliqueSetGenerationHash=*pcs.Status.CurrentGenerationHash`, `PodCliques=nil`, `PodCliqueScalingGroups={pcsgName: 1}`, `DependsOn=collectMPGNamesFromEntries(entries before adding)`.
+- `applyStatusMappingsToEntries(entries, pclqs, pcsgs)` — for each entry, set per-PCLQ and per-PCSG counts from status mappings. Skip a status mapping that is empty (nil/len==0; means the owning reconciler hasn't initialized yet). For non-empty mappings, values default to 0 when entry name not in the mapping (drives `removeEmptyEntries` to drop scaled-in entries).
+
+Delete:
+- `isPodGangMappingSettled` (line 439), `isPCLQMappingSettled` (line 456), `isPCSGMappingSettled` (line 467) — no settled guard needed; replaced by simple non-empty check.
+- `buildEntriesFromStatuses` (line 658), `getOrCreateEntry` (line 691).
+
+Keep:
+- `getExistingPGMEntries`, `createPodGangMapForReplica` (initial PGM creation), `removeEmptyEntries` (mvu.go), `collectMPGNamesFromEntries`.
+- `mutatePodGangCounter` in `podcliqueset/reconcilestatus.go` (used for observability; still recomputes PodGangCounter from PGM).
+
+Coherent update path (`computeCoherentUpdateEntries` and below) is unchanged.
+
+#### Step 7 — Tests
+
+- **`syncflow_test.go`** (PGM component): remove `TestBuildEntriesFromStatuses`. Add `TestAddPCSGStatusEntries`, `TestApplyStatusMappingsToEntries`, `TestSyncSteadyStateEntries` covering all 4 steady-state cases.
+- **`syncflow_test.go`** (PCLQ pod component): add tests for the new flow on standalone PCLQs (scale-out, scale-in, coherent realignment, status seeding from PGM).
+- **`syncflow_test.go`** (PCSG PCLQ component): add tests for new flow (Tail-PG minting, trim, coherent realignment, status seeding).
+- **`reconcilestatus_test.go`** (PCSG and PCLQ): remove `mutatePodGangMapping` tests.
+- **Webhook tests** per package: replica changes rejected during coherent update; allowed in steady state.
+
+---
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `operator/api/core/v1alpha1/scalinggroup.go` | Update `PodGangMapping` godoc (semantics) |
+| `operator/api/core/v1alpha1/podclique.go` | Update `PodGangMapping` godoc (semantics) |
+| `operator/internal/controller/podcliquescalinggroup/reconcilestatus.go` | Remove `mutatePodGangMapping` |
+| `operator/internal/controller/podcliquescalinggroup/reconcilestatus_test.go` | Remove related tests |
+| `operator/internal/controller/podclique/reconcilestatus.go` | Remove `mutatePodGangMapping` |
+| `operator/internal/controller/podclique/reconcilestatus_test.go` | Remove related tests |
+| `operator/internal/controller/podclique/components/pod/syncflow.go` | New decision-driven flow for standalone PCLQs |
+| `operator/internal/controller/podclique/components/pod/syncflow_test.go` | Add tests for new flow |
+| `operator/internal/controller/podcliquescalinggroup/components/podclique/syncflow.go` | New decision-driven flow with Tail-PG minting |
+| `operator/internal/controller/podcliquescalinggroup/components/podclique/syncflow_test.go` | Add tests for new flow |
+| `operator/internal/webhook/admission/pcsg/validation/{handler,register}.go` | New validating webhook |
+| `operator/internal/webhook/admission/pclq/validation/{handler,register}.go` | New validating webhook |
+| `operator/internal/webhook/register.go` | Register new PCSG and PCLQ webhooks |
+| `operator/charts/...` | Helm manifests for new webhooks |
+| `operator/internal/controller/podcliqueset/components/podgangmap/syncflow.go` | Rewrite `syncSteadyStateEntries` as follower; delete dead functions |
+| `operator/internal/controller/podcliqueset/components/podgangmap/syncflow_test.go` | Update + add tests |
+
+---
+
+### Verification
+
+```bash
+cd operator
+make generate && make generate-api-docs
+go test ./internal/webhook/...
+go test ./internal/controller/podcliqueset/components/podgangmap/...
+go test ./internal/controller/podcliquescalinggroup/...
+go test ./internal/controller/podclique/...
+```
+
+Manual verification:
+1. **Initial deployment** → PGM created from spec; PCLQ/PCSG status mappings seeded from PGM; pods/PCLQs created.
+2. **Steady-state PCSG scale-out** → PCSG reconciler mints Tail-PG names in status; PGM follows; new entries appear; PodGang resources created.
+3. **Steady-state PCLQ scale-out** → status mapping increments highest-index MPG; PGM follows.
+4. **Steady-state PCSG scale-in** → status mapping trims highest indices; PGM follows; entries with zero counts dropped if all clique/PCSG counts are zero.
+5. **Steady-state PCLQ scale-in** → deletion sorter picks pods; status decrements; PGM follows.
+6. **During coherent update** → webhook rejects PCSG and PCLQ replica changes; PCS replica changes allowed; PCLQ/PCSG status mappings realign from PGM each reconcile.
+7. **Pod crash mid-flight** → kubelet recreates; PCLQ pod component sees `local < status` for that PG; creates replacement labeled the same PG; status mapping unchanged.

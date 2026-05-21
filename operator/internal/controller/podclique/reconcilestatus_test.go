@@ -193,33 +193,3 @@ func createPodWithHash(name string, templateHash string) *corev1.Pod {
 		},
 	}
 }
-
-func TestMutatePodGangMapping_MultiplePodGangs(t *testing.T) {
-	pclq := &grovecorev1alpha1.PodClique{}
-	pods := []*corev1.Pod{
-		{ObjectMeta: metav1.ObjectMeta{Name: "pod-0", Labels: map[string]string{apicommon.LabelPodGang: "pg-0"}}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "pod-1", Labels: map[string]string{apicommon.LabelPodGang: "pg-0"}}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "pod-2", Labels: map[string]string{apicommon.LabelPodGang: "pg-1"}}},
-	}
-
-	mutatePodGangMapping(pclq, pods)
-	assert.Equal(t, map[string]int32{"pg-0": 2, "pg-1": 1}, pclq.Status.PodGangMapping)
-}
-
-func TestMutatePodGangMapping_NoPodGangLabel(t *testing.T) {
-	pclq := &grovecorev1alpha1.PodClique{}
-	pods := []*corev1.Pod{
-		{ObjectMeta: metav1.ObjectMeta{Name: "pod-0", Labels: map[string]string{}}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "pod-1"}},
-	}
-
-	mutatePodGangMapping(pclq, pods)
-	assert.Nil(t, pclq.Status.PodGangMapping)
-}
-
-func TestMutatePodGangMapping_EmptyPods(t *testing.T) {
-	pclq := &grovecorev1alpha1.PodClique{}
-
-	mutatePodGangMapping(pclq, nil)
-	assert.Nil(t, pclq.Status.PodGangMapping)
-}
