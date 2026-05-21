@@ -36,37 +36,6 @@ import (
 )
 
 // -----------------------------------------------------------------------------
-// parseTrailingInt
-// -----------------------------------------------------------------------------
-
-func TestParseTrailingInt(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     string
-		expected  int
-		expectErr bool
-	}{
-		{"single digit", "workload1-0-abc12-5", 5, false},
-		{"multi digit", "workload1-0-abc12-12345", 12345, false},
-		{"zero", "workload1-0-abc12-0", 0, false},
-		{"no dash", "abc", 0, true},
-		{"trailing dash", "workload1-0-abc12-", 0, true},
-		{"non-integer suffix", "workload1-0-abc12-foo", 0, true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := parseTrailingInt(tc.input)
-			if tc.expectErr {
-				assert.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tc.expected, got)
-		})
-	}
-}
-
-// -----------------------------------------------------------------------------
 // highestIndexPodGangName
 // -----------------------------------------------------------------------------
 

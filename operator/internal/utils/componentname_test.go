@@ -179,3 +179,31 @@ func TestGetPodCliqueNameFromPodCliqueFQN(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractPodGangIndex(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expected    int
+		expectErr   bool
+	}{
+		{"MPG/TailPG single digit", "workload1-0-abc12-5", 5, false},
+		{"MPG/TailPG zero index", "workload1-0-abc12-0", 0, false},
+		{"MPG/TailPG multi digit", "workload1-0-abc12-12345", 12345, false},
+		{"Scaled-PG name", "workload1-0-abc12-sg-3", 3, false},
+		{"no dash", "abc", 0, true},
+		{"trailing dash", "workload1-0-abc12-", 0, true},
+		{"non-integer suffix", "workload1-0-abc12-foo", 0, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ExtractPodGangIndex(tc.input)
+			if tc.expectErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+}

@@ -21,8 +21,6 @@ import (
 	"maps"
 	"slices"
 	"sort"
-	"strconv"
-	"strings"
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
@@ -150,7 +148,7 @@ func highestIndexPodGangName(mapping map[string]int32) (string, error) {
 		bestIdx  = -1
 	)
 	for name := range mapping {
-		idx, err := parseTrailingInt(name)
+		idx, err := utils.ExtractPodGangIndex(name)
 		if err != nil {
 			return "", fmt.Errorf("PodGang entry name %q in PodGangMapping does not match the expected naming convention: %w", name, err)
 		}
@@ -159,21 +157,6 @@ func highestIndexPodGangName(mapping map[string]int32) (string, error) {
 		}
 	}
 	return bestName, nil
-}
-
-// parseTrailingInt extracts the trailing integer suffix after the final '-' separator. Returns
-// an error if the suffix is missing or not an integer — names in PodGangMapping are minted by
-// Grove and must always conform.
-func parseTrailingInt(name string) (int, error) {
-	dash := strings.LastIndex(name, "-")
-	if dash < 0 || dash == len(name)-1 {
-		return 0, fmt.Errorf("name %q has no trailing '-<integer>' suffix", name)
-	}
-	idx, err := strconv.Atoi(name[dash+1:])
-	if err != nil {
-		return 0, fmt.Errorf("trailing suffix of name %q is not an integer: %w", name, err)
-	}
-	return idx, nil
 }
 
 // decrementMappingForScaleIn mutates the desired mapping in place, decrementing it by `count`

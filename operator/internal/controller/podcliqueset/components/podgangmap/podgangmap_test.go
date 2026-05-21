@@ -288,7 +288,7 @@ func TestComputeCoherentUpdateEntries_PodGangMapNotFound(t *testing.T) {
 	assert.Equal(t, int32(1), entries[1].PodCliqueScalingGroups["prefill"])
 
 	// New MVU entry
-	expectedName := fmt.Sprintf("my-pcs-0-%s-0", newHash[:5])
+	expectedName := fmt.Sprintf("my-pcs-0-%s-0", newHash)
 	assert.Equal(t, expectedName, entries[2].Name)
 	assert.Equal(t, newHash, entries[2].PodCliqueSetGenerationHash)
 	assert.Equal(t, int32(2), entries[2].PodCliques["frontend"])
@@ -303,7 +303,7 @@ func TestComputeCoherentUpdateEntries_PodGangMapNotFound(t *testing.T) {
 //	PCS "my-pcs" with Frontend (standalone, 5 pods, minAvail=2) + Prefill PCSG (2 replicas, minAvail=1).
 //	PodGangMap exists with:
 //	  - Old entry "bpg-0" (old hash): {F:3, P:1} (reduced from first iteration)
-//	  - New entry "my-pcs-0-newha-0" (new hash): {F:2, P:1} (from first iteration)
+//	  - New entry "my-pcs-0-newhash12345-0" (new hash): {F:2, P:1} (from first iteration)
 //	PodGangCounter = 1.
 //
 // MVU template: {Frontend: 2, Prefill: 1}
@@ -342,7 +342,7 @@ func TestComputeCoherentUpdateEntries_SubsequentReconcile(t *testing.T) {
 			PodCliqueSetReplicaIndex: 0,
 			Entries: []grovecorev1alpha1.PodGangEntry{
 				{Name: "bpg-0", PodCliqueSetGenerationHash: oldHash, PodCliques: map[string]int32{"frontend": 3}, PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-				{Name: "my-pcs-0-newha-0", PodCliqueSetGenerationHash: newHash, PodCliques: map[string]int32{"frontend": 2}, PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
+				{Name: "my-pcs-0-newhash12345-0", PodCliqueSetGenerationHash: newHash, PodCliques: map[string]int32{"frontend": 2}, PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
 			},
 		},
 	}
@@ -381,13 +381,13 @@ func TestComputeCoherentUpdateEntries_SubsequentReconcile(t *testing.T) {
 	require.Len(t, entries, 2)
 
 	// First: existing new entry from prior iteration (preserved).
-	assert.Equal(t, "my-pcs-0-newha-0", entries[0].Name)
+	assert.Equal(t, "my-pcs-0-newhash12345-0", entries[0].Name)
 	assert.Equal(t, newHash, entries[0].PodCliqueSetGenerationHash)
 	assert.Equal(t, int32(2), entries[0].PodCliques["frontend"])
 	assert.Equal(t, int32(1), entries[0].PodCliqueScalingGroups["prefill"])
 
 	// Second: new MVU from this iteration with absorbed frontend pod.
-	expectedName := fmt.Sprintf("my-pcs-0-%s-1", newHash[:5])
+	expectedName := fmt.Sprintf("my-pcs-0-%s-1", newHash)
 	assert.Equal(t, expectedName, entries[1].Name)
 	assert.Equal(t, newHash, entries[1].PodCliqueSetGenerationHash)
 	assert.Equal(t, int32(3), entries[1].PodCliques["frontend"])
