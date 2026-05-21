@@ -115,6 +115,22 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 		)
 	}
 
+	// Fetch the PodGangMap for this PCS replica once per reconcile and cache it on the
+	// sync context. NotFound is left as a soft signal (sc.pgm == nil) so downstream paths
+	// (schedule-gate removal, status realignment) can short-circuit without erroring out
+	// when the PGM has not yet been created by the PCS reconciler.
+	pgm, err := componentutils.GetPodGangMapForPCSReplica(ctx, r.client, sc.pcs.Name, pclq.Namespace, sc.pcsReplicaIndex)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return nil, groveerr.WrapError(err,
+			errCodeGetPodGang,
+			component.OperationSync,
+			fmt.Sprintf("failed to get PodGangMap for PCS replica %d", sc.pcsReplicaIndex),
+		)
+	}
+	if err == nil {
+		sc.pgm = pgm
+	}
+
 	return sc, nil
 }
 
@@ -158,31 +174,39 @@ func (r _resource) getAssociatedPodGangName(pclqObjectMeta metav1.ObjectMeta) (s
 	return podGangName, nil
 }
 
-// runSyncFlow executes the main synchronization logic including pod creation, deletion, updates, and scheduling gate management
+// runSyncFlow executes the main synchronization logic for the PodClique:
+//   - For standalone PCLQs, the status-driven distribution flow updates pclq.Status.PodGangMapping
+//     and reconciles pods per-PodGang (subsumes the previous coherent-update branch).
+//   - For PCSG-owned PCLQs, all pods belong to a single PodGang fixed at PCLQ creation, so a simple
+//     spec-diff create/delete is sufficient.
+//
+// RollingRecreate handling and schedule-gate removal run after distribution reconciliation.
 func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) syncFlowResult {
 	result := syncFlowResult{}
-	diff := r.syncExpectationsAndComputeDifference(logger, sc)
 
-	if diff < 0 && !isStandalonePCLQCoherentUpdate(sc) {
-		logger.Info("found fewer pods than desired", "pclq.spec.replicas", sc.pclq.Spec.Replicas, "delta", diff)
-		diff *= -1
-		numCreated, err := r.createPods(sc.ctx, logger, sc, diff)
-		if err != nil {
-			logger.Error(err, "failed to create pods")
+	if sc.isStandalonePCLQ {
+		if err := r.reconcileStandalonePCLQDistribution(logger, sc); err != nil {
+			logger.Error(err, "failed to reconcile standalone PodClique distribution")
 			result.recordError(err)
 		}
-		logger.Info("Created pods for PodClique", "numCreated", numCreated)
-	} else if diff > 0 {
-		if err := r.deleteExcessPods(sc, logger, diff); err != nil {
-			result.recordError(err)
+	} else {
+		diff := r.syncExpectationsAndComputeDifference(logger, sc)
+		if diff < 0 {
+			logger.Info("found fewer pods than desired", "pclq.spec.replicas", sc.pclq.Spec.Replicas, "delta", diff)
+			numCreated, err := r.createPods(sc.ctx, logger, sc, -diff)
+			if err != nil {
+				logger.Error(err, "failed to create pods")
+				result.recordError(err)
+			}
+			logger.Info("Created pods for PodClique", "numCreated", numCreated)
+		} else if diff > 0 {
+			if err := r.deleteExcessPods(sc, logger, diff); err != nil {
+				result.recordError(err)
+			}
 		}
 	}
 
-	if isStandalonePCLQCoherentUpdate(sc) {
-		if err := r.processCoherentUpdate(logger, sc); err != nil {
-			result.recordError(err)
-		}
-	} else if componentutils.IsRollingRecreateUpdateInProgress(sc.pcs) && componentutils.IsPCLQAutoUpdateInProgress(sc.pclq) {
+	if componentutils.IsRollingRecreateUpdateInProgress(sc.pcs) && componentutils.IsPCLQAutoUpdateInProgress(sc.pclq) {
 		if err := r.processPendingUpdates(logger, sc); err != nil {
 			result.recordError(err)
 		}
@@ -230,15 +254,10 @@ func getTerminatingAndNonTerminatingPodUIDs(existingPCLQPods []*corev1.Pod) (ter
 	return
 }
 
-// isStandalonePCLQCoherentUpdate returns true when this PCLQ is a standalone PCLQ
-// that is part of an in-progress coherent update.
-func isStandalonePCLQCoherentUpdate(sc *syncContext) bool {
-	return sc.isStandalonePCLQ &&
-		componentutils.IsCoherentUpdateInProgress(sc.pcs) &&
-		componentutils.IsPCLQAutoUpdateInProgress(sc.pclq)
-}
-
-// createPods creates the specified number of new pods for the PodClique with proper indexing and concurrency control
+// createPods creates the specified number of new pods for a PCSG-owned PodClique. All pods of
+// a PCSG-owned PCLQ belong to a single PodGang (set on the PCLQ's LabelPodGang at creation by
+// the PCSG reconciler), so every new pod inherits the same PodGang name. Standalone PCLQs use
+// the status-driven flow (reconcileStandalonePCLQDistribution) and do not go through here.
 func (r _resource) createPods(ctx context.Context, logger logr.Logger, sc *syncContext, numPods int) (int, error) {
 	availableIndices, err := index.GetAvailableIndices(logger, sc.existingPCLQPods, numPods)
 	if err != nil {
@@ -249,14 +268,9 @@ func (r _resource) createPods(ctx context.Context, logger logr.Logger, sc *syncC
 		)
 	}
 
-	podGangNames, err := r.resolvePodGangNamesForNewPods(ctx, sc, numPods)
-	if err != nil {
-		return 0, err
-	}
-
 	createTasks := make([]utils.Task, 0, numPods)
 	for i := range numPods {
-		createTasks = append(createTasks, r.createPodCreationTask(logger, sc.pcs, sc.pclq, podGangNames[i], sc.pclqExpectationsStoreKey, i, availableIndices[i]))
+		createTasks = append(createTasks, r.createPodCreationTask(logger, sc.pcs, sc.pclq, sc.pcsgReplicaPodGangName, sc.pclqExpectationsStoreKey, i, availableIndices[i]))
 	}
 	runResult := utils.RunConcurrentlyWithSlowStart(ctx, logger, 1, createTasks)
 	if runResult.HasErrors() {
@@ -265,84 +279,6 @@ func (r _resource) createPods(ctx context.Context, logger logr.Logger, sc *syncC
 		return 0, err
 	}
 	return len(runResult.SuccessfulTasks), nil
-}
-
-// resolvePodGangNamesForNewPods determines which PodGang each new pod should be assigned to.
-func (r _resource) resolvePodGangNamesForNewPods(ctx context.Context, sc *syncContext, numPods int) ([]string, error) {
-	if !sc.isStandalonePCLQ {
-		names := make([]string, numPods)
-		for i := range names {
-			names[i] = sc.pcsgReplicaPodGangName
-		}
-		return names, nil
-	}
-
-	pgm, err := componentutils.GetPodGangMapForPCSReplica(ctx, r.client, sc.pcs.Name, sc.pclq.Namespace, sc.pcsReplicaIndex)
-	if err != nil {
-		return nil, groveerr.WrapError(err,
-			errCodeGetPodGang,
-			component.OperationSync,
-			fmt.Sprintf("failed to get PodGangMap for PCS replica %d", sc.pcsReplicaIndex),
-		)
-	}
-
-	return assignPodsToDeficitPodGangs(pgm.Spec.Entries, sc.cliqueName, sc.existingPCLQPods, numPods), nil
-}
-
-// assignPodsToDeficitPodGangs assigns pods to PodGangs that have fewer pods than desired per PodGangMap entries.
-// For scale-out beyond PodGangMap desired counts, assigns to highest-indexed MVU PodGang.
-func assignPodsToDeficitPodGangs(entries []grovecorev1alpha1.PodGangEntry, cliqueName string, existingPods []*corev1.Pod, numPods int) []string {
-	existingPodsPerPodGang := countPodsPerPodGang(existingPods)
-
-	var assignments []string
-	for _, entry := range entries {
-		desired, ok := entry.PodCliques[cliqueName]
-		if !ok {
-			continue
-		}
-		deficit := desired - existingPodsPerPodGang[entry.Name]
-		if deficit <= 0 {
-			continue
-		}
-		for range min(int(deficit), numPods-len(assignments)) {
-			assignments = append(assignments, entry.Name)
-		}
-		if len(assignments) >= numPods {
-			return assignments
-		}
-	}
-
-	if remaining := numPods - len(assignments); remaining > 0 {
-		highestMVU := findHighestMVUPodGangForClique(entries, cliqueName)
-		for range remaining {
-			assignments = append(assignments, highestMVU)
-		}
-	}
-
-	return assignments
-}
-
-// countPodsPerPodGang counts existing pods grouped by their PodGang label.
-func countPodsPerPodGang(pods []*corev1.Pod) map[string]int32 {
-	counts := make(map[string]int32)
-	for _, pod := range pods {
-		if pgName, ok := pod.Labels[apicommon.LabelPodGang]; ok {
-			counts[pgName]++
-		}
-	}
-	return counts
-}
-
-// findHighestMVUPodGangForClique returns the name of the last PodGangMap entry that references
-// the given clique. Entries are ordered lowest-index first, so last match = highest.
-func findHighestMVUPodGangForClique(entries []grovecorev1alpha1.PodGangEntry, cliqueName string) string {
-	var highest string
-	for _, entry := range entries {
-		if _, ok := entry.PodCliques[cliqueName]; ok {
-			highest = entry.Name
-		}
-	}
-	return highest
 }
 
 // deleteExcessPods deletes `diff` number of excess Pods from this PodClique concurrently.
@@ -412,22 +348,17 @@ func (r _resource) checkAndRemovePodSchedulingGates(sc *syncContext, logger logr
 		return skippedScheduleGatedPods, nil
 	}
 
-	pgm, err := componentutils.GetPodGangMapForPCSReplica(sc.ctx, r.client, sc.pcs.Name, sc.pclq.Namespace, sc.pcsReplicaIndex)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			for _, p := range gatedPods {
-				skippedScheduleGatedPods = append(skippedScheduleGatedPods, p.Name)
-			}
-			return skippedScheduleGatedPods, nil
+	if sc.pgm == nil {
+		// PodGangMap has not been created yet for this PCS replica; gate-removal cannot
+		// proceed without it. Mark every gated pod as skipped and let the next reconcile
+		// retry once the PCS reconciler creates the PGM.
+		for _, p := range gatedPods {
+			skippedScheduleGatedPods = append(skippedScheduleGatedPods, p.Name)
 		}
-		return nil, groveerr.WrapError(err,
-			errCodeGetPodGang,
-			component.OperationSync,
-			fmt.Sprintf("failed to get PodGangMap for PCS replica %d", sc.pcsReplicaIndex),
-		)
+		return skippedScheduleGatedPods, nil
 	}
 
-	entryByName := lo.KeyBy(pgm.Spec.Entries, func(e grovecorev1alpha1.PodGangEntry) string { return e.Name })
+	entryByName := lo.KeyBy(sc.pgm.Spec.Entries, func(e grovecorev1alpha1.PodGangEntry) string { return e.Name })
 	pgCache := make(map[string]*groveschedulerv1alpha1.PodGang)
 	depScheduled := make(map[string]bool)
 
@@ -628,6 +559,7 @@ type syncContext struct {
 	ctx              context.Context
 	pcs              *grovecorev1alpha1.PodCliqueSet
 	pclq             *grovecorev1alpha1.PodClique
+	pgm              *grovecorev1alpha1.PodGangMap
 	isStandalonePCLQ bool
 	pcsReplicaIndex  int
 	cliqueName       string
