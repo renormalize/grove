@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
@@ -236,6 +237,7 @@ func TestCheckAndRemovePodSchedulingGates(t *testing.T) {
 				pclq:             &grovecorev1alpha1.PodClique{ObjectMeta: metav1.ObjectMeta{Name: pclqFQN, Namespace: testNamespace}},
 				pcsReplicaIndex:  testPCSReplica,
 				existingPCLQPods: gatedPods,
+				pgm:              loadPGMFromFakeClient(t, fakeClient),
 			}
 
 			skipped, err := r.checkAndRemovePodSchedulingGates(sc, logr.Discard())
@@ -293,6 +295,7 @@ func TestCheckAndRemovePodSchedulingGates_ConcurrentExecution(t *testing.T) {
 		pclq:             &grovecorev1alpha1.PodClique{ObjectMeta: metav1.ObjectMeta{Name: pclqFQN, Namespace: testNamespace}},
 		pcsReplicaIndex:  testPCSReplica,
 		existingPCLQPods: gatedPods,
+		pgm:              loadPGMFromFakeClient(t, fakeClient),
 	}
 
 	skipped, err := r.checkAndRemovePodSchedulingGates(sc, logr.Discard())
@@ -436,4 +439,51 @@ func buildTestPodClique(name string, minAvailable, scheduledReplicas int32) *gro
 		Spec:       grovecorev1alpha1.PodCliqueSpec{MinAvailable: ptr.To(minAvailable)},
 		Status:     grovecorev1alpha1.PodCliqueStatus{ScheduledReplicas: scheduledReplicas},
 	}
+}
+
+func TestGetPCSReplicaIndexFromPCLQ(t *testing.T) {
+	t.Run("extracts valid index", func(t *testing.T) {
+		pclq := &grovecorev1alpha1.PodClique{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels: map[string]string{apicommon.LabelPodCliqueSetReplicaIndex: "2"},
+			},
+		}
+		idx, err := getPCSReplicaIndexFromPCLQ(pclq)
+		require.NoError(t, err)
+		assert.Equal(t, 2, idx)
+	})
+
+	t.Run("errors when label missing", func(t *testing.T) {
+		pclq := &grovecorev1alpha1.PodClique{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-pclq", Labels: map[string]string{}},
+		}
+		_, err := getPCSReplicaIndexFromPCLQ(pclq)
+		assert.Error(t, err)
+	})
+
+	t.Run("errors when label not an integer", func(t *testing.T) {
+		pclq := &grovecorev1alpha1.PodClique{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "my-pclq",
+				Labels: map[string]string{apicommon.LabelPodCliqueSetReplicaIndex: "abc"},
+			},
+		}
+		_, err := getPCSReplicaIndexFromPCLQ(pclq)
+		assert.Error(t, err)
+	})
+}
+
+// loadPGMFromFakeClient fetches the PodGangMap for the test PCS replica from the fake client.
+// Returns nil when the PGM is not present (mirrors the production behaviour in prepareSyncFlow).
+func loadPGMFromFakeClient(t *testing.T, cl client.Client) *grovecorev1alpha1.PodGangMap {
+	t.Helper()
+	pgmName := apicommon.GeneratePodGangMapName(apicommon.ResourceNameReplica{Name: testPCSName, Replica: testPCSReplica})
+	pgm := &grovecorev1alpha1.PodGangMap{}
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: pgmName, Namespace: testNamespace}, pgm); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		require.NoError(t, err)
+	}
+	return pgm
 }
