@@ -377,25 +377,6 @@ func (r _resource) addEnvironmentVariablesToPodContainerSpecs(pclq *grovecorev1a
 	componentutils.AddEnvVarsToContainers(pclqObjPodSpec.InitContainers, pcsgEnvVars)
 }
 
-// resolvePodGangNameFromPGM walks the PodGangMap entries to find the PodGang that owns
-// the given PCSG replica index. Returns the entry name (== PodGang name) on success.
-// Returns ("", false) if no entry covers this replica index — caller should requeue
-// until the PodGangMap component reflects the new replica.
-func resolvePodGangNameFromPGM(pgm *grovecorev1alpha1.PodGangMap, pcsgConfigName string, pcsgReplicaIndex int) (string, bool) {
-	var cumulative int32
-	for _, entry := range pgm.Spec.Entries {
-		count, ok := entry.PodCliqueScalingGroups[pcsgConfigName]
-		if !ok {
-			continue
-		}
-		if int32(pcsgReplicaIndex) < cumulative+count {
-			return entry.Name, true
-		}
-		cumulative += count
-	}
-	return "", false
-}
-
 // getPCSReplicaFromPCSG extracts the PodCliqueSet replica index from PodCliqueScalingGroup labels
 func getPCSReplicaFromPCSG(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) (int, error) {
 	pcsReplicaIndex, ok := pcsg.GetLabels()[apicommon.LabelPodCliqueSetReplicaIndex]

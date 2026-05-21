@@ -64,3 +64,22 @@ func GetPodCliqueNameFromPodCliqueFQN(pclqObjectMeta metav1.ObjectMeta) (string,
 	pclqNamePrefix := fmt.Sprintf("%s-%s-", pcsName, pcsReplicaIndex)
 	return pclqObjectMeta.Name[len(pclqNamePrefix):], nil
 }
+
+// ExtractPodGangIndex parses the trailing integer index from a PodGang name. PodGang names
+// minted by Grove always end with a numeric index:
+//   - MPG / TailPG (coherent-update mints): <pcs>-<replica>-<hash>-<index>
+//   - Scaled-PG (steady-state PCSG scale-out mints): <pcs>-<replica>-<hash>-<pcsgname>-<index>
+//
+// Returns an error if the suffix is missing or non-numeric — such a name violates the naming
+// contract and must be surfaced rather than silently skipped.
+func ExtractPodGangIndex(podGangName string) (int, error) {
+	dash := strings.LastIndex(podGangName, "-")
+	if dash < 0 || dash == len(podGangName)-1 {
+		return 0, fmt.Errorf("PodGang name %q has no trailing '-<integer>' index suffix", podGangName)
+	}
+	idx, err := strconv.Atoi(podGangName[dash+1:])
+	if err != nil {
+		return 0, fmt.Errorf("trailing index suffix of PodGang name %q is not an integer: %w", podGangName, err)
+	}
+	return idx, nil
+}

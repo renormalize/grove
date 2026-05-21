@@ -519,57 +519,142 @@ Notes:
 
 #### PCSG reconciler PCLQ component flow
 
-`pcsg.Status.PodGangMapping` captures the desired state for PCSG replica→PodGang assignment maintained by the PCSG reconciler. It is the source of truth in every situation except when a coherent update iteration is in progress.
+`pcsg.Status.PodGangMapping` is `map[string]int32` — PodGang name → PCSG-replica count. It captures the desired count per PodGang. The index↔PodGang binding is **not** persisted in status; it is recovered each reconcile from live PCLQ labels (`LabelPodGang` + `LabelPodCliqueScalingGroupReplicaIndex`). PGM is consulted **only** when seeding a fresh PCSG (empty status mapping); after seeding, the live labels carry the binding.
 
-The next Scaled-PG counter is **derived on the fly** from existing keys in `pcsg.Status.PodGangMapping` matching the Scaled-PG prefix `<pcs-name>-<pcs-replica-index>-<pcshash>-<pcsgname>-` — parse trailing integer from each, take max+1. No separate counter field is stored on PCSG status; the mapping itself carries the necessary state. Format: `<pcs-name>-<pcs-replica-index>-<pcshash>-<pcsgname>-<counter>`. Each PCSG owns its own naming space (PCSG name is part of the prefix), so multiple PCSGs in the same PCS replica derive their counters independently without races.
+The flow is the source of truth in steady state. During a coherent-update iteration the desired mapping is rebuilt from PGM each reconcile.
 
-It is essential that the desired state is computed and patched into `pcsg.Status.PodGangMapping` **before** the create/delete reconciliation step runs, so that the desired state is the single source of truth for that step.
+##### Naming conventions used here
+
+- **Scaled-PG (new convention, post-upgrade steady-state mints):** `<pcsName>-<pcsReplicaIndex>-<pcsGenerationHash>-<pcsgConfigName>-<index>`. Prefix: `<pcsName>-<pcsReplicaIndex>-<pcsGenerationHash>-<pcsgConfigName>-`. Each entry holds 1 replica.
+- **Legacy SPG (pre-upgrade scaled PodGang, persists until coherent update reshapes the mapping):** `<pcsgFQN>-<index>` = `<pcsName>-<pcsReplicaIndex>-<pcsgConfigName>-<index>`. Prefix: `<pcsgFQN>-`. Each entry holds 1 replica.
+- **MPG / TailPG (coherent-update mints):** `<pcsName>-<pcsReplicaIndex>-<pcsGenerationHash>-<counter>`. Indistinguishable from one another by name; differ only by `DependsOn` on the PGM entry. Within a PCS replica, MPGs are minted first (lower counters), TailPGs last (higher counters).
+- **BPG (legacy base PodGang, holds MinAvailable replicas):** `<pcsName>-<pcsReplicaIndex>`. **Never decremented during scale-in** — decrementing it would breach PCS-level MinAvailable and cause gang termination of the PCS replica.
+
+##### Two-step reconcile
+
+The reconcile function is `reconcilePCSGReplicaDistribution(sc)`:
 
 ```
-Reconcile() {
-    if coherent update is in progress (IsCoherentUpdateInProgress(pcs)) {
-        // update pcsg.Status.PodGangMapping from ALL PGM entries (both old-hash and new-hash);
-        // sets entry name → entry.PodCliqueScalingGroups[pcsgName] for each entry that has the PCSG
-    } else {
-        // Steady state
-        if len(pcsg.Status.PodGangMapping) == 0 {
-            // initialize pcsg.Status.PodGangMapping from ALL PGM entries
-        }
-        // Update the desired state in pcsg.Status.PodGangMapping before the reconciliation step.
-        diff := pcsg.Spec.Replicas - sum of replica counts across all PodGangs in pcsg.Status.PodGangMapping
-        if diff > 0 {  // scale-out
-            // PCSG scale-out in steady state mints Scaled-PG entries (one per new replica).
-            // Each Scaled-PG name: <pcs-name>-<pcs-replica-index>-<pcshash>-<pcsgname>-<counter>
-            // Derive next counter: scan existing keys in pcsg.Status.PodGangMapping with the
-            // Scaled-PG prefix, parse trailing integer, take max+1. No separate counter field.
-            // Each entry: {newScaledPGName: 1}; add to pcsg.Status.PodGangMapping.
-        } else if diff < 0 {  // scale-in
-            // Two-tier deletion order to pick `|diff|` PCSG replica indices to remove:
-            //
-            // Tier 1 — ScaledPGs (steady-state mints, name contains <pcsgname> segment).
-            //          Sort descending by trailing-integer counter parsed from the Scaled-PG name; each holds 1 replica → decrement entry to 0.
-            // Tier 2 — MPGs and TailPGs (coherent-update mints, no <pcsgname> segment in name).
-            //          Sort descending by counter; each step decrements that entry's count by 1.
-            //          TailPGs (1 replica each) zero out first; MPGs decrement by 1 per step.
-            //
-            // Walk Tier 1 first; when exhausted, walk Tier 2 until `|diff|` is satisfied.
-            // No per-PodGang MinReplicas constraint to honor — once a PodGang is Available,
-            // its MinReplicas is set to 0 (already implemented). Breach of MinAvailable is
-            // checked at the PCS level, not at individual PodGang level.
-            // Empty entries (count = 0) are dropped by removeEmptyEntries when PGM is rewritten.
-        }
-    }
-
-    // At this point pcsg.Status.PodGangMapping holds the desired PodGang→PCSG-replica distribution.
-    // Reconcile actual PCLQs to desired:
-    currentPodGangMapping := PodGang→PCSG-replica mapping built from live (non-terminating, DeletionTimestamp == nil) PCLQs (counted by LabelPodGang on each PCLQ)
-    desiredPodGangMapping := pcsg.Status.PodGangMapping
-    // For each PodGang in desired:
-    //   delta = desired[PG] - current[PG]
-    //   delta > 0: create `delta` PCLQs labeled PG (one per PCSG replica index covered by this PG)
-    //   delta < 0: delete `|delta|` PCLQs from PG
-}
+reconcilePCSGReplicaDistribution(sc):
+    desired = computeDesiredPCSGReplicaMapping(sc)        // map[string]int32
+    patchPCSGPodGangMapping(sc, desired)                  // status patch only if changed
+    return applyPCSGPerPodGangDeltas(sc, desired)
 ```
+
+**Step 1: compute desired mapping.**
+
+```
+computeDesiredPCSGReplicaMapping(sc):
+    if IsCoherentUpdateInProgress(sc.pcs):
+        // PGM drives. Rebuild mapping from PGM counts every reconcile.
+        return buildMappingFromPodGangMap(sc)
+
+    if pcsg.Status.PodGangMapping is empty:
+        // Fresh PCSG. Seed from PGM counts (PGM was created from spec by PCS reconciler).
+        return buildMappingFromPodGangMap(sc)
+
+    desired = clone(pcsg.Status.PodGangMapping)
+    diff = pcsg.Spec.Replicas - sum(desired.values)
+
+    if diff > 0:                                          // Case 3: scale-out
+        // Mint `diff` new Scaled-PG names. Next index = max(trailing index of existing
+        // Scaled-PG entries matching scaledPGPrefix) + 1, or 0 if none exist.
+        // Each new entry: desired[newScaledPGName] = 1.
+
+    if diff < 0:                                          // Case 2: scale-in (mapping side)
+        decrementPCSGMappingForScaleIn(desired, -diff, scaledPGPrefix, legacySPGPrefix, bpgName)
+
+    return desired
+```
+
+`decrementPCSGMappingForScaleIn` is a two-tier walk that **excludes BPG entirely**:
+
+- **Tier 1 — Scaled-PGs (both new and legacy convention).** Names matching `scaledPGPrefix` OR `legacySPGPrefix`. Sorted by trailing index DESC. Each entry holds 1 replica → decrement to 0. Both new-form and legacy-form Scaled-PGs are scale-out replica carriers and drain together regardless of generation. Across a Grove upgrade, an existing PCS may carry both forms simultaneously: legacy SPGs from pre-upgrade scale-outs and new Scaled-PGs from post-upgrade scale-outs. They occupy disjoint name spaces (the hash segment is present only in the new form), so there is no collision risk.
+- **Tier 2 — MPGs and TailPGs.** Sorted by trailing index DESC. TailPGs are minted last in a coherent-update iteration (higher counters), so they appear first in the descending walk and drain ahead of MPGs. Decrement by 1 per step; an MPG with count > 1 absorbs multiple steps. BPG (`<pcsName>-<pcsReplicaIndex>`) is filtered out of both tiers.
+
+The webhook ensures `Spec.Replicas - decrement >= MinAvailable`, so the walk's budget cannot be large enough to drain into BPG/MPG counts that would breach MinAvailable. No floor guard is required inside the walk.
+
+**Step 2: apply per-PodGang deltas.**
+
+The naïve approach — sort deletions and creations into per-index lists and assign creations to deficit PodGangs by alphabetical order — silently breaks when a PCLQ is externally deleted (Case 1 below). The original index↔PodGang binding cannot be recovered from counts alone if multiple PodGangs are simultaneously in deficit.
+
+The simplification: derive the live binding from PCLQ labels. Holes are detected per-PodGang by comparing live count to desired count. Index assignment for new PCLQs draws from the unoccupied tail of `[0, Spec.Replicas)`.
+
+```
+applyPCSGPerPodGangDeltas(sc, desired):
+    // Live binding: index → PodGang, recovered from labels on non-terminating PCLQs.
+    liveIndexToPG = buildLiveIndexToPodGang(sc.existingPCLQs)
+    livePGCounts = countByPodGang(liveIndexToPG)
+
+    deletions = []int{}
+    creations = map[string]int{}                          // PodGang name → number to create
+
+    // Pass 1: per-PodGang count diff.
+    for pgName, desiredCount in desired:
+        liveCount = int(livePGCounts[pgName])
+        if liveCount > int(desiredCount):
+            // Excess: delete the highest live indices bound to this PodGang.
+            excess = liveCount - int(desiredCount)
+            indices = sorted(indicesBoundTo(liveIndexToPG, pgName), DESC)
+            deletions = append(deletions, indices[:excess]...)
+        else if liveCount < int(desiredCount):
+            creations[pgName] = int(desiredCount) - liveCount
+
+    // Pass 2: any live PodGang not in desired is fully obsolete — delete all its PCLQs.
+    for idx, pgName in liveIndexToPG:
+        if pgName not in desired:
+            deletions = append(deletions, idx)
+
+    // Free index pool: [0, Spec.Replicas) minus indices kept in live (excluding deletions).
+    kept = set of int{}
+    for idx in liveIndexToPG: kept.add(idx)
+    for idx in deletions: kept.remove(idx)
+    free = ascending list of i in [0, Spec.Replicas) where i not in kept
+
+    // Assign free indices to PodGangs needing creates. Iterate desired in alphabetical
+    // order for determinism.
+    assignments = map[int]string{}
+    cursor = 0
+    for pgName in sortedKeys(desired):
+        for k in 0..creations[pgName]-1:
+            assignments[free[cursor]] = pgName
+            cursor++
+
+    if len(deletions) > 0: deletePCSGReplicas(deletions)
+    if len(assignments) > 0: createPCSGReplicas(assignments)
+    return nil
+```
+
+`buildLiveIndexToPodGang` reads `LabelPodGang` and `LabelPodCliqueScalingGroupReplicaIndex` from each non-terminating PCLQ and returns `map[int]string`. A PCSG replica index is unique across all PodGangs (one PCLQ per PCSG-replica-per-CliqueName), so the inverse is well-formed; multiple PCLQs at the same index (one per CliqueName) all share the same `LabelPodGang`, so repeated writes to the same key are no-ops on the value. An unparseable label is a contract violation (Grove writes them) and surfaces an error, not a soft skip.
+
+##### Three cases walked through
+
+Setup: Spec=4, MinAvailable=2, mapping `{MPG-0: 2, MPG-1: 2}`, live `{0: MPG-0, 1: MPG-0, 2: MPG-1, 3: MPG-1}`.
+
+**Case 1 — Gap fill.** External delete: PCLQ at index 3.
+- `desired` unchanged.
+- `liveIndexToPG = {0: MPG-0, 1: MPG-0, 2: MPG-1}`. `livePGCounts = {MPG-0: 2, MPG-1: 1}`.
+- Pass 1: MPG-1 short by 1 → `creations[MPG-1] = 1`.
+- `free = [3]` → assign `3 → MPG-1`. Recreated PCLQ binds back to MPG-1.
+
+**Case 2 — Scale-in.** `pcsg.Spec.Replicas` 4 → 3.
+- `decrementPCSGMappingForScaleIn` walks Tier 2 (no Scaled-PGs). MPG-1 has higher trailing index than MPG-0 → MPG-1 chosen first → decrement to 1. `desired = {MPG-0: 2, MPG-1: 1}`.
+- `livePGCounts = {MPG-0: 2, MPG-1: 2}`. MPG-1 excess 1 → highest live index in MPG-1 is 3. `deletions = [3]`.
+
+**Case 3 — Scale-out.** `pcsg.Spec.Replicas` 4 → 5.
+- Mint `Scaled-xyz-sga-0`. `desired = {MPG-0: 2, MPG-1: 2, Scaled-xyz-sga-0: 1}`.
+- `creations[Scaled-xyz-sga-0] = 1`. `free = [4]` → assign `4 → Scaled-xyz-sga-0`.
+
+**Composite (Case 1 + Case 2).** Spec 4 → 3, live `{0: MPG-0, 1: MPG-0, 3: MPG-1}` (index 2 externally deleted).
+- Decrement → `desired = {MPG-0: 2, MPG-1: 1}`. `livePGCounts = {MPG-0: 2, MPG-1: 1}`.
+- Pass 1: both PodGangs OK. No deletions, no creations.
+- The PCLQ at index 2 stays gone. Live count == 3 == Spec.Replicas. Index space is `{0, 1, 3}` — non-contiguous but Grove never promised contiguity, only count.
+
+If contiguity becomes a hard requirement downstream, an explicit reindex pass can be added; for now non-contiguity is benign.
+
+##### Coherent-update mode
+
+`buildMappingFromPodGangMap(sc)` returns `map[string]int32` from PGM counts every reconcile during a coherent update. `applyPCSGPerPodGangDeltas` then reconciles live PCLQs to the new mapping using the same logic above. Pod restarts are unavoidable when an MPG shrinks and a TailPG grows — the PCSG-replica → PodGang binding **must** change to follow PGM. This is acceptable because coherent update is an explicit migration boundary gated by `InFlightPodGangs`.
 
 Notes:
 - No separate counter field on PCSG status. The next Scaled-PG counter is derived on the fly from existing keys in `pcsg.Status.PodGangMapping` matching the Scaled-PG prefix.

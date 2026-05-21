@@ -43,7 +43,7 @@ const (
 	testPCSName    = "workload1"
 	testPCSReplica = 0
 	testHash       = "abc12"
-	// PodGang names follow GeneratePodGangName format: <pcsName>-<replicaIndex>-<shortHash>-<count>.
+	// PodGang names follow GeneratePodGangName format: <pcsName>-<replicaIndex>-<pcsHash>-<count>.
 	// DependsOn determines role: nil = MPG/BPG, non-nil = TailPG/SPG.
 	pg0    = "workload1-0-abc12-0"
 	pg1    = "workload1-0-abc12-1"

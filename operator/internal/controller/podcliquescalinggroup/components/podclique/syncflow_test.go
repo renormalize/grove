@@ -30,20 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestComputePCSGReplicasToDelete(t *testing.T) {
-	t.Run("returns indices in scale-down range", func(t *testing.T) {
-		assert.Equal(t, []int{2, 3, 4}, computePCSGReplicasToDelete(5, 2))
-	})
-
-	t.Run("returns empty when nothing to delete", func(t *testing.T) {
-		assert.Empty(t, computePCSGReplicasToDelete(3, 3))
-	})
-
-	t.Run("single replica scale-down", func(t *testing.T) {
-		assert.Equal(t, []int{2}, computePCSGReplicasToDelete(3, 2))
-	})
-}
-
 func TestGetMinAvailableBreachedPCSGIndices(t *testing.T) {
 	terminationDelay := 30 * time.Second
 	now := time.Now()
