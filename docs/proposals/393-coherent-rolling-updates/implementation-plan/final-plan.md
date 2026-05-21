@@ -440,10 +440,9 @@ The PodGangMap (PGM) component has two related bugs:
 
 **Block scale-in and scale-out via validating admission webhooks while a coherent update is in progress.** The block applies to PCSG and PCLQ `Spec.Replicas` only; PCS `Spec.Replicas` (top-level replica scaling) is allowed at any time. Within steady state, redefine `PodGangMapping` on both PCLQ and PCSG status to be a **decision-driven, persistent map** of PodGang→count owned by the PCLQ pod component / PCSG PCLQ component. PGM is the source of truth during a coherent update; the PCLQ/PCSG status mappings are the source of truth in steady state.
 
-**Direction of authority by mode** (mode = `len(pcs.Status.InFlightPodGangs) > 0`):
+**Direction of authority by mode** (mode = `IsCoherentUpdateInProgress(pcs)`):
 - **Coherent update iteration in progress** (`InFlightPodGangs` non-empty): PGM drives. PCLQ/PCSG reconcilers overwrite their status mappings from PGM each reconcile. PGM is used to orchestrate the migration — entries are recomputed iteratively (one MPG per reconcile, then TailPGs).
 - **Steady state and RollingRecreate** (`InFlightPodGangs` empty): PCLQ/PCSG status mappings drive. PGM component follows: per-entry `PodCliques[cliqueName]` and `PodCliqueScalingGroups[pcsgName]` are derived from the mappings. PGM is kept up-to-date but **not recomputed structurally** — existing PodGang entries are preserved. RollingRecreate updates pods in place via individual PCLQ/PCSG resource deletion; PGM entries don't move.
-- **Inter-iteration window during a coherent update** (`InFlightPodGangs` briefly empty between iterations): the steady-state branch runs in PCLQ/PCSG reconcilers. Scale-in/out is webhook-blocked during the broader update, so the spec-diff is zero — effectively a no-op until the orchestrator repopulates `InFlightPodGangs`.
 
 **`pcs.Status.PodGangCounter` ownership and naming conventions**:
 
@@ -482,11 +481,11 @@ The mapping persists across reconciles. It is **not** derived from live pods —
 
 #### PCLQ reconciler pod component flow (standalone PCLQs only)
 
-`pclq.Status.PodGangMapping` captures the desired state for pod→PodGang assignment maintained by the PCLQ reconciler. It is the source of truth in every situation except when a coherent update iteration is in progress (i.e. `len(pcs.Status.InFlightPodGangs) > 0`).
+`pclq.Status.PodGangMapping` captures the desired state for pod→PodGang assignment maintained by the PCLQ reconciler. It is the source of truth in every situation except when a coherent update iteration is in progress (i.e. `IsCoherentUpdateInProgress(pcs)`).
 
 ```
 Reconcile() {
-    if coherent update is in progress (len(pcs.Status.InFlightPodGangs) > 0) {
+    if coherent update is in progress (IsCoherentUpdateInProgress(pcs)) {
         // update pclq.Status.PodGangMapping from ALL PGM entries (both old-hash and new-hash);
         // sets entry name → entry.PodCliques[cliqueName] for each entry that has the clique
     } else {
@@ -516,7 +515,6 @@ Reconcile() {
 
 Notes:
 - No function names are prescribed; the comments express intent.
-- During the brief inter-iteration window of a coherent update where `InFlightPodGangs` is temporarily empty, the steady-state branch runs but spec-diff is zero (webhook blocks scaling during update), so it's effectively a no-op until `InFlightPodGangs` is repopulated.
 - Pod crashes don't perturb status: live count drops below desired for the affected PG → reconciler creates a replacement pod under the same PG.
 
 #### PCSG reconciler PCLQ component flow
@@ -529,7 +527,7 @@ It is essential that the desired state is computed and patched into `pcsg.Status
 
 ```
 Reconcile() {
-    if coherent update is in progress (len(pcs.Status.InFlightPodGangs) > 0) {
+    if coherent update is in progress (IsCoherentUpdateInProgress(pcs)) {
         // update pcsg.Status.PodGangMapping from ALL PGM entries (both old-hash and new-hash);
         // sets entry name → entry.PodCliqueScalingGroups[pcsgName] for each entry that has the PCSG
     } else {
@@ -829,7 +827,7 @@ Run `make generate` + `make generate-api-docs`.
 
 Replace the standalone-PCLQ portion of `runSyncFlow` with the flow described in the Design section. Key changes:
 - Read `pclq.Status.PodGangMapping`; seed from PGM if empty.
-- If coherent update is in progress (`len(pcs.Status.InFlightPodGangs) > 0`): overwrite status mapping from PGM entries; patch.
+- If coherent update is in progress (`IsCoherentUpdateInProgress(pcs)`): overwrite status mapping from PGM entries; patch.
 - In steady state, compute spec-diff and update status: scale-out increments the highest-index PodGang in the mapping; scale-in runs the deletion sorter and decrements per chosen pod's `LabelPodGang`. Patch.
 - Build `currentPodGangMapping` from live (non-terminating, `DeletionTimestamp == nil`) pods counted by `LabelPodGang`.
 - For each PodGang in the desired mapping, compute `delta = desired[PG] - current[PG]` and create/delete pods accordingly.
@@ -851,7 +849,7 @@ Helpers (new):
 
 Replace the steady-state portion of `runSyncFlow` with the flow described in the Design section. Key changes:
 - Read `pcsg.Status.PodGangMapping`; seed from PGM if empty.
-- If coherent update is in progress (`len(pcs.Status.InFlightPodGangs) > 0`): overwrite status mapping from PGM entries; patch.
+- If coherent update is in progress (`IsCoherentUpdateInProgress(pcs)`): overwrite status mapping from PGM entries; patch.
 - In steady state, compute spec-diff and update status:
   - **Scale-out**: derive next Scaled-PG counter on the fly (max trailing integer over keys with the Scaled-PG prefix in `pcsg.Status.PodGangMapping`, +1). Mint new Scaled-PG names with format `<pcs>-<replica>-<hash>-<pcsgname>-<counter>`. Add `{newName: 1}` to mapping per new replica.
   - **Scale-in**: walk Tier 1 (ScaledPGs by trailing-integer counter parsed from name, descending) then Tier 2 (MPGs+TailPGs by their counter descending), decrementing entries until `|diff|` is satisfied.
