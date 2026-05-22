@@ -94,8 +94,8 @@ func TestBuildEntryFromPodGang(t *testing.T) {
 		assert.Equal(t, "my-pcs-0", entry.Name)
 		assert.Equal(t, "old-hash", entry.PodCliqueSetGenerationHash)
 		assert.Equal(t, int32(5), entry.PodCliques["frontend"])
-		assert.Equal(t, int32(1), entry.PodCliqueScalingGroups["prefill"])
-		assert.Equal(t, int32(1), entry.PodCliqueScalingGroups["decode"])
+		assert.Equal(t, []int32{0}, entry.PCSGReplicaIndices["prefill"])
+		assert.Equal(t, []int32{0}, entry.PCSGReplicaIndices["decode"])
 	})
 
 	t.Run("SPG with single PCSG replica", func(t *testing.T) {
@@ -113,7 +113,7 @@ func TestBuildEntryFromPodGang(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "my-pcs-0-spg-1", entry.Name)
 		assert.Empty(t, entry.PodCliques)
-		assert.Equal(t, int32(1), entry.PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, []int32{1}, entry.PCSGReplicaIndices["prefill"])
 	})
 
 	t.Run("standalone PCLQ only PodGang", func(t *testing.T) {
@@ -129,7 +129,7 @@ func TestBuildEntryFromPodGang(t *testing.T) {
 		entry, err := buildEntryFromPodGang(pcs, "new-hash", pg)
 		require.NoError(t, err)
 		assert.Equal(t, int32(2), entry.PodCliques["frontend"])
-		assert.Empty(t, entry.PodCliqueScalingGroups)
+		assert.Empty(t, entry.PCSGReplicaIndices)
 	})
 
 	t.Run("unknown PodGroup name returns error", func(t *testing.T) {
@@ -283,17 +283,17 @@ func TestComputeCoherentUpdateEntries_PodGangMapNotFound(t *testing.T) {
 	assert.Equal(t, oldHash, entries[0].PodCliqueSetGenerationHash)
 	assert.Equal(t, int32(3), entries[0].PodCliques["frontend"])
 
-	// Old SPG (unchanged)
+	// Old SPG (unchanged) — retains prefill[1].
 	assert.Equal(t, "my-pcs-0-spg-1", entries[1].Name)
 	assert.Equal(t, oldHash, entries[1].PodCliqueSetGenerationHash)
-	assert.Equal(t, int32(1), entries[1].PodCliqueScalingGroups["prefill"])
+	assert.Equal(t, []int32{1}, entries[1].PCSGReplicaIndices["prefill"])
 
-	// New MVU entry
+	// New MVU entry — absorbs prefill[0] from BPG.
 	expectedName := fmt.Sprintf("my-pcs-0-%s-0", newHash)
 	assert.Equal(t, expectedName, entries[2].Name)
 	assert.Equal(t, newHash, entries[2].PodCliqueSetGenerationHash)
 	assert.Equal(t, int32(2), entries[2].PodCliques["frontend"])
-	assert.Equal(t, int32(1), entries[2].PodCliqueScalingGroups["prefill"])
+	assert.Equal(t, []int32{0}, entries[2].PCSGReplicaIndices["prefill"])
 }
 
 // TestComputeCoherentUpdateEntries_SubsequentReconcile tests the path where PodGangMap
@@ -330,7 +330,8 @@ func TestComputeCoherentUpdateEntries_SubsequentReconcile(t *testing.T) {
 	pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{UpdateStartedAt: metav1.Now()}
 	pcs.Status.PodGangCounter = map[string]int32{"0": 1}
 
-	// Existing PodGangMap from prior iteration.
+	// Existing PodGangMap from prior iteration. After the first MVU iteration the BPG holds
+	// prefill[1] (prefill[0] was absorbed into the first MPG). The first MPG entry holds prefill[0].
 	pgm := &grovecorev1alpha1.PodGangMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-pcs-0", Namespace: "default",
@@ -342,8 +343,8 @@ func TestComputeCoherentUpdateEntries_SubsequentReconcile(t *testing.T) {
 		Spec: grovecorev1alpha1.PodGangMapSpec{
 			PodCliqueSetReplicaIndex: 0,
 			Entries: []grovecorev1alpha1.PodGangEntry{
-				{Name: "bpg-0", PodCliqueSetGenerationHash: oldHash, PodCliques: map[string]int32{"frontend": 3}, PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-				{Name: "my-pcs-0-newhash12345-0", PodCliqueSetGenerationHash: newHash, PodCliques: map[string]int32{"frontend": 2}, PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
+				{Name: "bpg-0", PodCliqueSetGenerationHash: oldHash, PodCliques: map[string]int32{"frontend": 3}, PCSGReplicaIndices: map[string][]int32{"prefill": {1}}},
+				{Name: "my-pcs-0-newhash12345-0", PodCliqueSetGenerationHash: newHash, PodCliques: map[string]int32{"frontend": 2}, PCSGReplicaIndices: map[string][]int32{"prefill": {0}}},
 			},
 		},
 	}
@@ -381,18 +382,18 @@ func TestComputeCoherentUpdateEntries_SubsequentReconcile(t *testing.T) {
 	// Result: 0 old + 1 existing new + 1 new this iteration = 2 entries.
 	require.Len(t, entries, 2)
 
-	// First: existing new entry from prior iteration (preserved).
+	// First: existing new entry from prior iteration (preserved, prefill[0]).
 	assert.Equal(t, "my-pcs-0-newhash12345-0", entries[0].Name)
 	assert.Equal(t, newHash, entries[0].PodCliqueSetGenerationHash)
 	assert.Equal(t, int32(2), entries[0].PodCliques["frontend"])
-	assert.Equal(t, int32(1), entries[0].PodCliqueScalingGroups["prefill"])
+	assert.Equal(t, []int32{0}, entries[0].PCSGReplicaIndices["prefill"])
 
-	// Second: new MVU from this iteration with absorbed frontend pod.
+	// Second: new MVU from this iteration with absorbed frontend pod and prefill[1].
 	expectedName := fmt.Sprintf("my-pcs-0-%s-1", newHash)
 	assert.Equal(t, expectedName, entries[1].Name)
 	assert.Equal(t, newHash, entries[1].PodCliqueSetGenerationHash)
 	assert.Equal(t, int32(3), entries[1].PodCliques["frontend"])
-	assert.Equal(t, int32(1), entries[1].PodCliqueScalingGroups["prefill"])
+	assert.Equal(t, []int32{1}, entries[1].PCSGReplicaIndices["prefill"])
 }
 
 // TestBuildResource_EntriesAreSorted verifies that buildResource sorts PodGangMap entries

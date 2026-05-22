@@ -170,9 +170,13 @@ func computeNextMVUPodGang(
 		oldEntries = deductPCLQPodsFromOldEntries(oldEntries, pclqName, needed)
 	}
 
-	// Deduct PCSG replicas from old entries (lowest index first).
+	// Pop PCSG replica indices from old entries (lowest index first). The returned slice is
+	// the set of indices absorbed into this MVU PodGang.
+	nextMVUPCSGIndices := make(map[string][]int32, len(template.pcsgs))
 	for pcsgName, needed := range template.pcsgs {
-		oldEntries = deductPCSGReplicasFromOldEntries(oldEntries, pcsgName, needed)
+		var taken []int32
+		oldEntries, taken = popPCSGIndicesFromOldEntries(oldEntries, pcsgName, needed)
+		nextMVUPCSGIndices[pcsgName] = taken
 	}
 
 	// Check if another full MVU can be formed after this deduction.
@@ -190,13 +194,13 @@ func computeNextMVUPodGang(
 
 	// Remove old entries that have no pods and no replicas left.
 	updatedOldEntries = removeEmptyEntries(oldEntries)
-	newEntries = []grovecorev1alpha1.PodGangEntry{entryBuilder(nextMVUStandalonePCLQs, template.pcsgs, nil)}
+	newEntries = []grovecorev1alpha1.PodGangEntry{entryBuilder(nextMVUStandalonePCLQs, nextMVUPCSGIndices, nil)}
 	return
 }
 
 // computeTailPodGangs creates one Tail-PG per remaining PCSG replica in the old entries.
-// Deducts replicas from old entries (lowest-indexed first). Each Tail-PG depends on the
-// supplied MVU PodGang names.
+// Pops indices from old entries (lowest-indexed first). Each Tail-PG depends on the
+// supplied MVU PodGang names and carries exactly one PCSG replica index.
 func computeTailPodGangs(
 	template mvuTemplate,
 	oldEntries []grovecorev1alpha1.PodGangEntry,
@@ -206,8 +210,9 @@ func computeTailPodGangs(
 	for pcsgName := range template.pcsgs {
 		remaining := sumPCSGReplicasInEntries(oldEntries, pcsgName)
 		for range remaining {
-			newEntries = append(newEntries, entryBuilder(nil, map[string]int32{pcsgName: 1}, mpgNames))
-			oldEntries = deductPCSGReplicasFromOldEntries(oldEntries, pcsgName, 1)
+			var taken []int32
+			oldEntries, taken = popPCSGIndicesFromOldEntries(oldEntries, pcsgName, 1)
+			newEntries = append(newEntries, entryBuilder(nil, map[string][]int32{pcsgName: taken}, mpgNames))
 		}
 	}
 
@@ -228,10 +233,11 @@ func sumPCLQPodsInEntries(entries []grovecorev1alpha1.PodGangEntry, pclqName str
 }
 
 // sumPCSGReplicasInEntries sums the replica count for a given PCSG across all entries.
+// Computed as the total length of index slices since each index is exactly one replica.
 func sumPCSGReplicasInEntries(entries []grovecorev1alpha1.PodGangEntry, pcsgName string) int32 {
 	var total int32
 	for _, entry := range entries {
-		total += entry.PodCliqueScalingGroups[pcsgName]
+		total += int32(len(entry.PCSGReplicaIndices[pcsgName]))
 	}
 	return total
 }
@@ -254,25 +260,43 @@ func deductPCLQPodsFromOldEntries(entries []grovecorev1alpha1.PodGangEntry, pclq
 	return entries
 }
 
-// deductPCSGReplicasFromOldEntries deducts the specified number of replicas for a PCSG from
-// old entries, starting from the lowest-indexed entry.
-func deductPCSGReplicasFromOldEntries(entries []grovecorev1alpha1.PodGangEntry, pcsgName string, toDeduct int32) []grovecorev1alpha1.PodGangEntry {
+// popPCSGIndicesFromOldEntries pops the smallest `count` PCSG replica indices for the given
+// PCSG across `entries`, walking entries in slice order. It mutates each entry's index slice
+// in place, removing the smallest indices first within an entry. The two-level traversal —
+// entries in order, smallest index within each — preserves the existing "lowest first"
+// deterministic deduction order.
+//
+// Returns:
+//   - mutatedEntries: the same `entries` slice with the popped indices removed from each
+//     entry's PCSGReplicaIndices[pcsgName]. Returned for call-site clarity; the input slice
+//     is mutated in place.
+//   - takenIndices: the union of indices popped across all entries, sorted ascending. Length
+//     is min(count, total available). The caller assigns this to a new entry's
+//     PCSGReplicaIndices[pcsgName] so the popped replicas land in their new home.
+func popPCSGIndicesFromOldEntries(entries []grovecorev1alpha1.PodGangEntry, pcsgName string, count int32) (mutatedEntries []grovecorev1alpha1.PodGangEntry, takenIndices []int32) {
+	takenIndices = make([]int32, 0, count)
 	for i := range entries {
-		available := entries[i].PodCliqueScalingGroups[pcsgName]
-		if available <= 0 {
-			continue
-		}
-		take := min(available, toDeduct)
-		entries[i].PodCliqueScalingGroups[pcsgName] -= take
-		toDeduct -= take
-		if toDeduct == 0 {
+		if count == 0 {
 			break
 		}
+		available := entries[i].PCSGReplicaIndices[pcsgName]
+		if len(available) == 0 {
+			continue
+		}
+		sorted := append([]int32(nil), available...)
+		slices.Sort(sorted)
+		take := int32(min(int(count), len(sorted)))
+		takenIndices = append(takenIndices, sorted[:take]...)
+		entries[i].PCSGReplicaIndices[pcsgName] = sorted[take:]
+		count -= take
 	}
-	return entries
+	slices.Sort(takenIndices)
+	mutatedEntries = entries
+	return
 }
 
-// removeEmptyEntries removes entries where all PodClique and PodCliqueScalingGroup counts are zero.
+// removeEmptyEntries removes entries where all PodClique pod counts are zero and all
+// PCSG index slices are empty.
 func removeEmptyEntries(entries []grovecorev1alpha1.PodGangEntry) []grovecorev1alpha1.PodGangEntry {
 	return slices.DeleteFunc(entries, func(entry grovecorev1alpha1.PodGangEntry) bool {
 		for _, count := range entry.PodCliques {
@@ -280,8 +304,8 @@ func removeEmptyEntries(entries []grovecorev1alpha1.PodGangEntry) []grovecorev1a
 				return false
 			}
 		}
-		for _, count := range entry.PodCliqueScalingGroups {
-			if count > 0 {
+		for _, indices := range entry.PCSGReplicaIndices {
+			if len(indices) > 0 {
 				return false
 			}
 		}

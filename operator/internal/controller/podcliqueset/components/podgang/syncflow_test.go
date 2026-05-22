@@ -79,8 +79,8 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 			}
 		}
 
-		// BPG entry: each PCSG contributes MinAvailable replicas.
-		bpgPCSGs := make(map[string]int32)
+		// BPG entry: each PCSG contributes index slice [0, MinAvailable).
+		bpgPCSGIndices := make(map[string][]int32)
 		pcsgForReplica := lo.Filter(existingPCSGs, func(pcsg grovecorev1alpha1.PodCliqueScalingGroup, _ int) bool {
 			return pcsg.Labels[apicommon.LabelPodCliqueSetReplicaIndex] == fmt.Sprintf("%d", replicaIndex) ||
 				// fallback: check by naming convention when label is missing
@@ -94,7 +94,11 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 			for _, pcsg := range pcsgForReplica {
 				if pcsg.Spec.MinAvailable != nil {
 					pcsgName := apicommon.ExtractScalingGroupNameFromPCSGFQN(pcsg.Name, apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex})
-					bpgPCSGs[pcsgName] = *pcsg.Spec.MinAvailable
+					indices := make([]int32, 0, *pcsg.Spec.MinAvailable)
+					for i := int32(0); i < *pcsg.Spec.MinAvailable; i++ {
+						indices = append(indices, i)
+					}
+					bpgPCSGIndices[pcsgName] = indices
 				}
 			}
 			bpgName := apicommon.GenerateBasePodGangName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex})
@@ -102,9 +106,9 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 				Name:                       bpgName,
 				PodCliqueSetGenerationHash: generationHash,
 				PodCliques:                 bpgPodCliques,
-				PodCliqueScalingGroups:     bpgPCSGs,
+				PCSGReplicaIndices:         bpgPCSGIndices,
 			}}
-			// SPG entries: one per PCSG replica beyond MinAvailable.
+			// SPG entries: one per PCSG replica beyond MinAvailable, holding a single replica index.
 			for _, pcsg := range pcsgForReplica {
 				if pcsg.Spec.MinAvailable == nil {
 					continue
@@ -116,7 +120,7 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 					entries = append(entries, grovecorev1alpha1.PodGangEntry{
 						Name:                       spgName,
 						PodCliqueSetGenerationHash: generationHash,
-						PodCliqueScalingGroups:     map[string]int32{pcsgName: 1},
+						PCSGReplicaIndices:         map[string][]int32{pcsgName: {minAvail + scaledIdx}},
 					})
 				}
 			}
@@ -124,7 +128,11 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 			// No PCSG objects yet — derive from template config.
 			for _, cfg := range pcs.Spec.Template.PodCliqueScalingGroupConfigs {
 				if cfg.MinAvailable != nil {
-					bpgPCSGs[cfg.Name] = *cfg.MinAvailable
+					indices := make([]int32, 0, *cfg.MinAvailable)
+					for i := int32(0); i < *cfg.MinAvailable; i++ {
+						indices = append(indices, i)
+					}
+					bpgPCSGIndices[cfg.Name] = indices
 				}
 			}
 			bpgName := apicommon.GenerateBasePodGangName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex})
@@ -132,9 +140,9 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 				Name:                       bpgName,
 				PodCliqueSetGenerationHash: generationHash,
 				PodCliques:                 bpgPodCliques,
-				PodCliqueScalingGroups:     bpgPCSGs,
+				PCSGReplicaIndices:         bpgPCSGIndices,
 			}}
-			// SPG entries from template.
+			// SPG entries from template, holding one replica index each above MinAvailable.
 			for _, cfg := range pcs.Spec.Template.PodCliqueScalingGroupConfigs {
 				pcsgFQN := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: pcs.Name, Replica: replicaIndex}, cfg.Name)
 				if cfg.Replicas == nil || cfg.MinAvailable == nil {
@@ -146,7 +154,7 @@ func buildTestPodGangMaps(pcs *grovecorev1alpha1.PodCliqueSet, existingPCSGs []g
 					entries = append(entries, grovecorev1alpha1.PodGangEntry{
 						Name:                       spgName,
 						PodCliqueSetGenerationHash: generationHash,
-						PodCliqueScalingGroups:     map[string]int32{cfg.Name: 1},
+						PCSGReplicaIndices:         map[string][]int32{cfg.Name: {minAvail + scaledIdx}},
 					})
 				}
 			}

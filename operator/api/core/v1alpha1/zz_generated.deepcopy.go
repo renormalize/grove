@@ -574,9 +574,17 @@ func (in *PodCliqueScalingGroupStatus) DeepCopyInto(out *PodCliqueScalingGroupSt
 	}
 	if in.PodGangMapping != nil {
 		in, out := &in.PodGangMapping, &out.PodGangMapping
-		*out = make(map[string]int32, len(*in))
+		*out = make(map[string][]int32, len(*in))
 		for key, val := range *in {
-			(*out)[key] = val
+			var outVal []int32
+			if val == nil {
+				(*out)[key] = nil
+			} else {
+				in, out := &val, &outVal
+				*out = make([]int32, len(*in))
+				copy(*out, *in)
+			}
+			(*out)[key] = outVal
 		}
 	}
 	return
@@ -1079,11 +1087,19 @@ func (in *PodGangEntry) DeepCopyInto(out *PodGangEntry) {
 			(*out)[key] = val
 		}
 	}
-	if in.PodCliqueScalingGroups != nil {
-		in, out := &in.PodCliqueScalingGroups, &out.PodCliqueScalingGroups
-		*out = make(map[string]int32, len(*in))
+	if in.PCSGReplicaIndices != nil {
+		in, out := &in.PCSGReplicaIndices, &out.PCSGReplicaIndices
+		*out = make(map[string][]int32, len(*in))
 		for key, val := range *in {
-			(*out)[key] = val
+			var outVal []int32
+			if val == nil {
+				(*out)[key] = nil
+			} else {
+				in, out := &val, &outVal
+				*out = make([]int32, len(*in))
+				copy(*out, *in)
+			}
+			(*out)[key] = outVal
 		}
 	}
 	if in.DependsOn != nil {

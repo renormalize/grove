@@ -20,14 +20,11 @@ import (
 	"sort"
 	"testing"
 
-	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
-	testutils "github.com/ai-dynamo/grove/operator/test/utils"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 )
 
@@ -69,59 +66,59 @@ func TestScaledPodGangNamePrefix(t *testing.T) {
 func TestNextScaledPodGangIndex(t *testing.T) {
 	tests := []struct {
 		name    string
-		mapping map[string]int32
+		mapping map[string][]int32
 		expect  int
 		wantErr bool
 	}{
 		{
 			name:    "empty mapping returns 0",
-			mapping: map[string]int32{},
+			mapping: map[string][]int32{},
 			expect:  0,
 		},
 		{
 			name: "no Scaled-PG entries returns 0",
-			mapping: map[string]int32{
-				tcsMPG0: 2,
-				tcsMPG1: 2,
+			mapping: map[string][]int32{
+				tcsMPG0: {0, 1},
+				tcsMPG1: {2, 3},
 			},
 			expect: 0,
 		},
 		{
 			name: "single Scaled-PG returns next index",
-			mapping: map[string]int32{
-				tcsMPG0:      2,
-				tcsScaledPG0: 1,
+			mapping: map[string][]int32{
+				tcsMPG0:      {0, 1},
+				tcsScaledPG0: {2},
 			},
 			expect: 1,
 		},
 		{
 			name: "multiple Scaled-PGs returns max + 1",
-			mapping: map[string]int32{
-				tcsScaledPG0: 1,
-				tcsScaledPG1: 1,
+			mapping: map[string][]int32{
+				tcsScaledPG0: {0},
+				tcsScaledPG1: {1},
 			},
 			expect: 2,
 		},
 		{
 			name: "ignores legacy SPG entries (they don't share the new prefix)",
-			mapping: map[string]int32{
-				tcsLegacySPG0: 1,
-				tcsLegacySPG1: 1,
+			mapping: map[string][]int32{
+				tcsLegacySPG0: {0},
+				tcsLegacySPG1: {1},
 			},
 			expect: 0,
 		},
 		{
 			name: "ignores non-matching MPG/TailPG entries",
-			mapping: map[string]int32{
-				tcsTailPG2:   1,
-				tcsScaledPG0: 1,
+			mapping: map[string][]int32{
+				tcsTailPG2:   {0},
+				tcsScaledPG0: {1},
 			},
 			expect: 1,
 		},
 		{
 			name: "errors on unparseable Scaled-PG name",
-			mapping: map[string]int32{
-				tcsScaledPGPrefix + "notanumber": 1,
+			mapping: map[string][]int32{
+				tcsScaledPGPrefix + "notanumber": {0},
 			},
 			wantErr: true,
 		},
@@ -143,36 +140,36 @@ func TestNextScaledPodGangIndex(t *testing.T) {
 func TestGenerateScaledPodGangNames(t *testing.T) {
 	tests := []struct {
 		name           string
-		currentMapping map[string]int32
+		currentMapping map[string][]int32
 		count          int
 		expectNames    []string
 	}{
 		{
 			name:           "first mint starts at 0",
-			currentMapping: map[string]int32{},
+			currentMapping: map[string][]int32{},
 			count:          2,
 			expectNames:    []string{tcsScaledPG0, tcsScaledPG1},
 		},
 		{
 			name: "subsequent mint continues from max+1",
-			currentMapping: map[string]int32{
-				tcsScaledPG0: 1,
+			currentMapping: map[string][]int32{
+				tcsScaledPG0: {0},
 			},
 			count:       1,
 			expectNames: []string{tcsScaledPG1},
 		},
 		{
 			name: "ignores legacy SPGs when computing next index",
-			currentMapping: map[string]int32{
-				tcsLegacySPG0: 1,
-				tcsLegacySPG1: 1,
+			currentMapping: map[string][]int32{
+				tcsLegacySPG0: {0},
+				tcsLegacySPG1: {1},
 			},
 			count:       1,
 			expectNames: []string{tcsScaledPG0},
 		},
 		{
 			name:           "count zero returns empty slice",
-			currentMapping: map[string]int32{},
+			currentMapping: map[string][]int32{},
 			count:          0,
 			expectNames:    []string{},
 		},
@@ -193,18 +190,18 @@ func TestGenerateScaledPodGangNames(t *testing.T) {
 func TestPartitionPodGangNamesByTier(t *testing.T) {
 	tests := []struct {
 		name                 string
-		mapping              map[string]int32
+		mapping              map[string][]int32
 		expectTierLegacySPG  []string
 		expectTierNewScaled  []string
 		expectTierMPGTail    []string
 	}{
 		{
 			name: "BPG excluded; new Scaled-PGs in tierNewScaled; MPGs/TailPGs in tierMPGTail",
-			mapping: map[string]int32{
-				tcsBPGName:   2,
-				tcsMPG0:      2,
-				tcsTailPG2:   1,
-				tcsScaledPG0: 1,
+			mapping: map[string][]int32{
+				tcsBPGName:   {0, 1},
+				tcsMPG0:      {2, 3},
+				tcsTailPG2:   {4},
+				tcsScaledPG0: {5},
 			},
 			expectTierLegacySPG: nil,
 			expectTierNewScaled: []string{tcsScaledPG0},
@@ -212,11 +209,11 @@ func TestPartitionPodGangNamesByTier(t *testing.T) {
 		},
 		{
 			name: "legacy SPGs and new Scaled-PGs partition into their respective tiers",
-			mapping: map[string]int32{
-				tcsBPGName:    2,
-				tcsLegacySPG0: 1,
-				tcsLegacySPG1: 1,
-				tcsScaledPG0:  1,
+			mapping: map[string][]int32{
+				tcsBPGName:    {0, 1},
+				tcsLegacySPG0: {2},
+				tcsLegacySPG1: {3},
+				tcsScaledPG0:  {4},
 			},
 			expectTierLegacySPG: []string{tcsLegacySPG0, tcsLegacySPG1},
 			expectTierNewScaled: []string{tcsScaledPG0},
@@ -224,7 +221,7 @@ func TestPartitionPodGangNamesByTier(t *testing.T) {
 		},
 		{
 			name:                "empty mapping returns empty tiers",
-			mapping:             map[string]int32{},
+			mapping:             map[string][]int32{},
 			expectTierLegacySPG: nil,
 			expectTierNewScaled: nil,
 			expectTierMPGTail:   nil,
@@ -266,258 +263,103 @@ func TestSortDescByPodGangIndex(t *testing.T) {
 
 func TestDecrementPCSGMappingForScaleIn(t *testing.T) {
 	t.Run("count=0 is a no-op", func(t *testing.T) {
-		mapping := map[string]int32{tcsScaledPG0: 1}
+		mapping := map[string][]int32{tcsScaledPG0: {0}}
 		require.NoError(t, decrementPCSGMappingForScaleIn(mapping, 0, tcsScaledPGPrefix, tcsLegacySPGPrefix, tcsBPGName))
-		assert.Equal(t, map[string]int32{tcsScaledPG0: 1}, mapping)
+		assert.Equal(t, map[string][]int32{tcsScaledPG0: {0}}, mapping)
 	})
 
 	t.Run("tier 1 (legacy SPG) drained before tier 2 (new Scaled-PG)", func(t *testing.T) {
 		// Mixed mapping post-Grove-upgrade: budget=1 should drain the highest-counter legacy SPG first.
-		mapping := map[string]int32{
-			tcsLegacySPG0: 1,
-			tcsLegacySPG1: 1,
-			tcsScaledPG0:  1,
+		mapping := map[string][]int32{
+			tcsLegacySPG0: {1},
+			tcsLegacySPG1: {2},
+			tcsScaledPG0:  {3},
 		}
 		require.NoError(t, decrementPCSGMappingForScaleIn(mapping, 1, tcsScaledPGPrefix, tcsLegacySPGPrefix, tcsBPGName))
 		// Highest-counter legacy SPG (LegacySPG1) drained; LegacySPG0 and ScaledPG0 untouched.
-		assert.Equal(t, int32(0), mapping[tcsLegacySPG1])
-		assert.Equal(t, int32(1), mapping[tcsLegacySPG0])
-		assert.Equal(t, int32(1), mapping[tcsScaledPG0])
+		assert.Empty(t, mapping[tcsLegacySPG1])
+		assert.Equal(t, []int32{1}, mapping[tcsLegacySPG0])
+		assert.Equal(t, []int32{3}, mapping[tcsScaledPG0])
 	})
 
 	t.Run("tier 1 exhausted then tier 2 — Scaled-PGs by counter desc", func(t *testing.T) {
-		mapping := map[string]int32{
-			tcsLegacySPG0: 1,
-			tcsScaledPG0:  1,
-			tcsScaledPG1:  1,
+		mapping := map[string][]int32{
+			tcsLegacySPG0: {1},
+			tcsScaledPG0:  {2},
+			tcsScaledPG1:  {3},
 		}
 		// Need 2: drain LegacySPG0, then highest-counter Scaled-PG (ScaledPG1).
 		require.NoError(t, decrementPCSGMappingForScaleIn(mapping, 2, tcsScaledPGPrefix, tcsLegacySPGPrefix, tcsBPGName))
-		assert.Equal(t, int32(0), mapping[tcsLegacySPG0])
-		assert.Equal(t, int32(0), mapping[tcsScaledPG1])
-		assert.Equal(t, int32(1), mapping[tcsScaledPG0])
+		assert.Empty(t, mapping[tcsLegacySPG0])
+		assert.Empty(t, mapping[tcsScaledPG1])
+		assert.Equal(t, []int32{2}, mapping[tcsScaledPG0])
 	})
 
 	t.Run("tier 2 only — Scaled-PGs drained highest counter first", func(t *testing.T) {
-		mapping := map[string]int32{
-			tcsMPG0:      2,
-			tcsScaledPG0: 1,
-			tcsScaledPG1: 1,
+		mapping := map[string][]int32{
+			tcsMPG0:      {0, 1},
+			tcsScaledPG0: {2},
+			tcsScaledPG1: {3},
 		}
 		require.NoError(t, decrementPCSGMappingForScaleIn(mapping, 1, tcsScaledPGPrefix, tcsLegacySPGPrefix, tcsBPGName))
-		assert.Equal(t, int32(0), mapping[tcsScaledPG1])
-		assert.Equal(t, int32(1), mapping[tcsScaledPG0])
-		assert.Equal(t, int32(2), mapping[tcsMPG0])
+		assert.Empty(t, mapping[tcsScaledPG1])
+		assert.Equal(t, []int32{2}, mapping[tcsScaledPG0])
+		assert.Equal(t, []int32{0, 1}, mapping[tcsMPG0])
 	})
 
 	t.Run("tiers 1 and 2 exhausted then tier 3 — TailPG before MPG (higher counter wins)", func(t *testing.T) {
-		mapping := map[string]int32{
-			tcsMPG0:       2,
-			tcsMPG1:       2,
-			tcsTailPG2:    1,
-			tcsScaledPG0:  1,
-			tcsLegacySPG0: 1,
+		mapping := map[string][]int32{
+			tcsMPG0:       {0, 1},
+			tcsMPG1:       {2, 3},
+			tcsTailPG2:    {4},
+			tcsScaledPG0:  {5},
+			tcsLegacySPG0: {6},
 		}
 		// Need 3: drain LegacySPG0 (tier 1), drain ScaledPG0 (tier 2), drain TailPG2 (tier 3 highest).
 		require.NoError(t, decrementPCSGMappingForScaleIn(mapping, 3, tcsScaledPGPrefix, tcsLegacySPGPrefix, tcsBPGName))
-		assert.Equal(t, int32(0), mapping[tcsLegacySPG0])
-		assert.Equal(t, int32(0), mapping[tcsScaledPG0])
-		assert.Equal(t, int32(0), mapping[tcsTailPG2])
-		assert.Equal(t, int32(2), mapping[tcsMPG0])
-		assert.Equal(t, int32(2), mapping[tcsMPG1])
+		assert.Empty(t, mapping[tcsLegacySPG0])
+		assert.Empty(t, mapping[tcsScaledPG0])
+		assert.Empty(t, mapping[tcsTailPG2])
+		assert.Equal(t, []int32{0, 1}, mapping[tcsMPG0])
+		assert.Equal(t, []int32{2, 3}, mapping[tcsMPG1])
 	})
 
-	t.Run("MPG with count > 1 absorbs multiple decrements", func(t *testing.T) {
-		mapping := map[string]int32{
-			tcsMPG0: 2,
-			tcsMPG1: 3,
+	t.Run("MPG with multiple indices absorbs multiple pops", func(t *testing.T) {
+		mapping := map[string][]int32{
+			tcsMPG0: {0, 1},
+			tcsMPG1: {2, 3, 4},
 		}
-		// Tier 3 only. MPG1 has higher counter → decrement it twice to 1.
+		// Tier 3 only. MPG1 has higher counter → pop its highest index twice (4, then 3).
 		require.NoError(t, decrementPCSGMappingForScaleIn(mapping, 2, tcsScaledPGPrefix, tcsLegacySPGPrefix, tcsBPGName))
-		assert.Equal(t, int32(2), mapping[tcsMPG0])
-		assert.Equal(t, int32(1), mapping[tcsMPG1])
+		assert.Equal(t, []int32{0, 1}, mapping[tcsMPG0])
+		assert.Equal(t, []int32{2}, mapping[tcsMPG1])
 	})
 
 	t.Run("BPG never decremented even when budget exhausts every other tier", func(t *testing.T) {
-		mapping := map[string]int32{
-			tcsBPGName:    2,
-			tcsLegacySPG0: 1,
+		mapping := map[string][]int32{
+			tcsBPGName:    {0, 1},
+			tcsLegacySPG0: {2},
 		}
-		// Budget=1: tier 1 has LegacySPG0; that drains. BPG must remain at 2.
+		// Budget=1: tier 1 has LegacySPG0; that drains. BPG must remain at [0,1].
 		require.NoError(t, decrementPCSGMappingForScaleIn(mapping, 1, tcsScaledPGPrefix, tcsLegacySPGPrefix, tcsBPGName))
-		assert.Equal(t, int32(2), mapping[tcsBPGName])
-		assert.Equal(t, int32(0), mapping[tcsLegacySPG0])
+		assert.Equal(t, []int32{0, 1}, mapping[tcsBPGName])
+		assert.Empty(t, mapping[tcsLegacySPG0])
 	})
 
 	t.Run("returns error when tier 1 has unparseable name", func(t *testing.T) {
-		mapping := map[string]int32{
-			tcsLegacySPGPrefix + "bogus": 1,
+		mapping := map[string][]int32{
+			tcsLegacySPGPrefix + "bogus": {0},
 		}
 		err := decrementPCSGMappingForScaleIn(mapping, 1, tcsScaledPGPrefix, tcsLegacySPGPrefix, tcsBPGName)
 		require.Error(t, err)
 	})
 
 	t.Run("returns error when tier 2 has unparseable name", func(t *testing.T) {
-		mapping := map[string]int32{
-			tcsScaledPGPrefix + "bogus": 1,
+		mapping := map[string][]int32{
+			tcsScaledPGPrefix + "bogus": {0},
 		}
 		err := decrementPCSGMappingForScaleIn(mapping, 1, tcsScaledPGPrefix, tcsLegacySPGPrefix, tcsBPGName)
 		require.Error(t, err)
-	})
-}
-
-func TestBuildLiveIndexToPodGang(t *testing.T) {
-	pclqWith := func(name, podGang, idx string) grovecorev1alpha1.PodClique {
-		return *testutils.NewPCSGPodCliqueBuilder(name, "default", tcsPCSName, tcsPCSGFQN, tcsPCSReplica, 0).
-			WithLabels(map[string]string{
-				apicommon.LabelPodGang:                           podGang,
-				apicommon.LabelPodCliqueScalingGroupReplicaIndex: idx,
-			}).Build()
-	}
-
-	t.Run("happy path — multiple PCLQs at multiple indices", func(t *testing.T) {
-		pclqs := []grovecorev1alpha1.PodClique{
-			pclqWith("simple1-0-sga-0-pca", tcsMPG0, "0"),
-			pclqWith("simple1-0-sga-1-pca", tcsMPG0, "1"),
-			pclqWith("simple1-0-sga-2-pca", tcsMPG1, "2"),
-		}
-		got, err := buildLiveIndexToPodGang(pclqs)
-		require.NoError(t, err)
-		assert.Equal(t, map[int]string{0: tcsMPG0, 1: tcsMPG0, 2: tcsMPG1}, got)
-	})
-
-	t.Run("multiple PCLQs at same index (one per CliqueName) collapse to one entry", func(t *testing.T) {
-		// Index 0 with two CliqueNames — both share the same LabelPodGang.
-		pclqs := []grovecorev1alpha1.PodClique{
-			pclqWith("simple1-0-sga-0-pca", tcsMPG0, "0"),
-			pclqWith("simple1-0-sga-0-pcb", tcsMPG0, "0"),
-		}
-		got, err := buildLiveIndexToPodGang(pclqs)
-		require.NoError(t, err)
-		assert.Equal(t, map[int]string{0: tcsMPG0}, got)
-	})
-
-	t.Run("terminating PCLQs are skipped", func(t *testing.T) {
-		now := metav1.Now()
-		terminating := pclqWith("simple1-0-sga-0-pca", tcsMPG0, "0")
-		terminating.DeletionTimestamp = &now
-		terminating.Finalizers = []string{"grove.io/test-finalizer"}
-		live := pclqWith("simple1-0-sga-1-pca", tcsMPG0, "1")
-		got, err := buildLiveIndexToPodGang([]grovecorev1alpha1.PodClique{terminating, live})
-		require.NoError(t, err)
-		assert.Equal(t, map[int]string{1: tcsMPG0}, got)
-	})
-
-	t.Run("missing LabelPodGang surfaces an error", func(t *testing.T) {
-		pclq := pclqWith("simple1-0-sga-0-pca", tcsMPG0, "0")
-		delete(pclq.Labels, apicommon.LabelPodGang)
-		_, err := buildLiveIndexToPodGang([]grovecorev1alpha1.PodClique{pclq})
-		require.Error(t, err)
-	})
-
-	t.Run("unparseable replica-index label surfaces an error", func(t *testing.T) {
-		pclq := pclqWith("simple1-0-sga-0-pca", tcsMPG0, "not-a-number")
-		_, err := buildLiveIndexToPodGang([]grovecorev1alpha1.PodClique{pclq})
-		require.Error(t, err)
-	})
-}
-
-func TestComputePCSGCountDeltas(t *testing.T) {
-	t.Run("steady state — no deltas", func(t *testing.T) {
-		desired := map[string]int32{tcsMPG0: 2, tcsMPG1: 2}
-		live := map[int]string{0: tcsMPG0, 1: tcsMPG0, 2: tcsMPG1, 3: tcsMPG1}
-		dels, creates := computePCSGCountDeltas(desired, live)
-		assert.Empty(t, dels)
-		assert.Empty(t, creates)
-	})
-
-	t.Run("Case 1 — gap fill: live short by 1 in MPG1", func(t *testing.T) {
-		desired := map[string]int32{tcsMPG0: 2, tcsMPG1: 2}
-		live := map[int]string{0: tcsMPG0, 1: tcsMPG0, 2: tcsMPG1} // index 3 missing
-		dels, creates := computePCSGCountDeltas(desired, live)
-		assert.Empty(t, dels)
-		assert.Equal(t, map[string]int{tcsMPG1: 1}, creates)
-	})
-
-	t.Run("Case 2 — scale-in: excess in MPG1 deletes highest-index PCLQ in MPG1", func(t *testing.T) {
-		desired := map[string]int32{tcsMPG0: 2, tcsMPG1: 1}
-		live := map[int]string{0: tcsMPG0, 1: tcsMPG0, 2: tcsMPG1, 3: tcsMPG1}
-		dels, creates := computePCSGCountDeltas(desired, live)
-		assert.Equal(t, []int{3}, dels)
-		assert.Empty(t, creates)
-	})
-
-	t.Run("Case 3 — scale-out: new Scaled-PG not yet in live", func(t *testing.T) {
-		desired := map[string]int32{tcsMPG0: 2, tcsMPG1: 2, tcsScaledPG0: 1}
-		live := map[int]string{0: tcsMPG0, 1: tcsMPG0, 2: tcsMPG1, 3: tcsMPG1}
-		dels, creates := computePCSGCountDeltas(desired, live)
-		assert.Empty(t, dels)
-		assert.Equal(t, map[string]int{tcsScaledPG0: 1}, creates)
-	})
-
-	t.Run("obsolete PodGang — live PCLQs whose PodGang is gone from desired are deleted", func(t *testing.T) {
-		desired := map[string]int32{tcsMPG0: 2}
-		live := map[int]string{0: tcsMPG0, 1: tcsMPG0, 2: tcsMPG1, 3: tcsMPG1}
-		dels, creates := computePCSGCountDeltas(desired, live)
-		// Indices 2 and 3 in obsolete MPG1 should be deleted.
-		sort.Ints(dels)
-		assert.Equal(t, []int{2, 3}, dels)
-		assert.Empty(t, creates)
-	})
-
-	t.Run("excess deletion picks the highest indices, not arbitrary", func(t *testing.T) {
-		// MPG0 holds {0, 5, 9}; desired count is 1. Should delete 9 and 5, keep 0.
-		desired := map[string]int32{tcsMPG0: 1}
-		live := map[int]string{0: tcsMPG0, 5: tcsMPG0, 9: tcsMPG0}
-		dels, _ := computePCSGCountDeltas(desired, live)
-		sort.Ints(dels)
-		assert.Equal(t, []int{5, 9}, dels)
-	})
-}
-
-func TestAssignFreeIndicesToPodGangs(t *testing.T) {
-	t.Run("no creations returns nil", func(t *testing.T) {
-		got := assignFreeIndicesToPodGangs(nil, map[string]int32{}, sets.New[int](), 4)
-		assert.Nil(t, got)
-	})
-
-	t.Run("draws lowest free indices in alphabetical PodGang order", func(t *testing.T) {
-		// kept = {0,1,2,3} (live); spec=5 → free=[4]. Only ScaledPG0 needs 1 → assign 4.
-		creations := map[string]int{tcsScaledPG0: 1}
-		desired := map[string]int32{tcsMPG0: 2, tcsMPG1: 2, tcsScaledPG0: 1}
-		kept := sets.New[int](0, 1, 2, 3)
-		got := assignFreeIndicesToPodGangs(creations, desired, kept, 5)
-		assert.Equal(t, map[int]string{4: tcsScaledPG0}, got)
-	})
-
-	t.Run("Case 1 gap fill — fills the hole, not the tail", func(t *testing.T) {
-		// Live held {0,1,2}; index 3 was deleted externally. Spec=4 → free=[3].
-		// MPG1 short by 1.
-		creations := map[string]int{tcsMPG1: 1}
-		desired := map[string]int32{tcsMPG0: 2, tcsMPG1: 2}
-		kept := sets.New[int](0, 1, 2)
-		got := assignFreeIndicesToPodGangs(creations, desired, kept, 4)
-		assert.Equal(t, map[int]string{3: tcsMPG1}, got)
-	})
-
-	t.Run("multiple creations across multiple PodGangs — alphabetical order, ascending indices", func(t *testing.T) {
-		// Spec=4, kept={}. PodGangs visited alphabetically:
-		// MPG0 (counter=0), MPG1 (counter=1), ScaledPG0. MPG0 wants 2 → indices 0,1; MPG1 wants 2 → indices 2,3.
-		creations := map[string]int{tcsMPG0: 2, tcsMPG1: 2}
-		desired := map[string]int32{tcsMPG0: 2, tcsMPG1: 2}
-		kept := sets.New[int]()
-		got := assignFreeIndicesToPodGangs(creations, desired, kept, 4)
-		expect := map[int]string{0: tcsMPG0, 1: tcsMPG0, 2: tcsMPG1, 3: tcsMPG1}
-		assert.Equal(t, expect, got)
-	})
-
-	t.Run("exhausts free pool early — partial assignment returned", func(t *testing.T) {
-		// Spec=2, kept={0}. Free=[1]. Creations want 2; only index 1 is available.
-		creations := map[string]int{tcsMPG0: 2}
-		desired := map[string]int32{tcsMPG0: 2}
-		kept := sets.New[int](0)
-		got := assignFreeIndicesToPodGangs(creations, desired, kept, 2)
-		assert.Equal(t, map[int]string{1: tcsMPG0}, got)
 	})
 }
 
@@ -527,7 +369,7 @@ func TestAssignFreeIndicesToPodGangs(t *testing.T) {
 // definition in IsCoherentUpdateInProgress).
 func newSyncContextForMappingTests(
 	pcsgSpecReplicas int32,
-	pcsgStatusMapping map[string]int32,
+	pcsgStatusMapping map[string][]int32,
 	pgmEntries []grovecorev1alpha1.PodGangEntry,
 	coherentUpdateInProgress bool,
 ) *syncContext {
@@ -564,21 +406,21 @@ func TestBuildMappingFromPodGangMap(t *testing.T) {
 
 	t.Run("entries referencing this PCSG are picked up; others ignored", func(t *testing.T) {
 		sc := newSyncContextForMappingTests(0, nil, []grovecorev1alpha1.PodGangEntry{
-			{Name: tcsMPG0, PodCliqueScalingGroups: map[string]int32{tcsPCSGConfigName: 2}},
-			{Name: "irrelevant-pg", PodCliqueScalingGroups: map[string]int32{"other-pcsg": 5}},
-			{Name: tcsMPG1, PodCliqueScalingGroups: map[string]int32{tcsPCSGConfigName: 3}},
+			{Name: tcsMPG0, PCSGReplicaIndices: map[string][]int32{tcsPCSGConfigName: {0, 1}}},
+			{Name: "irrelevant-pg", PCSGReplicaIndices: map[string][]int32{"other-pcsg": {0, 1, 2, 3, 4}}},
+			{Name: tcsMPG1, PCSGReplicaIndices: map[string][]int32{tcsPCSGConfigName: {2, 3, 4}}},
 		}, false)
 		got := r.buildMappingFromPodGangMap(sc)
-		assert.Equal(t, map[string]int32{tcsMPG0: 2, tcsMPG1: 3}, got)
+		assert.Equal(t, map[string][]int32{tcsMPG0: {0, 1}, tcsMPG1: {2, 3, 4}}, got)
 	})
 
-	t.Run("zero-count entries are skipped", func(t *testing.T) {
+	t.Run("entries with empty index slices are skipped", func(t *testing.T) {
 		sc := newSyncContextForMappingTests(0, nil, []grovecorev1alpha1.PodGangEntry{
-			{Name: tcsMPG0, PodCliqueScalingGroups: map[string]int32{tcsPCSGConfigName: 2}},
-			{Name: tcsMPG1, PodCliqueScalingGroups: map[string]int32{tcsPCSGConfigName: 0}},
+			{Name: tcsMPG0, PCSGReplicaIndices: map[string][]int32{tcsPCSGConfigName: {0, 1}}},
+			{Name: tcsMPG1, PCSGReplicaIndices: map[string][]int32{tcsPCSGConfigName: {}}},
 		}, false)
 		got := r.buildMappingFromPodGangMap(sc)
-		assert.Equal(t, map[string]int32{tcsMPG0: 2}, got)
+		assert.Equal(t, map[string][]int32{tcsMPG0: {0, 1}}, got)
 	})
 
 	t.Run("empty PGM yields empty mapping", func(t *testing.T) {
@@ -595,16 +437,16 @@ func TestComputeDesiredPCSGReplicaMapping(t *testing.T) {
 		// Status mapping says one thing; PGM says another. Coherent-update flow should pick PGM.
 		sc := newSyncContextForMappingTests(
 			4,
-			map[string]int32{tcsMPG0: 100, tcsMPG1: 100}, // bogus status, should be ignored
+			map[string][]int32{tcsMPG0: {99}, tcsMPG1: {98}}, // bogus status, should be ignored
 			[]grovecorev1alpha1.PodGangEntry{
-				{Name: tcsMPG0, PodCliqueScalingGroups: map[string]int32{tcsPCSGConfigName: 2}},
-				{Name: tcsMPG1, PodCliqueScalingGroups: map[string]int32{tcsPCSGConfigName: 2}},
+				{Name: tcsMPG0, PCSGReplicaIndices: map[string][]int32{tcsPCSGConfigName: {0, 1}}},
+				{Name: tcsMPG1, PCSGReplicaIndices: map[string][]int32{tcsPCSGConfigName: {2, 3}}},
 			},
 			true, // coherent update in progress
 		)
 		got, err := r.computeDesiredPCSGReplicaMapping(sc)
 		require.NoError(t, err)
-		assert.Equal(t, map[string]int32{tcsMPG0: 2, tcsMPG1: 2}, got)
+		assert.Equal(t, map[string][]int32{tcsMPG0: {0, 1}, tcsMPG1: {2, 3}}, got)
 	})
 
 	t.Run("fresh PCSG (empty status) — seeds from PGM", func(t *testing.T) {
@@ -612,118 +454,118 @@ func TestComputeDesiredPCSGReplicaMapping(t *testing.T) {
 			4,
 			nil,
 			[]grovecorev1alpha1.PodGangEntry{
-				{Name: tcsMPG0, PodCliqueScalingGroups: map[string]int32{tcsPCSGConfigName: 2}},
-				{Name: tcsMPG1, PodCliqueScalingGroups: map[string]int32{tcsPCSGConfigName: 2}},
+				{Name: tcsMPG0, PCSGReplicaIndices: map[string][]int32{tcsPCSGConfigName: {0, 1}}},
+				{Name: tcsMPG1, PCSGReplicaIndices: map[string][]int32{tcsPCSGConfigName: {2, 3}}},
 			},
 			false,
 		)
 		got, err := r.computeDesiredPCSGReplicaMapping(sc)
 		require.NoError(t, err)
-		assert.Equal(t, map[string]int32{tcsMPG0: 2, tcsMPG1: 2}, got)
+		assert.Equal(t, map[string][]int32{tcsMPG0: {0, 1}, tcsMPG1: {2, 3}}, got)
 	})
 
 	t.Run("steady state, no drift — returns clone of status mapping", func(t *testing.T) {
-		statusMapping := map[string]int32{tcsMPG0: 2, tcsMPG1: 2}
+		statusMapping := map[string][]int32{tcsMPG0: {0, 1}, tcsMPG1: {2, 3}}
 		sc := newSyncContextForMappingTests(4, statusMapping, nil, false)
 		got, err := r.computeDesiredPCSGReplicaMapping(sc)
 		require.NoError(t, err)
 		assert.Equal(t, statusMapping, got)
 		// Mutating the result should not affect the input — verifies clone.
-		got[tcsMPG0] = 99
-		assert.Equal(t, int32(2), statusMapping[tcsMPG0])
+		got[tcsMPG0] = append(got[tcsMPG0], 99)
+		assert.Equal(t, []int32{0, 1}, statusMapping[tcsMPG0])
 	})
 
-	t.Run("scale-out — appends new Scaled-PG entries with count 1 each", func(t *testing.T) {
-		// Spec=6, status sums to 4 → diff=+2 → mint 2 new Scaled-PGs.
-		sc := newSyncContextForMappingTests(6, map[string]int32{tcsMPG0: 2, tcsMPG1: 2}, nil, false)
+	t.Run("scale-out — mints one Scaled-PG per new replica with the smallest free indices", func(t *testing.T) {
+		// Spec=6, status sums to 4 (MPG0:[0,1], MPG1:[2,3]) → diff=+2 → mint 2 new Scaled-PGs
+		// claiming the smallest free indices (4 and 5).
+		sc := newSyncContextForMappingTests(6, map[string][]int32{tcsMPG0: {0, 1}, tcsMPG1: {2, 3}}, nil, false)
 		got, err := r.computeDesiredPCSGReplicaMapping(sc)
 		require.NoError(t, err)
-		assert.Equal(t, int32(2), got[tcsMPG0])
-		assert.Equal(t, int32(2), got[tcsMPG1])
-		assert.Equal(t, int32(1), got[tcsScaledPG0])
-		assert.Equal(t, int32(1), got[tcsScaledPG1])
+		assert.Equal(t, []int32{0, 1}, got[tcsMPG0])
+		assert.Equal(t, []int32{2, 3}, got[tcsMPG1])
+		assert.Equal(t, []int32{4}, got[tcsScaledPG0])
+		assert.Equal(t, []int32{5}, got[tcsScaledPG1])
 		assert.Len(t, got, 4)
 	})
 
 	t.Run("scale-out preserves Scaled-PG counter continuity from existing entries", func(t *testing.T) {
-		// Status already has ScaledPG0; one more mint should produce ScaledPG1 (counter 1).
+		// Status already has ScaledPG0 holding index 4; one more mint should produce ScaledPG1
+		// (next name index) holding free replica index 5.
 		sc := newSyncContextForMappingTests(
 			6,
-			map[string]int32{tcsMPG0: 2, tcsMPG1: 2, tcsScaledPG0: 1},
+			map[string][]int32{tcsMPG0: {0, 1}, tcsMPG1: {2, 3}, tcsScaledPG0: {4}},
 			nil,
 			false,
 		)
 		got, err := r.computeDesiredPCSGReplicaMapping(sc)
 		require.NoError(t, err)
-		assert.Equal(t, int32(1), got[tcsScaledPG0])
-		assert.Equal(t, int32(1), got[tcsScaledPG1])
+		assert.Equal(t, []int32{4}, got[tcsScaledPG0])
+		assert.Equal(t, []int32{5}, got[tcsScaledPG1])
 	})
 
-	t.Run("scale-in — decrements via Tier 1/2/3 walk; BPG never touched; zeroed entries pruned", func(t *testing.T) {
-		// Status sums to 6 (BPG=2, MPG0=2, LegacySPG0=1, ScaledPG0=1); spec=4 → diff=-2.
-		// Tier 1 drains LegacySPG0; Tier 2 drains ScaledPG0. Both zeroed entries are pruned
-		// from the output so subsequent scale-out can reuse the freed Scaled-PG indices.
-		// MPG0 and BPG retain their counts.
+	t.Run("scale-in — pops via Tier 1/2/3 walk; BPG never touched; emptied entries pruned", func(t *testing.T) {
+		// Status sums to 6 (BPG=[0,1], MPG0=[2,3], LegacySPG0=[4], ScaledPG0=[5]); spec=4 → diff=-2.
+		// Tier 1 drains LegacySPG0; Tier 2 drains ScaledPG0. Both empty entries are pruned
+		// from the output so subsequent scale-out can reuse the freed replica indices.
+		// MPG0 and BPG retain their indices.
 		sc := newSyncContextForMappingTests(
 			4,
-			map[string]int32{
-				tcsBPGName:    2,
-				tcsMPG0:       2,
-				tcsLegacySPG0: 1,
-				tcsScaledPG0:  1,
+			map[string][]int32{
+				tcsBPGName:    {0, 1},
+				tcsMPG0:       {2, 3},
+				tcsLegacySPG0: {4},
+				tcsScaledPG0:  {5},
 			},
 			nil,
 			false,
 		)
 		got, err := r.computeDesiredPCSGReplicaMapping(sc)
 		require.NoError(t, err)
-		assert.Equal(t, map[string]int32{tcsBPGName: 2, tcsMPG0: 2}, got)
+		assert.Equal(t, map[string][]int32{tcsBPGName: {0, 1}, tcsMPG0: {2, 3}}, got)
 	})
 
-	t.Run("scale-out after scale-in reuses the freed Scaled-PG index", func(t *testing.T) {
+	t.Run("scale-out after scale-in reuses the freed replica index", func(t *testing.T) {
 		// Reproduces the bug fixed by the prune step:
-		//   1. Initial scale-out minted ScaledPG-0.
-		//   2. Scale-in decremented ScaledPG-0 to 0; without pruning, the key would survive.
-		//   3. Scale-out again mints what should be ScaledPG-0 (reusing the freed index),
-		//      not ScaledPG-1 (skipping it).
-		// The test simulates the post-step-2 state (already pruned) and confirms the next
-		// scale-out picks index 0.
+		//   1. Initial scale-out minted ScaledPG-0 holding replica index 0.
+		//   2. Scale-in popped that index; without pruning, the empty ScaledPG-0 entry would survive.
+		//   3. Scale-out again should reuse replica index 0 under a fresh ScaledPG-0 mint.
+		// The test simulates the post-step-2 state and confirms the next scale-out picks index 0.
 		sc := newSyncContextForMappingTests(
 			1,
-			// Status mapping after scale-in: only the anchor MPG remains; ScaledPG-0 was
-			// pruned. Spec.Replicas grows from 0 to 1 → diff=+1.
-			map[string]int32{tcsMPG0: 0},
+			// Status mapping after scale-in: only the anchor MPG remains with an empty slice;
+			// previous Scaled-PG is gone. Spec.Replicas grows from 0 to 1 → diff=+1.
+			map[string][]int32{tcsMPG0: {}},
 			nil,
 			false,
 		)
 		got, err := r.computeDesiredPCSGReplicaMapping(sc)
 		require.NoError(t, err)
-		// MPG0 was zero-count and gets pruned. The next Scaled-PG mint reuses index 0.
-		assert.Equal(t, map[string]int32{tcsScaledPG0: 1}, got)
+		// MPG0 was empty and gets pruned. The next Scaled-PG mint reuses replica index 0.
+		assert.Equal(t, map[string][]int32{tcsScaledPG0: {0}}, got)
 	})
 
-	t.Run("orphan zero-count entries (e.g. from earlier controller version) are pruned", func(t *testing.T) {
-		// A pre-existing zero-count entry sitting in PCSG.Status.PodGangMapping must be removed
+	t.Run("orphan empty-slice entries are pruned", func(t *testing.T) {
+		// A pre-existing empty-slice entry sitting in PCSG.Status.PodGangMapping must be removed
 		// even when no scale-in/scale-out runs in this reconcile. Otherwise nextScaledPodGangIndex
 		// would treat the orphan's trailing index as occupied.
 		sc := newSyncContextForMappingTests(
 			2,
-			map[string]int32{tcsMPG0: 2, tcsScaledPG1: 0}, // ScaledPG1 is the orphan
+			map[string][]int32{tcsMPG0: {0, 1}, tcsScaledPG1: {}}, // ScaledPG1 is the orphan
 			nil,
 			false,
 		)
 		got, err := r.computeDesiredPCSGReplicaMapping(sc)
 		require.NoError(t, err)
-		assert.Equal(t, map[string]int32{tcsMPG0: 2}, got)
+		assert.Equal(t, map[string][]int32{tcsMPG0: {0, 1}}, got)
 	})
 
 	t.Run("scale-in does not mutate the input status mapping (clone)", func(t *testing.T) {
-		statusMapping := map[string]int32{tcsMPG0: 2, tcsMPG1: 2}
+		statusMapping := map[string][]int32{tcsMPG0: {0, 1}, tcsMPG1: {2, 3}}
 		sc := newSyncContextForMappingTests(3, statusMapping, nil, false)
 		_, err := r.computeDesiredPCSGReplicaMapping(sc)
 		require.NoError(t, err)
 		// Original status mapping unchanged.
-		assert.Equal(t, int32(2), statusMapping[tcsMPG0])
-		assert.Equal(t, int32(2), statusMapping[tcsMPG1])
+		assert.Equal(t, []int32{0, 1}, statusMapping[tcsMPG0])
+		assert.Equal(t, []int32{2, 3}, statusMapping[tcsMPG1])
 	})
 }

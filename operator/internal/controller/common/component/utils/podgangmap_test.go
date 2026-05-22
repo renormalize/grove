@@ -28,8 +28,8 @@ func TestGetPodGangMapEntriesByGenerationHash(t *testing.T) {
 	entries := []grovecorev1alpha1.PodGangEntry{
 		{Name: "pg-0", PodCliqueSetGenerationHash: "hash-old", PodCliques: map[string]int32{"f": 3}},
 		{Name: "pg-1", PodCliqueSetGenerationHash: "hash-new", PodCliques: map[string]int32{"f": 2}},
-		{Name: "pg-2", PodCliqueSetGenerationHash: "hash-old", PodCliqueScalingGroups: map[string]int32{"pcsg-0": 1}},
-		{Name: "pg-3", PodCliqueSetGenerationHash: "hash-new", PodCliqueScalingGroups: map[string]int32{"pcsg-0": 1}},
+		{Name: "pg-2", PodCliqueSetGenerationHash: "hash-old", PCSGReplicaIndices: map[string][]int32{"pcsg-0": {0}}},
+		{Name: "pg-3", PodCliqueSetGenerationHash: "hash-new", PCSGReplicaIndices: map[string][]int32{"pcsg-0": {0}}},
 	}
 
 	t.Run("returns entries matching old hash", func(t *testing.T) {
@@ -61,7 +61,7 @@ func TestGetPodGangMapEntriesForPCLQ(t *testing.T) {
 	entries := []grovecorev1alpha1.PodGangEntry{
 		{Name: "pg-0", PodCliques: map[string]int32{"pcs-0-frontend": 3, "pcs-0-backend": 2}},
 		{Name: "pg-1", PodCliques: map[string]int32{"pcs-0-frontend": 2}},
-		{Name: "pg-2", PodCliqueScalingGroups: map[string]int32{"pcs-0-decode": 1}},
+		{Name: "pg-2", PCSGReplicaIndices: map[string][]int32{"pcs-0-decode": {0}}},
 		{Name: "pg-3", PodCliques: map[string]int32{"pcs-0-backend": 1}},
 	}
 
@@ -97,9 +97,9 @@ func TestGetPodGangMapEntriesForPCLQ(t *testing.T) {
 
 func TestGetPodGangMapEntriesForPCSG(t *testing.T) {
 	entries := []grovecorev1alpha1.PodGangEntry{
-		{Name: "pg-0", PodCliques: map[string]int32{"pcs-0-frontend": 3}, PodCliqueScalingGroups: map[string]int32{"pcs-0-prefill": 2, "pcs-0-decode": 1}},
-		{Name: "pg-1", PodCliqueScalingGroups: map[string]int32{"pcs-0-prefill": 1}},
-		{Name: "pg-2", PodCliqueScalingGroups: map[string]int32{"pcs-0-decode": 1}},
+		{Name: "pg-0", PodCliques: map[string]int32{"pcs-0-frontend": 3}, PCSGReplicaIndices: map[string][]int32{"pcs-0-prefill": {0, 1}, "pcs-0-decode": {0}}},
+		{Name: "pg-1", PCSGReplicaIndices: map[string][]int32{"pcs-0-prefill": {2}}},
+		{Name: "pg-2", PCSGReplicaIndices: map[string][]int32{"pcs-0-decode": {1}}},
 		{Name: "pg-3", PodCliques: map[string]int32{"pcs-0-frontend": 2}},
 	}
 

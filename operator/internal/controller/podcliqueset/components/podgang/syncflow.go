@@ -175,30 +175,25 @@ func (r _resource) computeExpectedPodGangs(ctx context.Context, sc *syncContext)
 		if err != nil {
 			return err
 		}
-		pcsgReplicaOffset := make(map[string]int32)
 		for _, entry := range pgm.Spec.Entries {
-			pgi, err := r.buildPodGangInfoFromEntry(sc, replicaIndex, entry, pcsgReplicaOffset)
+			pgi, err := r.buildPodGangInfoFromEntry(sc, replicaIndex, entry)
 			if err != nil {
 				return fmt.Errorf("failed to build PodGang info from entry %q in PodGangMap %s: %w", entry.Name, pgmName, err)
 			}
 			sc.expectedPodGangs = append(sc.expectedPodGangs, pgi)
-			for pcsgName, replicas := range entry.PodCliqueScalingGroups {
-				pcsgReplicaOffset[pcsgName] += replicas
-			}
 		}
 	}
 	return nil
 }
 
 // buildPodGangInfoFromEntry translates a PodGangEntry into a podGangInfo.
-// pcsgReplicaOffset carries the cumulative PCSG replica counts from preceding entries,
-// allowing the correct PCLQ FQNs and TopologyConstraintGroupConfig names to be derived
-// without scanning the full entry list.
-func (r _resource) buildPodGangInfoFromEntry(sc *syncContext, pcsReplicaIndex int, pgEntry grovecorev1alpha1.PodGangEntry, pcsgReplicaOffset map[string]int32) (*podGangInfo, error) {
+// The entry's PCSGReplicaIndices give the PCSG replica indices owned by this PodGang
+// directly; no positional accumulator across entries is needed.
+func (r _resource) buildPodGangInfoFromEntry(sc *syncContext, pcsReplicaIndex int, pgEntry grovecorev1alpha1.PodGangEntry) (*podGangInfo, error) {
 	pg := &podGangInfo{fqn: pgEntry.Name, pcsReplicaIndex: pcsReplicaIndex}
 
 	pg.pclqs = buildStandalonePCLQInfos(sc, pcsReplicaIndex, pgEntry)
-	pcsgPCLQs, pcsgConstraints, err := buildPCLQInfosAndTopologyConstraintsForPCSGs(sc, pcsReplicaIndex, pgEntry, pcsgReplicaOffset)
+	pcsgPCLQs, pcsgConstraints, err := buildPCLQInfosAndTopologyConstraintsForPCSGs(sc, pcsReplicaIndex, pgEntry)
 	if err != nil {
 		return nil, err
 	}
@@ -232,19 +227,18 @@ func buildStandalonePCLQInfos(sc *syncContext, pcsReplicaIndex int, pgEntry grov
 
 // buildPCLQInfosAndTopologyConstraintsForPCSGs builds pclqInfo entries and TopologyConstraintGroupConfigs for
 // PCSG-owned PodCliques referenced in the entry. Iterates template PCSG configs in order to keep the result deterministic.
-func buildPCLQInfosAndTopologyConstraintsForPCSGs(sc *syncContext, pcsReplicaIndex int, pgEntry grovecorev1alpha1.PodGangEntry, pcsgReplicaOffset map[string]int32) ([]pclqInfo, []groveschedulerv1alpha1.TopologyConstraintGroupConfig, error) {
+func buildPCLQInfosAndTopologyConstraintsForPCSGs(sc *syncContext, pcsReplicaIndex int, pgEntry grovecorev1alpha1.PodGangEntry) ([]pclqInfo, []groveschedulerv1alpha1.TopologyConstraintGroupConfig, error) {
 	var (
 		pclqs           []pclqInfo
 		pcsgConstraints []groveschedulerv1alpha1.TopologyConstraintGroupConfig
 	)
 	for _, pcsgConfig := range sc.pcs.Spec.Template.PodCliqueScalingGroupConfigs {
 		pcsgFQN := apicommon.GeneratePodCliqueScalingGroupName(apicommon.ResourceNameReplica{Name: sc.pcs.Name, Replica: pcsReplicaIndex}, pcsgConfig.Name)
-		desiredPCSGReplicas, ok := pgEntry.PodCliqueScalingGroups[pcsgConfig.Name]
-		if !ok {
+		replicaIndices, ok := pgEntry.PCSGReplicaIndices[pcsgConfig.Name]
+		if !ok || len(replicaIndices) == 0 {
 			continue
 		}
-		startIndex := pcsgReplicaOffset[pcsgConfig.Name]
-		for replicaIdx := startIndex; replicaIdx < startIndex+desiredPCSGReplicas; replicaIdx++ {
+		for _, replicaIdx := range replicaIndices {
 			pclqFQNs := make([]string, 0, len(pcsgConfig.CliqueNames))
 			for _, cliqueName := range pcsgConfig.CliqueNames {
 				pclqTemplateSpec := componentutils.FindPodCliqueTemplateSpecByName(sc.pcs, cliqueName)

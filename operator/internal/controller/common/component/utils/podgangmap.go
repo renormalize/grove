@@ -66,7 +66,7 @@ func GetPodGangMapEntriesForPCLQ(entries []grovecorev1alpha1.PodGangEntry, pclqN
 func GetPodGangMapEntriesForPCSG(entries []grovecorev1alpha1.PodGangEntry, pcsgName string) []grovecorev1alpha1.PodGangEntry {
 	result := make([]grovecorev1alpha1.PodGangEntry, 0, len(entries))
 	for _, entry := range entries {
-		if _, ok := entry.PodCliqueScalingGroups[pcsgName]; ok {
+		if _, ok := entry.PCSGReplicaIndices[pcsgName]; ok {
 			result = append(result, entry)
 		}
 	}

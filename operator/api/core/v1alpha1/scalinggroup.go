@@ -110,8 +110,8 @@ type PodCliqueScalingGroupStatus struct {
 	// In steady state (post update) this field becomes a source of truth. Any scale-in and scale-out of the PodCliqueScalingGroup
 	// is reflected in the desired state. PodGangMap resource will be synced from the desired state as captured in this
 	// field during steady state.
-	// Key is the PodGang name; value is the number of PCSG replicas associated to that PodGang.
-	PodGangMapping map[string]int32 `json:"podGangMapping,omitempty"`
+	// Key is the PodGang name; value is the list of PCSG replica indices associated to that PodGang.
+	PodGangMapping map[string][]int32 `json:"podGangMapping,omitempty"`
 }
 
 // PodCliqueScalingGroupUpdateProgress provides details about the ongoing update of the PodCliqueScalingGroup.

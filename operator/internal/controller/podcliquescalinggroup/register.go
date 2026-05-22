@@ -210,7 +210,7 @@ func mapPodGangMapToPCSGs() handler.MapFunc {
 		seen := make(map[string]struct{})
 		var requests []reconcile.Request
 		for _, entry := range pgm.Spec.Entries {
-			for pcsgName := range entry.PodCliqueScalingGroups {
+			for pcsgName := range entry.PCSGReplicaIndices {
 				fqn := apicommon.GeneratePodCliqueScalingGroupName(pcsReplica, pcsgName)
 				if _, dup := seen[fqn]; dup {
 					continue

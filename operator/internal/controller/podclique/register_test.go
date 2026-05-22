@@ -214,7 +214,7 @@ func TestMapPodGangMapToPCLQs(t *testing.T) {
 				metav1.ObjectMeta{Name: "my-pcs-0", Namespace: ns, OwnerReferences: []metav1.OwnerReference{pcsOwner}},
 				0,
 				[]grovecorev1alpha1.PodGangEntry{
-					{Name: "my-pcs-0", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
+					{Name: "my-pcs-0", PCSGReplicaIndices: map[string][]int32{"prefill": {0}}},
 				},
 			),
 			wantFQNs: nil,

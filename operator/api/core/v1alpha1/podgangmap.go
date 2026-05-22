@@ -68,15 +68,15 @@ type PodGangEntry struct {
 	// PodCliques maps standalone PodClique name to the number of pods that belong to this PodGang.
 	// Only standalone PodCliques (not owned by a PodCliqueScalingGroup) are listed here.
 	// PodCliques owned by a PodCliqueScalingGroup derive their PodGang association via
-	// PodCliqueScalingGroups below.
+	// PCSGReplicaIndices below.
 	// +optional
 	PodCliques map[string]int32 `json:"podCliques,omitempty"`
-	// PodCliqueScalingGroups maps PodCliqueScalingGroup name to the number of replicas of that
-	// PodCliqueScalingGroup that belong to this PodGang. A PodClique reconciler for a
-	// PodCliqueScalingGroup-owned PodClique uses this field to find its target PodGang by looking
-	// up its owning PodCliqueScalingGroup name here.
+	// PCSGReplicaIndices maps PodCliqueScalingGroup config name to the PCSG replica indices
+	// that belong to this PodGang. The number of replicas is len(slice). Indices are stable
+	// identities that survive entry reshuffles, so a PodClique reconciler for a PodCliqueScalingGroup-
+	// owned PodClique can find its target PodGang by looking up its replica index here.
 	// +optional
-	PodCliqueScalingGroups map[string]int32 `json:"podCliqueScalingGroups,omitempty"`
+	PCSGReplicaIndices map[string][]int32 `json:"pcsgReplicaIndices,omitempty"`
 	// DependsOn lists the PodGang names within the same PodCliqueSet replica whose pods must be
 	// scheduled before pods in this PodGang have their scheduling gates removed.
 	// +optional

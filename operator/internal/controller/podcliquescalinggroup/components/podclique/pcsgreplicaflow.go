@@ -22,7 +22,6 @@ import (
 	"maps"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
@@ -31,30 +30,27 @@ import (
 	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 	"github.com/ai-dynamo/grove/operator/internal/utils"
-	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
 
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // reconcilePCSGReplicaDistribution drives the desired-state-driven sync flow for the PodCliques
 // owned by a PodCliqueScalingGroup. It updates pcsg.Status.PodGangMapping to the desired
-// PodGang→PCSG-replica distribution and then reconciles live PCLQs to match.
+// PodGang→PCSG-replica-indices mapping and then reconciles live PCLQs to match.
 //
 // Direction of authority:
 //   - Coherent update in progress: PodGangMap (PGM) drives. status.PodGangMapping is
 //     overwritten from PGM entries each reconcile.
 //   - Steady state: status.PodGangMapping drives. Spec.Replicas changes are translated into
-//     mapping mutations: scale-out mints Scaled-PG entries (one per new replica) and adds
-//     them to the mapping; scale-in walks two tiers (Scaled-PGs first, then MPGs/TailPGs)
-//     and decrements until the deficit is absorbed.
+//     mapping mutations: scale-out mints a Scaled-PG entry per new replica (claiming a free
+//     index from [0, Spec.Replicas)); scale-in walks two tiers (Scaled-PGs first, then
+//     MPGs/TailPGs) and pops indices until the deficit is absorbed.
 //
-// The index↔PodGang binding is recovered each reconcile from live PCLQ labels rather than
-// persisted in status. Per-PodGang count diffs against the live binding identify holes
-// (Case 1: external delete) and excess (Case 2: scale-in); new PCLQs draw indices from the
-// unoccupied tail of [0, Spec.Replicas).
+// The index↔PodGang binding is now recorded explicitly in status, so applyPCSGPerPodGangDeltas
+// can recover desired PCLQ placement directly from the status mapping without scanning live
+// PCLQ labels.
 func (r _resource) reconcilePCSGReplicaDistribution(logger logr.Logger, sc *syncContext) error {
 	desiredMapping, err := r.computeDesiredPCSGReplicaMapping(sc)
 	if err != nil {
@@ -66,35 +62,41 @@ func (r _resource) reconcilePCSGReplicaDistribution(logger logr.Logger, sc *sync
 	return r.applyPCSGPerPodGangDeltas(logger, sc, desiredMapping)
 }
 
-// computeDesiredPCSGReplicaMapping returns the desired PodGang→PCSG-replicas mapping.
+// computeDesiredPCSGReplicaMapping returns the desired PodGang→PCSG-replica-indices mapping.
 //
-// During a coherent update PodGangMap is an authoritative source and the mapping is
-// rebuilt from PGM entries every reconcile.
-// In steady state the existing status mapping is the source of truth and is
-// mutated only when Spec.Replicas drifts from sum(mapping).
-func (r _resource) computeDesiredPCSGReplicaMapping(sc *syncContext) (map[string]int32, error) {
+// During a coherent update PodGangMap is the authoritative source and the mapping is
+// rebuilt from PGM entries every reconcile. In steady state the existing status mapping
+// is the source of truth and is mutated only when Spec.Replicas drifts from sum-of-lengths.
+func (r _resource) computeDesiredPCSGReplicaMapping(sc *syncContext) (map[string][]int32, error) {
 	if componentutils.IsCoherentUpdateInProgress(sc.pcs) {
 		return r.buildMappingFromPodGangMap(sc), nil
 	}
 
-	var desired map[string]int32
+	var desired map[string][]int32
 	if len(sc.pcsg.Status.PodGangMapping) == 0 {
 		// Fresh PCSG — seed from PGM (PGM was created by the PCS reconciler from spec).
 		desired = r.buildMappingFromPodGangMap(sc)
 	} else {
-		desired = maps.Clone(sc.pcsg.Status.PodGangMapping)
+		desired = cloneIndexMapping(sc.pcsg.Status.PodGangMapping)
 	}
 
 	pcsNameReplica := apicommon.ResourceNameReplica{Name: sc.pcs.Name, Replica: sc.pcsReplicaIndex}
 	pcsgConfigName := apicommon.ExtractScalingGroupNameFromPCSGFQN(sc.pcsg.Name, pcsNameReplica)
 	scaledPGPrefix := scaledPodGangNamePrefix(sc.pcs.Name, sc.pcsReplicaIndex, *sc.pcs.Status.CurrentGenerationHash, pcsgConfigName)
 
-	// currentSum is the total number of PCSG replicas across all PodGang mappings.
-	currentSum := lo.Reduce(lo.Values(desired), func(agg int32, v int32, _ int) int32 { return agg + v }, int32(0))
+	currentSum := sumIndexCount(desired)
 	diff := sc.pcsg.Spec.Replicas - currentSum
 	switch {
 	case diff > 0:
-		// Generate `diff` new Scaled-PG names. Each new entry holds one PCSG replica.
+		// For each missing replica, claim the smallest free index in [0, Spec.Replicas) and
+		// mint a new Scaled-PG name to hold it.
+		freeIndices := computeFreeIndices(desired, sc.pcsg.Spec.Replicas)
+		if int32(len(freeIndices)) < diff {
+			return nil, groveerr.New(errCodeUpdateStatus,
+				component.OperationSync,
+				fmt.Sprintf("not enough free PCSG replica indices to mint %d new entries for PodCliqueScalingGroup %v: free=%v",
+					diff, client.ObjectKeyFromObject(sc.pcsg), freeIndices))
+		}
 		newNames, err := generateScaledPodGangNames(desired, int(diff), sc.pcs.Name, sc.pcsReplicaIndex, *sc.pcs.Status.CurrentGenerationHash, pcsgConfigName, scaledPGPrefix)
 		if err != nil {
 			return nil, groveerr.WrapError(err,
@@ -103,11 +105,10 @@ func (r _resource) computeDesiredPCSGReplicaMapping(sc *syncContext) (map[string
 				fmt.Sprintf("cannot mint Scaled-PG names for PodCliqueScalingGroup %v",
 					client.ObjectKeyFromObject(sc.pcsg)))
 		}
-		for _, name := range newNames {
-			desired[name] = 1
+		for i, name := range newNames {
+			desired[name] = []int32{freeIndices[i]}
 		}
 	case diff < 0:
-		// Legacy SPG name format (pre-upgrade): <pcsgFQN>-<index>. Same prefix as PCSG FQN + "-".
 		legacySPGPrefix := sc.pcsg.Name + "-"
 		bpgName := apicommon.GenerateBasePodGangName(pcsNameReplica)
 		if err := decrementPCSGMappingForScaleIn(desired, int(-diff), scaledPGPrefix, legacySPGPrefix, bpgName); err != nil {
@@ -118,31 +119,67 @@ func (r _resource) computeDesiredPCSGReplicaMapping(sc *syncContext) (map[string
 					client.ObjectKeyFromObject(sc.pcsg)))
 		}
 	}
-	// Prune zero-count entries so the index space stays compact. decrementPCSGMappingForScaleIn
-	// leaves entries at 0 rather than removing them, and earlier controller versions may also
-	// have left orphan {name: 0} keys in pcsg.Status.PodGangMapping. If we kept those entries,
-	// nextScaledPodGangIndex would treat their trailing index as occupied and the next scale-out
-	// would mint a higher-indexed name instead of reusing the freed slot.
-	for name, count := range desired {
-		if count == 0 {
+	// Drop entries with empty index slices so the index space stays compact.
+	// decrementPCSGMappingForScaleIn leaves entries empty rather than removing them.
+	for name, indices := range desired {
+		if len(indices) == 0 {
 			delete(desired, name)
 		}
 	}
 	return desired, nil
 }
 
-// buildMappingFromPodGangMap constructs a PodGang→PCSG-replica mapping from the PCS replica's
-// PodGangMap (cached on sc.podGangMap). Entries that don't reference this PCSG are skipped;
-// zero counts are skipped to keep the mapping compact.
-func (r _resource) buildMappingFromPodGangMap(sc *syncContext) map[string]int32 {
+// cloneIndexMapping deep-clones the slice values of a PodGang→indices mapping so the caller
+// can mutate without aliasing the original (which is typically a status field).
+func cloneIndexMapping(in map[string][]int32) map[string][]int32 {
+	out := make(map[string][]int32, len(in))
+	for k, v := range in {
+		out[k] = slices.Clone(v)
+	}
+	return out
+}
+
+// sumIndexCount returns the total count of PCSG replicas across all PodGangs in the mapping.
+func sumIndexCount(mapping map[string][]int32) int32 {
+	var total int32
+	for _, indices := range mapping {
+		total += int32(len(indices))
+	}
+	return total
+}
+
+// computeFreeIndices returns indices in [0, specReplicas) that are not currently claimed by
+// any entry in `mapping`. Returned sorted ascending so the smallest free index is taken first.
+func computeFreeIndices(mapping map[string][]int32, specReplicas int32) []int32 {
+	taken := make(map[int32]struct{})
+	for _, indices := range mapping {
+		for _, idx := range indices {
+			taken[idx] = struct{}{}
+		}
+	}
+	free := make([]int32, 0, specReplicas)
+	for i := int32(0); i < specReplicas; i++ {
+		if _, ok := taken[i]; !ok {
+			free = append(free, i)
+		}
+	}
+	return free
+}
+
+// buildMappingFromPodGangMap constructs a PodGang→PCSG-replica-indices mapping from the PCS
+// replica's PodGangMap (cached on sc.podGangMap). Entries that don't reference this PCSG are
+// skipped; entries with empty index slices are skipped to keep the mapping compact.
+func (r _resource) buildMappingFromPodGangMap(sc *syncContext) map[string][]int32 {
 	pcsgConfigName := apicommon.ExtractScalingGroupNameFromPCSGFQN(sc.pcsg.Name, apicommon.ResourceNameReplica{Name: sc.pcs.Name, Replica: sc.pcsReplicaIndex})
-	mapping := make(map[string]int32, len(sc.podGangMap.Spec.Entries))
+	mapping := make(map[string][]int32, len(sc.podGangMap.Spec.Entries))
 	for _, entry := range sc.podGangMap.Spec.Entries {
-		count, ok := entry.PodCliqueScalingGroups[pcsgConfigName]
-		if !ok || count == 0 {
+		indices, ok := entry.PCSGReplicaIndices[pcsgConfigName]
+		if !ok || len(indices) == 0 {
 			continue
 		}
-		mapping[entry.Name] = count
+		cloned := slices.Clone(indices)
+		slices.Sort(cloned)
+		mapping[entry.Name] = cloned
 	}
 	return mapping
 }
@@ -156,9 +193,9 @@ func scaledPodGangNamePrefix(pcsName string, pcsReplicaIndex int, pcsGenerationH
 	return fmt.Sprintf("%s-%d-%s-%s-", pcsName, pcsReplicaIndex, pcsGenerationHash, pcsgConfigName)
 }
 
-// generateScaledPodGangNames generates `count` new Scaled-PodGang names. The next Scaled-PG index
-// is derived from the highest existing Scaled-PodGang entry in the mapping that matches the
-// Scaled-PG prefix. Names are unique relative to the current mapping; no separate counter
+// generateScaledPodGangNames generates `count` new Scaled-PodGang names. The next Scaled-PG name
+// index is derived from the highest existing Scaled-PodGang entry in the mapping that matches
+// the Scaled-PG prefix. Names are unique relative to the current mapping; no separate counter
 // field is stored on PCSG status.
 //
 // Returns an error if any existing Scaled-PG entry name in the mapping fails to parse — such
@@ -166,7 +203,7 @@ func scaledPodGangNamePrefix(pcsName string, pcsReplicaIndex int, pcsGenerationH
 // controller bug, neither of which should be silently ignored.
 //
 // Format: <pcsName>-<pcsReplicaIndex>-<pcsGenerationHash>-<pcsgConfigName>-<index>
-func generateScaledPodGangNames(currentMapping map[string]int32, count int, pcsName string, pcsReplicaIndex int, pcsGenerationHash string, pcsgConfigName string, scaledPGPrefix string) ([]string, error) {
+func generateScaledPodGangNames(currentMapping map[string][]int32, count int, pcsName string, pcsReplicaIndex int, pcsGenerationHash string, pcsgConfigName string, scaledPGPrefix string) ([]string, error) {
 	nextIndex, err := nextScaledPodGangIndex(currentMapping, scaledPGPrefix)
 	if err != nil {
 		return nil, err
@@ -179,11 +216,13 @@ func generateScaledPodGangNames(currentMapping map[string]int32, count int, pcsN
 	return names, nil
 }
 
-// nextScaledPodGangIndex returns the next available index for a Scaled-PG. It scans entries in
-// the mapping that match the Scaled-PG prefix and returns max(index)+1, or 0 if no Scaled-PG
-// entries exist. Returns an error if any matching entry's name fails to parse — Grove is the
-// sole writer of these names in steady state, so an unparseable name is a contract violation.
-func nextScaledPodGangIndex(mapping map[string]int32, scaledPGPrefix string) (int, error) {
+// nextScaledPodGangIndex returns the next available *name* index for a Scaled-PG. It scans
+// entries in the mapping that match the Scaled-PG prefix and returns max(index)+1, or 0 if
+// no Scaled-PG entries exist. Returns an error if any matching entry's name fails to parse.
+//
+// Note: this is the index inside the PodGang *name*, distinct from the PCSG replica index
+// the entry holds.
+func nextScaledPodGangIndex(mapping map[string][]int32, scaledPGPrefix string) (int, error) {
 	maxIdx := -1
 	for name := range mapping {
 		if !strings.HasPrefix(name, scaledPGPrefix) {
@@ -200,30 +239,30 @@ func nextScaledPodGangIndex(mapping map[string]int32, scaledPGPrefix string) (in
 	return maxIdx + 1, nil
 }
 
-// decrementPCSGMappingForScaleIn decrements the desired mapping by `count` PCSG replicas.
+// decrementPCSGMappingForScaleIn pops `count` PCSG replica indices from the desired mapping.
 // BPG (the base PodGang in the legacy convention) is excluded from the walk entirely:
-// decrementing it would breach the PCS-level MinAvailable invariant and cause gang termination
+// popping from it would breach the PCS-level MinAvailable invariant and cause gang termination
 // of the PCS replica. The webhook ensures Spec.Replicas - count >= MinAvailable, so the walk
 // has enough drainable replicas without touching BPG.
 //
-// Selection proceeds in three tiers:
+// Selection proceeds in three tiers (each tier popped highest-replica-index first within the
+// tier and entry):
 //   - Tier 1: Legacy SPG entries (pre-upgrade scaled PodGangs, name matching legacySPGPrefix).
-//     Each holds 1 replica. Sorted by trailing index descending; decrement to 0.
-//   - Tier 2: New-convention Scaled-PG entries (post-upgrade steady-state mints, name matching
-//     scaledPGPrefix). Each holds 1 replica. Sorted by trailing index descending; decrement to 0.
-//   - Tier 3: MPG/TailPG entries (no SPG prefix, not BPG). Sorted by trailing index descending,
-//     which puts TailPGs (minted last in a coherent-update iteration → highest counter) ahead
-//     of MPGs. Decrement by 1 per step; an MPG with count > 1 absorbs multiple steps.
+//     Each holds 1 replica. Sorted by trailing PG-name index descending.
+//   - Tier 2: New-convention Scaled-PG entries (post-upgrade steady-state mints). Each holds
+//     1 replica. Sorted by trailing PG-name index descending.
+//   - Tier 3: MPG/TailPG entries (no SPG prefix, not BPG). Sorted by trailing PG-name index
+//     descending. An MPG with multiple replica indices absorbs multiple steps (popping its
+//     highest replica index each time).
 //
 // Walking legacy SPGs ahead of new Scaled-PGs naturally compacts older state first across a
 // Grove-upgrade boundary, leaving newer mints in the mapping.
 //
-// Empty entries (count == 0) are dropped by the PGM consumer via removeEmptyEntries; this
-// function leaves them in the mapping with value 0.
+// Empty entries (zero indices remaining) are left in the mapping and dropped by the caller.
 //
 // Returns an error if any entry name in the mapping fails to parse — Grove is the sole writer
 // of these names so an unparseable name is a contract violation, not a soft skip.
-func decrementPCSGMappingForScaleIn(desired map[string]int32, count int, scaledPGPrefix, legacySPGPrefix, bpgName string) error {
+func decrementPCSGMappingForScaleIn(desired map[string][]int32, count int, scaledPGPrefix, legacySPGPrefix, bpgName string) error {
 	if count <= 0 {
 		return nil
 	}
@@ -239,30 +278,25 @@ func decrementPCSGMappingForScaleIn(desired map[string]int32, count int, scaledP
 	}
 
 	remaining := count
-	// Tier 1 — legacy SPGs, each holds at most 1 replica. Decrement to 0.
 	for _, name := range tierLegacySPG {
 		if remaining == 0 {
 			break
 		}
-		if desired[name] > 0 {
-			desired[name]--
+		if popHighestIndex(desired, name) {
 			remaining--
 		}
 	}
-	// Tier 2 — new Scaled-PGs, each holds at most 1 replica. Decrement to 0.
 	for _, name := range tierNewScaledPG {
 		if remaining == 0 {
 			break
 		}
-		if desired[name] > 0 {
-			desired[name]--
+		if popHighestIndex(desired, name) {
 			remaining--
 		}
 	}
-	// Tier 3 — MPGs/TailPGs. Decrement by 1 per step; an MPG may need multiple decrements.
 	for _, name := range tierMPGTail {
-		for desired[name] > 0 && remaining > 0 {
-			desired[name]--
+		for len(desired[name]) > 0 && remaining > 0 {
+			popHighestIndex(desired, name)
 			remaining--
 		}
 		if remaining == 0 {
@@ -272,18 +306,31 @@ func decrementPCSGMappingForScaleIn(desired map[string]int32, count int, scaledP
 	return nil
 }
 
+// popHighestIndex pops the largest replica index from the slice at desired[name]. Returns true
+// if a pop happened, false if the slice was empty. The slice is sorted in place to find the
+// highest index deterministically; the smaller indices are kept in sorted order.
+func popHighestIndex(desired map[string][]int32, name string) bool {
+	indices := desired[name]
+	if len(indices) == 0 {
+		return false
+	}
+	slices.Sort(indices)
+	desired[name] = indices[:len(indices)-1]
+	return true
+}
+
 // partitionPodGangNamesByTier splits the names in the mapping into three tiers for scale-in:
 //   - tierLegacySPG: legacy scaled PodGangs (names matching legacySPGPrefix). Each holds 1 replica.
 //   - tierNewScaledPG: new-convention Scaled-PGs (names matching scaledPGPrefix). Each holds 1 replica.
 //   - tierMPGTail: everything else (MPGs, TailPGs).
 //
 // bpgName is excluded from all tiers — BPG is the base PodGang carrying MinAvailable replicas
-// in the legacy convention and must never be decremented during scale-in.
+// in the legacy convention and must never be popped during scale-in.
 //
 // Legacy and new-convention prefixes are disjoint by name shape (the new convention has a
 // `<hash>` segment between `<pcsReplicaIndex>` and `<pcsgConfigName>` that the legacy
 // convention lacks), so a name matches at most one prefix.
-func partitionPodGangNamesByTier(mapping map[string]int32, scaledPGPrefix, legacySPGPrefix, bpgName string) (tierLegacySPG, tierNewScaledPG, tierMPGTail []string) {
+func partitionPodGangNamesByTier(mapping map[string][]int32, scaledPGPrefix, legacySPGPrefix, bpgName string) (tierLegacySPG, tierNewScaledPG, tierMPGTail []string) {
 	for name := range mapping {
 		switch {
 		case name == bpgName:
@@ -320,8 +367,8 @@ func sortDescByPodGangIndex(names []string) error {
 // patchPCSGPodGangMapping persists the desired mapping to pcsg.Status.PodGangMapping if it
 // differs from the current value. The check avoids waking other reconcilers via a no-op watch
 // event. Empty maps are normalized to nil for status hygiene.
-func (r _resource) patchPCSGPodGangMapping(sc *syncContext, desired map[string]int32) error {
-	if maps.Equal(sc.pcsg.Status.PodGangMapping, desired) {
+func (r _resource) patchPCSGPodGangMapping(sc *syncContext, desired map[string][]int32) error {
+	if equalIndexMappings(sc.pcsg.Status.PodGangMapping, desired) {
 		return nil
 	}
 	patch := client.MergeFrom(sc.pcsg.DeepCopy())
@@ -340,155 +387,121 @@ func (r _resource) patchPCSGPodGangMapping(sc *syncContext, desired map[string]i
 	return nil
 }
 
-// buildLiveIndexToPodGang returns the live PCSG-replica-index → PodGang-name binding,
-// recovered from labels on non-terminating PCLQs. Multiple PCLQs at the same PCSG replica
-// index (one per CliqueName) all share the same LabelPodGang, so writes to the same key are
-// no-ops on the value. Returns an error if a label is missing or unparseable — Grove writes
-// these labels, so a violation indicates a corrupt resource or controller bug.
-func buildLiveIndexToPodGang(pclqs []grovecorev1alpha1.PodClique) (map[int]string, error) {
-	out := make(map[int]string)
-	for _, pclq := range pclqs {
-		if k8sutils.IsResourceTerminating(pclq.ObjectMeta) {
-			continue
-		}
-		pgName, ok := pclq.Labels[apicommon.LabelPodGang]
-		if !ok {
-			return nil, fmt.Errorf("%s label on PodClique %s is missing", apicommon.LabelPodGang, pclq.Name)
-		}
-		idxStr, ok := pclq.Labels[apicommon.LabelPodCliqueScalingGroupReplicaIndex]
-		if !ok {
-			return nil, fmt.Errorf("%s label on PodClique %s is missing", apicommon.LabelPodCliqueScalingGroupReplicaIndex, pclq.Name)
-		}
-		idx, err := strconv.Atoi(idxStr)
-		if err != nil {
-			return nil, fmt.Errorf("%s label on PodClique %s is not a valid integer: %q",
-				apicommon.LabelPodCliqueScalingGroupReplicaIndex, pclq.Name, idxStr)
-		}
-		out[idx] = pgName
+// equalIndexMappings reports whether two PodGang→indices mappings have the same keys and
+// the same (set-wise, since slice order on status is not contractual) indices per key.
+// Used as a pre-patch no-op check to avoid spurious status updates.
+func equalIndexMappings(a, b map[string][]int32) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	return out, nil
+	for k, av := range a {
+		bv, ok := b[k]
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		aSorted := slices.Clone(av)
+		bSorted := slices.Clone(bv)
+		slices.Sort(aSorted)
+		slices.Sort(bSorted)
+		if !slices.Equal(aSorted, bSorted) {
+			return false
+		}
+	}
+	return true
 }
 
-// applyPCSGPerPodGangDeltas reconciles live PCLQs to the desired mapping. For each PodGang
-// where live count exceeds desired count it deletes the highest-indexed PCSG replicas in
-// that PodGang. For each PodGang where live count is short of desired count it creates new
-// PCLQs at indices drawn from the unoccupied tail of [0, Spec.Replicas). PCLQs whose live
-// PodGang is no longer present in desired are deleted entirely (handles obsolete PodGangs
-// after a coherent-update rebind).
+// applyPCSGPerPodGangDeltas reconciles live PCLQs to the desired mapping. For each (pgName, indices)
+// pair in desired, every index `i` should have one PCLQ per CliqueName at FQN
+// <pcsgFQN>-<i>-<cliqueName> labeled with grove.io/podgang=<pgName>. Indices not in
+// ∪slices(desired) get their PCLQs deleted entirely.
 //
-// The free index pool is [0, Spec.Replicas) minus indices held by live PCLQs that are NOT
-// being deleted in this pass. Indices being deleted in this pass remain occupied (their
-// PCLQs are still terminating) and are not reused; subsequent reconciles will pick them up
-// once the underlying PCLQ objects are gone.
-func (r _resource) applyPCSGPerPodGangDeltas(logger logr.Logger, sc *syncContext, desired map[string]int32) error {
-	liveIndexToPG, err := buildLiveIndexToPodGang(sc.existingPCLQs)
-	if err != nil {
-		return groveerr.WrapError(err,
-			errCodeParsePodCliqueScalingGroupReplicaIndex,
-			component.OperationSync,
-			fmt.Sprintf("failed to build live index→PodGang map for PodCliqueScalingGroup %v",
-				client.ObjectKeyFromObject(sc.pcsg)))
+// PCLQs whose live PodGang label disagrees with status are deleted; the next reconcile creates
+// them under the correct PodGang. Deletes go before creates so the controller does not race
+// with itself in creating PCLQs at indices currently held by a doomed PCLQ.
+func (r _resource) applyPCSGPerPodGangDeltas(logger logr.Logger, sc *syncContext, desired map[string][]int32) error {
+	desiredIndexToPG := make(map[int]string)
+	for pgName, indices := range desired {
+		for _, idx := range indices {
+			desiredIndexToPG[int(idx)] = pgName
+		}
 	}
 
-	deletions, creationCounts := computePCSGCountDeltas(desired, liveIndexToPG)
+	deletions, creations := computePCSGCountDeltas(desiredIndexToPG, sc.existingPCLQs)
 
-	kept := sets.New[int]()
-	for idx := range liveIndexToPG {
-		kept.Insert(idx)
-	}
-	for _, idx := range deletions {
-		kept.Delete(idx)
-	}
-	assignments := assignFreeIndicesToPodGangs(creationCounts, desired, kept, int(sc.pcsg.Spec.Replicas))
-
-	// Deletes go first so the PCSG reconciler does not race with itself in creating PCLQs at
-	// indices currently held by a doomed PCLQ.
 	if len(deletions) > 0 {
-		if err = r.deletePCSGReplicas(logger, sc, deletions); err != nil {
+		if err := r.deletePCSGReplicas(logger, sc, deletions); err != nil {
 			return err
 		}
 	}
-	if len(assignments) > 0 {
-		if err = r.createPCSGReplicas(logger, sc, assignments); err != nil {
+	if len(creations) > 0 {
+		if err := r.createPCSGReplicas(logger, sc, creations); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// computePCSGCountDeltas compares the desired mapping against the live index→PodGang binding
-// and returns (deletions, creationCounts):
-//   - deletions: PCSG replica indices whose PCLQs should be deleted. Sources:
-//     1. Per-PodGang excess — for each PodGang in desired with liveCount > desiredCount,
-//     the highest live indices bound to that PodGang.
-//     2. Obsolete PodGangs — PCLQs whose live PodGang is no longer in desired.
-//   - creationCounts: for each PodGang in desired with liveCount < desiredCount, the number
-//     of PCLQs to create.
-func computePCSGCountDeltas(desired map[string]int32, liveIndexToPG map[int]string) (deletionIndices []int, creationCounts map[string]int) {
-	livePGCounts := make(map[string]int)
-	livePGIndices := make(map[string][]int)
-	for idx, pgName := range liveIndexToPG {
-		livePGCounts[pgName]++
-		livePGIndices[pgName] = append(livePGIndices[pgName], idx)
-	}
+// computePCSGCountDeltas compares desiredIndexToPG (the authoritative replica index → PodGang
+// mapping from status) against the live PCLQs and returns:
+//   - deletions: replica indices whose live PCLQs should be deleted. Sources:
+//     1. Indices not in desiredIndexToPG (obsolete — index belongs to no PodGang).
+//     2. Indices whose live LabelPodGang disagrees with desired (the PCLQ will be recreated
+//     under the correct PodGang on the next reconcile).
+//   - creations: index → PodGang for indices in desired that have no surviving live PCLQ.
+func computePCSGCountDeltas(desiredIndexToPG map[int]string, livePCLQs []grovecorev1alpha1.PodClique) (deletionIndices []int, creations map[int]string) {
+	creations = make(map[int]string, len(desiredIndexToPG))
+	maps.Copy(creations, desiredIndexToPG)
 
-	creationCounts = make(map[string]int)
-
-	for pgName, desiredCount := range desired {
-		liveCount := livePGCounts[pgName]
-		switch {
-		case liveCount > int(desiredCount):
-			excess := liveCount - int(desiredCount)
-			indices := slices.Clone(livePGIndices[pgName])
-			sort.Sort(sort.Reverse(sort.IntSlice(indices)))
-			deletionIndices = append(deletionIndices, indices[:excess]...)
-		case liveCount < int(desiredCount):
-			creationCounts[pgName] = int(desiredCount) - liveCount
+	// liveByIndex: PCSG replica index -> set of live PodGang labels seen on PCLQs at that index.
+	// Multiple PCLQs at the same index (one per clique) all share the same LabelPodGang in steady
+	// state, so the set is normally a singleton. A divergent set (>1 distinct labels) indicates
+	// inconsistent state and is treated as a deletion target.
+	liveByIndex := make(map[int]map[string]struct{})
+	for _, pclq := range livePCLQs {
+		idxStr, ok := pclq.Labels[apicommon.LabelPodCliqueScalingGroupReplicaIndex]
+		if !ok {
+			continue
 		}
+		idx := idxStr
+		var idxInt int
+		if _, err := fmt.Sscanf(idx, "%d", &idxInt); err != nil {
+			continue
+		}
+		pgLabel := pclq.Labels[apicommon.LabelPodGang]
+		set := liveByIndex[idxInt]
+		if set == nil {
+			set = make(map[string]struct{})
+			liveByIndex[idxInt] = set
+		}
+		set[pgLabel] = struct{}{}
 	}
 
-	for idx, pgName := range liveIndexToPG {
-		if _, ok := desired[pgName]; !ok {
+	for idx, labels := range liveByIndex {
+		desiredPG, inDesired := desiredIndexToPG[idx]
+		if !inDesired {
+			// Obsolete index — delete all live PCLQs at this index.
 			deletionIndices = append(deletionIndices, idx)
+			continue
 		}
+		if len(labels) != 1 {
+			// Divergent labels at this index — delete and recreate.
+			deletionIndices = append(deletionIndices, idx)
+			continue
+		}
+		var liveLabel string
+		for k := range labels {
+			liveLabel = k
+		}
+		if liveLabel != desiredPG {
+			// Wrong PodGang label — delete; next reconcile creates under the correct PodGang.
+			deletionIndices = append(deletionIndices, idx)
+			continue
+		}
+		// Correct binding already in place — no creation needed for this index.
+		delete(creations, idx)
 	}
+
 	return
-}
-
-// assignFreeIndicesToPodGangs assigns PCSG replica indices to PodGangs that need new PCLQs.
-// Indices are drawn in ascending order from [0, specReplicas) excluding indices in `kept`
-// (live PCLQs that survive this reconcile pass). PodGangs are visited in alphabetical order
-// for deterministic assignment.
-func assignFreeIndicesToPodGangs(creationCounts map[string]int, desired map[string]int32, preserveIndices sets.Set[int], specReplicas int) map[int]string {
-	if len(creationCounts) == 0 {
-		return nil
-	}
-	freeIndices := make([]int, 0, specReplicas)
-	for i := range specReplicas {
-		if !preserveIndices.Has(i) {
-			freeIndices = append(freeIndices, i)
-		}
-	}
-	assignments := make(map[int]string)
-	cursor := 0
-	for _, pgName := range sortedPodGangNames(desired) {
-		n := creationCounts[pgName]
-		for range n {
-			if cursor >= len(freeIndices) {
-				return assignments
-			}
-			assignments[freeIndices[cursor]] = pgName
-			cursor++
-		}
-	}
-	return assignments
-}
-
-// sortedPodGangNames returns a stable, alphabetically sorted list of keys.
-func sortedPodGangNames(m map[string]int32) []string {
-	names := lo.Keys(m)
-	sort.Strings(names)
-	return names
 }
 
 // deletePCSGReplicas deletes all PCLQs belonging to the given PCSG replica indices.
@@ -504,7 +517,11 @@ func (r _resource) deletePCSGReplicas(logger logr.Logger, sc *syncContext, repli
 // fresh PCLQs.
 func (r _resource) createPCSGReplicas(logger logr.Logger, sc *syncContext, assignments map[int]string) error {
 	tasks := make([]utils.Task, 0, len(assignments)*len(sc.pcsg.Spec.CliqueNames))
-	for pcsgReplicaIndex, podGangName := range assignments {
+	// Sort assignments by index for deterministic creation order.
+	indices := lo.Keys(assignments)
+	sort.Ints(indices)
+	for _, pcsgReplicaIndex := range indices {
+		podGangName := assignments[pcsgReplicaIndex]
 		for _, cliqueName := range sc.pcsg.Spec.CliqueNames {
 			pclqFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: sc.pcsg.Name, Replica: pcsgReplicaIndex}, cliqueName)
 			pclqObjectKey := client.ObjectKey{Name: pclqFQN, Namespace: sc.pcsg.Namespace}

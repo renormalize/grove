@@ -59,7 +59,7 @@ func TestBuildEntriesFromStatuses(t *testing.T) {
 			Status: grovecorev1alpha1.PodCliqueStatus{PodGangMapping: mapping},
 		}
 	}
-	pcsg := func(mapping map[string]int32) grovecorev1alpha1.PodCliqueScalingGroup {
+	pcsg := func(mapping map[string][]int32) grovecorev1alpha1.PodCliqueScalingGroup {
 		return grovecorev1alpha1.PodCliqueScalingGroup{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "my-pcs-0-prefill",
@@ -75,7 +75,7 @@ func TestBuildEntriesFromStatuses(t *testing.T) {
 			standalonePCLQ(map[string]int32{"pg-0": 2, "pg-1": 3}),
 		}
 		pcsgs := []grovecorev1alpha1.PodCliqueScalingGroup{
-			pcsg(map[string]int32{"pg-0": 1, "pg-2": 1}),
+			pcsg(map[string][]int32{"pg-0": {0}, "pg-2": {1}}),
 		}
 
 		entries := buildEntriesFromStatuses(nil, pcs, standalonePCLQs, pcsgs, 0)
@@ -86,18 +86,18 @@ func TestBuildEntriesFromStatuses(t *testing.T) {
 			entryMap[e.Name] = e
 		}
 
-		// pg-0 has both frontend pods and prefill replicas
+		// pg-0 has both frontend pods and prefill replica index [0]
 		assert.Equal(t, int32(2), entryMap["pg-0"].PodCliques["frontend"])
-		assert.Equal(t, int32(1), entryMap["pg-0"].PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, []int32{0}, entryMap["pg-0"].PCSGReplicaIndices["prefill"])
 		assert.Equal(t, "gen-hash-1", entryMap["pg-0"].PodCliqueSetGenerationHash)
 
 		// pg-1 has only frontend pods
 		assert.Equal(t, int32(3), entryMap["pg-1"].PodCliques["frontend"])
-		assert.Nil(t, entryMap["pg-1"].PodCliqueScalingGroups)
+		assert.Nil(t, entryMap["pg-1"].PCSGReplicaIndices)
 
-		// pg-2 has only prefill replicas
+		// pg-2 has only prefill replica index [1]
 		assert.Nil(t, entryMap["pg-2"].PodCliques)
-		assert.Equal(t, int32(1), entryMap["pg-2"].PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, []int32{1}, entryMap["pg-2"].PCSGReplicaIndices["prefill"])
 	})
 
 	t.Run("empty PodGangMapping returns no entries", func(t *testing.T) {
@@ -137,7 +137,7 @@ func TestBuildEntriesFromStatuses(t *testing.T) {
 			{Name: "mpg-1", PodCliqueSetGenerationHash: "gen-hash-1"},
 		}
 		pcsgs := []grovecorev1alpha1.PodCliqueScalingGroup{
-			pcsg(map[string]int32{"mpg-0": 1, "mpg-1": 1, "spg-new": 1}),
+			pcsg(map[string][]int32{"mpg-0": {0}, "mpg-1": {1}, "spg-new": {2}}),
 		}
 
 		entries := buildEntriesFromStatuses(existing, pcs, nil, pcsgs, 0)
@@ -198,7 +198,7 @@ func TestAllOwnerMappingsInitialized(t *testing.T) {
 			Status: grovecorev1alpha1.PodCliqueStatus{PodGangMapping: mapping},
 		}
 	}
-	pcsgWith := func(mapping map[string]int32) grovecorev1alpha1.PodCliqueScalingGroup {
+	pcsgWith := func(mapping map[string][]int32) grovecorev1alpha1.PodCliqueScalingGroup {
 		return grovecorev1alpha1.PodCliqueScalingGroup{
 			Status: grovecorev1alpha1.PodCliqueScalingGroupStatus{PodGangMapping: mapping},
 		}
@@ -207,21 +207,21 @@ func TestAllOwnerMappingsInitialized(t *testing.T) {
 	t.Run("returns true when every spec-declared owner is observed and has a non-empty mapping", func(t *testing.T) {
 		assert.True(t, allOwnerMappingsInitialized(pcs,
 			[]grovecorev1alpha1.PodClique{pclqWith(map[string]int32{"pg-0": 1})},
-			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string]int32{"pg-0": 1})},
+			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string][]int32{"pg-0": {0}})},
 		))
 	})
 
 	t.Run("returns false when any standalone PCLQ has nil mapping", func(t *testing.T) {
 		assert.False(t, allOwnerMappingsInitialized(pcs,
 			[]grovecorev1alpha1.PodClique{pclqWith(nil)},
-			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string]int32{"pg-0": 1})},
+			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string][]int32{"pg-0": {0}})},
 		))
 	})
 
 	t.Run("returns false when any PCSG has empty mapping", func(t *testing.T) {
 		assert.False(t, allOwnerMappingsInitialized(pcs,
 			[]grovecorev1alpha1.PodClique{pclqWith(map[string]int32{"pg-0": 1})},
-			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string]int32{})},
+			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string][]int32{})},
 		))
 	})
 
@@ -247,7 +247,7 @@ func TestAllOwnerMappingsInitialized(t *testing.T) {
 		// until the PCS reconciler recreates the PCLQs and their pod component reseeds.
 		assert.False(t, allOwnerMappingsInitialized(pcs,
 			nil,
-			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string]int32{"pg-0": 1})},
+			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string][]int32{"pg-0": {0}})},
 		))
 	})
 }
@@ -298,8 +298,8 @@ func TestBuildBasePodGangEntry(t *testing.T) {
 	assert.Equal(t, "gen-hash-1", entry.PodCliqueSetGenerationHash)
 	// Only standalone PCLQ (frontend) should be in PodCliques
 	assert.Equal(t, map[string]int32{"frontend": 5}, entry.PodCliques)
-	// PCSG minAvailable
-	assert.Equal(t, map[string]int32{"prefill": 1}, entry.PodCliqueScalingGroups)
+	// PCSG minAvailable holds the lowest indices [0, minAvailable).
+	assert.Equal(t, map[string][]int32{"prefill": {0}}, entry.PCSGReplicaIndices)
 }
 
 func TestBuildScaledPodGangEntries(t *testing.T) {
@@ -323,14 +323,15 @@ func TestBuildScaledPodGangEntries(t *testing.T) {
 
 		entries := buildScaledPodGangEntries(pcs, pcsNameReplica, "gen-hash-1", pcsgs)
 
-		// 4 replicas - 1 minAvailable = 3 scaled PodGangs
+		// 4 replicas - 1 minAvailable = 3 scaled PodGangs holding indices [1], [2], [3].
 		require.Len(t, entries, 3)
 		assert.Equal(t, "my-pcs-0-prefill-0", entries[0].Name)
 		assert.Equal(t, "my-pcs-0-prefill-1", entries[1].Name)
 		assert.Equal(t, "my-pcs-0-prefill-2", entries[2].Name)
-		for _, entry := range entries {
+		expectedIndices := []int32{1, 2, 3}
+		for i, entry := range entries {
 			assert.Equal(t, "gen-hash-1", entry.PodCliqueSetGenerationHash)
-			assert.Equal(t, map[string]int32{"prefill": 1}, entry.PodCliqueScalingGroups)
+			assert.Equal(t, map[string][]int32{"prefill": {expectedIndices[i]}}, entry.PCSGReplicaIndices)
 			assert.Nil(t, entry.PodCliques)
 		}
 	})
@@ -407,12 +408,13 @@ func TestComputeMVUEntriesFromSpec(t *testing.T) {
 
 		entries := computeMVUEntriesFromSpec(pcs, 0)
 
-		// No standalone PCLQs. PCSG: 4 replicas, minAvail=1.
-		// 1 MVU with 1 PCSG replica, then 3 Tail-PGs
+		// No standalone PCLQs. PCSG: 4 replicas, minAvail=1. Index pool [0,1,2,3].
+		// MVU iter 1 takes [0]; 3 Tail-PGs take [1], [2], [3] in order.
 		require.Len(t, entries, 4)
-		assert.Equal(t, int32(1), entries[0].PodCliqueScalingGroups["sg"])
+		assert.Equal(t, []int32{0}, entries[0].PCSGReplicaIndices["sg"])
+		expectedTailIndices := []int32{1, 2, 3}
 		for i := 1; i < 4; i++ {
-			assert.Equal(t, int32(1), entries[i].PodCliqueScalingGroups["sg"])
+			assert.Equal(t, []int32{expectedTailIndices[i-1]}, entries[i].PCSGReplicaIndices["sg"])
 			assert.Empty(t, entries[i].PodCliques)
 		}
 	})
@@ -430,23 +432,20 @@ func TestComputeMVUEntriesFromSpec(t *testing.T) {
 
 		entries := computeMVUEntriesFromSpec(pcs, 0)
 
-		// Frontend: 5 replicas, minAvail=2. PCSG prefill: 4 replicas, minAvail=1.
+		// Frontend: 5 pods, minAvail=2. PCSG prefill: 4 replicas, minAvail=1. Pool [0,1,2,3].
 		// MVU template: {frontend: 2, prefill: 1}
-		// Iteration 1: canForm=true (5>=2, 4>=1). Create MVU {F:2, P:1}. Remaining: F:3, P:3.
-		//   canFormAnother=true (3>=2, 3>=1).
-		// Iteration 2: canForm=true (3>=2, 3>=1). Create MVU {F:2, P:1}. Remaining: F:1, P:2.
-		//   canFormAnother=false (1<2). Absorb F: MVU becomes {F:3, P:1}. Remaining: F:0, P:2.
-		// Tail-PGs: P:2 → 2 Tail-PGs.
-		// Total: 2 MVUs + 2 Tail-PGs = 4 entries.
+		// Iter 1: MVU {F:2, prefill:[0]}. Remaining: F:3, pool=[1,2,3].
+		// Iter 2: MVU {F:2, prefill:[1]}. F:1 < 2 → absorb F → {F:3, prefill:[1]}. pool=[2,3].
+		// Tail-PGs prefill[2], prefill[3].
 		require.Len(t, entries, 4)
 		assert.Equal(t, int32(2), entries[0].PodCliques["frontend"])
-		assert.Equal(t, int32(1), entries[0].PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, []int32{0}, entries[0].PCSGReplicaIndices["prefill"])
 		assert.Equal(t, int32(3), entries[1].PodCliques["frontend"])
-		assert.Equal(t, int32(1), entries[1].PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, []int32{1}, entries[1].PCSGReplicaIndices["prefill"])
 		assert.Empty(t, entries[2].PodCliques)
-		assert.Equal(t, int32(1), entries[2].PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, []int32{2}, entries[2].PCSGReplicaIndices["prefill"])
 		assert.Empty(t, entries[3].PodCliques)
-		assert.Equal(t, int32(1), entries[3].PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, []int32{3}, entries[3].PCSGReplicaIndices["prefill"])
 	})
 
 	t.Run("empty PCS spec produces no entries", func(t *testing.T) {
@@ -562,16 +561,16 @@ func TestBuildBaseAndScaledPodGangEntries(t *testing.T) {
 	// 1 BPG + 2 SPGs (3 replicas - 1 minAvailable = 2 scaled)
 	require.Len(t, entries, 3)
 
-	// BPG
+	// BPG holds prefill[0] (the lowest minAvailable indices).
 	assert.Equal(t, "my-pcs-0", entries[0].Name)
 	assert.Equal(t, int32(5), entries[0].PodCliques["frontend"])
-	assert.Equal(t, int32(1), entries[0].PodCliqueScalingGroups["prefill"])
+	assert.Equal(t, []int32{0}, entries[0].PCSGReplicaIndices["prefill"])
 
-	// SPGs
+	// SPGs hold higher indices: [1], [2].
 	assert.Equal(t, "my-pcs-0-prefill-0", entries[1].Name)
-	assert.Equal(t, map[string]int32{"prefill": 1}, entries[1].PodCliqueScalingGroups)
+	assert.Equal(t, map[string][]int32{"prefill": {1}}, entries[1].PCSGReplicaIndices)
 	assert.Equal(t, "my-pcs-0-prefill-1", entries[2].Name)
-	assert.Equal(t, map[string]int32{"prefill": 1}, entries[2].PodCliqueScalingGroups)
+	assert.Equal(t, map[string][]int32{"prefill": {2}}, entries[2].PCSGReplicaIndices)
 }
 
 func TestGetPodGangPCSReplicaIndex(t *testing.T) {
@@ -690,7 +689,7 @@ func TestSyncSteadyStateEntries_Integration(t *testing.T) {
 			Status: grovecorev1alpha1.PodCliqueStatus{PodGangMapping: mapping},
 		}
 	}
-	pcsg := func(mapping map[string]int32) *grovecorev1alpha1.PodCliqueScalingGroup {
+	pcsg := func(mapping map[string][]int32) *grovecorev1alpha1.PodCliqueScalingGroup {
 		return &grovecorev1alpha1.PodCliqueScalingGroup{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "my-pcs-0-prefill",
@@ -758,7 +757,7 @@ func TestSyncSteadyStateEntries_Integration(t *testing.T) {
 				Name:                       "my-pcs-0-abc12-0",
 				PodCliqueSetGenerationHash: pcsHash,
 				PodCliques:                 map[string]int32{"frontend": 5},
-				PodCliqueScalingGroups:     map[string]int32{"prefill": 2},
+				PCSGReplicaIndices:         map[string][]int32{"prefill": {0, 1}},
 			},
 		})
 
@@ -770,8 +769,8 @@ func TestSyncSteadyStateEntries_Integration(t *testing.T) {
 		got := &grovecorev1alpha1.PodGangMap{}
 		require.NoError(t, cl.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: pcsName + "-0"}, got))
 		require.Len(t, got.Spec.Entries, 1)
-		// PCSG-side count must survive — confirms the follower did not rebuild from a partial owner set.
-		assert.Equal(t, int32(2), got.Spec.Entries[0].PodCliqueScalingGroups["prefill"])
+		// PCSG-side indices must survive — confirms the follower did not rebuild from a partial owner set.
+		assert.Equal(t, []int32{0, 1}, got.Spec.Entries[0].PCSGReplicaIndices["prefill"])
 		assert.Equal(t, int32(5), got.Spec.Entries[0].PodCliques["frontend"])
 	})
 
@@ -782,13 +781,13 @@ func TestSyncSteadyStateEntries_Integration(t *testing.T) {
 		// reseeds — otherwise PGM would lose its PCLQ-side counts and the recreated
 		// PCLQs would seed from a corrupted PGM.
 		pcs := pcsTemplate()
-		pcsgWithStaleMapping := pcsg(map[string]int32{"my-pcs-0-abc12-0": 1})
+		pcsgWithStaleMapping := pcsg(map[string][]int32{"my-pcs-0-abc12-0": {0}})
 		stalePGM := pgmWithEntries([]grovecorev1alpha1.PodGangEntry{
 			{
 				Name:                       "my-pcs-0-abc12-0",
 				PodCliqueSetGenerationHash: pcsHash,
 				PodCliques:                 map[string]int32{"frontend": 5},
-				PodCliqueScalingGroups:     map[string]int32{"prefill": 1},
+				PCSGReplicaIndices:         map[string][]int32{"prefill": {0}},
 			},
 		})
 
@@ -802,7 +801,7 @@ func TestSyncSteadyStateEntries_Integration(t *testing.T) {
 		require.Len(t, got.Spec.Entries, 1)
 		// Standalone PCLQ-side count must survive even though no PCLQ is observed.
 		assert.Equal(t, int32(5), got.Spec.Entries[0].PodCliques["frontend"])
-		assert.Equal(t, int32(1), got.Spec.Entries[0].PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, []int32{0}, got.Spec.Entries[0].PCSGReplicaIndices["prefill"])
 	})
 
 	t.Run("gate open: existing DependsOn preserved, net-new Scaled-PG inherits anchors, ghost dropped", func(t *testing.T) {
@@ -810,9 +809,9 @@ func TestSyncSteadyStateEntries_Integration(t *testing.T) {
 		// Status mappings: standalone PCLQ contributes one MPG; PCSG contributes the same MPG
 		// plus a brand-new Scaled-PG name that is NOT in the existing PGM.
 		pclq := standalonePCLQ(map[string]int32{"my-pcs-0-abc12-0": 5})
-		pcsgInitialised := pcsg(map[string]int32{
-			"my-pcs-0-abc12-0":         1,
-			"my-pcs-0-abc12-prefill-0": 1, // freshly minted Scaled-PG
+		pcsgInitialised := pcsg(map[string][]int32{
+			"my-pcs-0-abc12-0":         {0},
+			"my-pcs-0-abc12-prefill-0": {1}, // freshly minted Scaled-PG
 		})
 		// Stale PGM:
 		//  - real anchor entry "my-pcs-0-abc12-0" with wrong counts (must be overwritten)
@@ -823,7 +822,7 @@ func TestSyncSteadyStateEntries_Integration(t *testing.T) {
 				Name:                       "my-pcs-0-abc12-0",
 				PodCliqueSetGenerationHash: pcsHash,
 				PodCliques:                 map[string]int32{"frontend": 999},
-				PodCliqueScalingGroups:     map[string]int32{"prefill": 999},
+				PCSGReplicaIndices:         map[string][]int32{"prefill": {7, 8, 9}},
 			},
 			{
 				Name:                       "ghost-pg",
@@ -854,12 +853,12 @@ func TestSyncSteadyStateEntries_Integration(t *testing.T) {
 		// my-pcs-0-abc12-0: counts overwritten to status; DependsOn preserved (was nil here).
 		anchor := entryByName["my-pcs-0-abc12-0"]
 		assert.Equal(t, int32(5), anchor.PodCliques["frontend"])
-		assert.Equal(t, int32(1), anchor.PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, []int32{0}, anchor.PCSGReplicaIndices["prefill"])
 		assert.Empty(t, anchor.DependsOn, "anchor MPG retains its empty DependsOn")
 
 		// my-pcs-0-abc12-prefill-0: new entry, DependsOn inherited from the anchor.
 		scaled := entryByName["my-pcs-0-abc12-prefill-0"]
-		assert.Equal(t, int32(1), scaled.PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, []int32{1}, scaled.PCSGReplicaIndices["prefill"])
 		assert.Equal(t, []string{"my-pcs-0-abc12-0"}, scaled.DependsOn)
 	})
 }

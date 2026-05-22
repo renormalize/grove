@@ -317,14 +317,25 @@ func getPodGangPCSReplicaIndex(pg groveschedulerv1alpha1.PodGang, pcsName string
 }
 
 // buildEntryFromPodGang constructs a PodGangEntry from an existing PodGang resource.
-// It maps PodGroups to standalone PCLQ pod counts and PCSG replica counts.
+// It maps PodGroups to standalone PCLQ pod counts and PCSG replica indices. Indices are
+// recovered from the PodGroup name (which is the PCLQ FQN of the form
+// <pcsgFQN>-<pcsgReplicaIndex>-<cliqueName>). Each PCSG replica appears once per constituent
+// clique, so the same index is observed multiple times for one PCSG; we de-duplicate.
 func buildEntryFromPodGang(pcs *grovecorev1alpha1.PodCliqueSet, pcsGenerationHash string, pg groveschedulerv1alpha1.PodGang) (grovecorev1alpha1.PodGangEntry, error) {
+	pcsReplicaIndex, ok := getPodGangPCSReplicaIndex(pg, pcs.Name)
+	if !ok {
+		return grovecorev1alpha1.PodGangEntry{}, fmt.Errorf("cannot determine PCS replica index for PodGang %q", pg.Name)
+	}
+	pcsNameReplica := apicommon.ResourceNameReplica{Name: pcs.Name, Replica: pcsReplicaIndex}
+
 	entry := grovecorev1alpha1.PodGangEntry{
 		Name:                       pg.Name,
 		PodCliqueSetGenerationHash: pcsGenerationHash,
 		PodCliques:                 make(map[string]int32),
-		PodCliqueScalingGroups:     make(map[string]int32),
+		PCSGReplicaIndices:         make(map[string][]int32),
 	}
+
+	pcsgIndexSets := make(map[string]map[int32]struct{})
 
 	for _, podGroup := range pg.Spec.PodGroups {
 		cliqueName, err := extractCliqueName(podGroup.Name, pcs)
@@ -334,26 +345,49 @@ func buildEntryFromPodGang(pcs *grovecorev1alpha1.PodCliqueSet, pcsGenerationHas
 		pcsgConfig := componentutils.FindScalingGroupConfigForClique(pcs.Spec.Template.PodCliqueScalingGroupConfigs, cliqueName)
 		if pcsgConfig == nil {
 			entry.PodCliques[cliqueName] = int32(len(podGroup.PodReferences))
+			continue
 		}
+		pcsgFQN := apicommon.GeneratePodCliqueScalingGroupName(pcsNameReplica, pcsgConfig.Name)
+		idx, err := extractPCSGReplicaIndexFromPCLQFQN(podGroup.Name, pcsgFQN, cliqueName)
+		if err != nil {
+			return grovecorev1alpha1.PodGangEntry{}, err
+		}
+		set, ok := pcsgIndexSets[pcsgConfig.Name]
+		if !ok {
+			set = make(map[int32]struct{})
+			pcsgIndexSets[pcsgConfig.Name] = set
+		}
+		set[idx] = struct{}{}
 	}
 
-	// For PCSGs: count replicas by dividing total PodGroups for this PCSG by number of constituent cliques.
-	for _, pcsgConfig := range pcs.Spec.Template.PodCliqueScalingGroupConfigs {
-		var numPodGroupsForPCSG int32
-		for _, podGroup := range pg.Spec.PodGroups {
-			cliqueName, _ := extractCliqueName(podGroup.Name, pcs)
-			if slices.Contains(pcsgConfig.CliqueNames, cliqueName) {
-				numPodGroupsForPCSG++
-			}
+	for pcsgName, set := range pcsgIndexSets {
+		indices := make([]int32, 0, len(set))
+		for idx := range set {
+			indices = append(indices, idx)
 		}
-		if numPodGroupsForPCSG > 0 {
-			// Each PCSG replica contributes one PodGroup per constituent clique.
-			// So replica count = total PodGroups for this PCSG / number of cliques in the PCSG.
-			entry.PodCliqueScalingGroups[pcsgConfig.Name] = numPodGroupsForPCSG / int32(len(pcsgConfig.CliqueNames))
-		}
+		slices.Sort(indices)
+		entry.PCSGReplicaIndices[pcsgName] = indices
 	}
 
 	return entry, nil
+}
+
+// extractPCSGReplicaIndexFromPCLQFQN parses the PCSG replica index from a PCLQ FQN of the
+// form <pcsgFQN>-<pcsgReplicaIndex>-<cliqueName>. Returns an error if the FQN does not match
+// the expected shape — Grove is the sole writer of these names so a parse failure indicates
+// a contract violation, not a soft skip.
+func extractPCSGReplicaIndexFromPCLQFQN(pclqFQN, pcsgFQN, cliqueName string) (int32, error) {
+	prefix := pcsgFQN + "-"
+	suffix := "-" + cliqueName
+	if !strings.HasPrefix(pclqFQN, prefix) || !strings.HasSuffix(pclqFQN, suffix) {
+		return 0, fmt.Errorf("PCLQ FQN %q does not match expected shape %s<index>%s", pclqFQN, prefix, suffix)
+	}
+	mid := pclqFQN[len(prefix) : len(pclqFQN)-len(suffix)]
+	idx, err := strconv.Atoi(mid)
+	if err != nil {
+		return 0, fmt.Errorf("PCSG replica index in PCLQ FQN %q is not an integer: %w", pclqFQN, err)
+	}
+	return int32(idx), nil
 }
 
 // extractCliqueName extracts the unqualified clique name from a PodGroup name (PCLQ FQN)
@@ -524,7 +558,9 @@ func buildBaseAndScaledPodGangEntries(pcs *grovecorev1alpha1.PodCliqueSet, pcsRe
 }
 
 // buildBasePodGangEntry constructs the Base PodGang entry containing all standalone PCLQs
-// and minAvailable replicas of each PCSG.
+// and minAvailable replicas of each PCSG. The BPG is assigned PCSG replica indices
+// [0, minAvailable) since by convention the lowest indices live in the BPG (the gang-scheduling
+// anchor) and Scaled-PGs hold higher indices.
 func buildBasePodGangEntry(pcs *grovecorev1alpha1.PodCliqueSet, pcsNameReplica apicommon.ResourceNameReplica, pcsGenerationHash string, pclqs []grovecorev1alpha1.PodClique) grovecorev1alpha1.PodGangEntry {
 	bpgPodCliques := make(map[string]int32)
 	for i := range pclqs {
@@ -535,20 +571,28 @@ func buildBasePodGangEntry(pcs *grovecorev1alpha1.PodCliqueSet, pcsNameReplica a
 		bpgPodCliques[cliqueName] = pclqs[i].Spec.Replicas
 	}
 
-	bpgPCSGs := make(map[string]int32)
+	bpgPCSGIndices := make(map[string][]int32)
 	for _, pcsgConfig := range pcs.Spec.Template.PodCliqueScalingGroupConfigs {
-		bpgPCSGs[pcsgConfig.Name] = *pcsgConfig.MinAvailable
+		minAvail := *pcsgConfig.MinAvailable
+		indices := make([]int32, 0, minAvail)
+		for i := int32(0); i < minAvail; i++ {
+			indices = append(indices, i)
+		}
+		bpgPCSGIndices[pcsgConfig.Name] = indices
 	}
 
 	return grovecorev1alpha1.PodGangEntry{
 		Name:                       apicommon.GenerateBasePodGangName(pcsNameReplica),
 		PodCliqueSetGenerationHash: pcsGenerationHash,
 		PodCliques:                 bpgPodCliques,
-		PodCliqueScalingGroups:     bpgPCSGs,
+		PCSGReplicaIndices:         bpgPCSGIndices,
 	}
 }
 
-// buildScaledPodGangEntries constructs Scaled PodGang entries — one per PCSG replica above minAvailable.
+// buildScaledPodGangEntries constructs Scaled PodGang entries — one per PCSG replica above
+// minAvailable. Each Scaled-PG holds exactly one PCSG replica index, drawn sequentially from
+// [minAvailable, currentReplicas) so that BPG indices [0, minAvailable) and Scaled-PG indices
+// [minAvailable, currentReplicas) collectively partition [0, currentReplicas) exactly once.
 func buildScaledPodGangEntries(pcs *grovecorev1alpha1.PodCliqueSet, pcsNameReplica apicommon.ResourceNameReplica, pcsGenerationHash string, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup) []grovecorev1alpha1.PodGangEntry {
 	var entries []grovecorev1alpha1.PodGangEntry
 	bpgName := apicommon.GenerateBasePodGangName(pcsNameReplica)
@@ -557,10 +601,11 @@ func buildScaledPodGangEntries(pcs *grovecorev1alpha1.PodCliqueSet, pcsNameRepli
 		currentReplicas := getPCSGCurrentReplicas(pcsgs, pcsgFQN, pcsgConfig)
 		minAvailable := int(*pcsgConfig.MinAvailable)
 		for spgIndex := 0; spgIndex < currentReplicas-minAvailable; spgIndex++ {
+			pcsgReplicaIndex := int32(minAvailable + spgIndex)
 			entries = append(entries, grovecorev1alpha1.PodGangEntry{
 				Name:                       apicommon.CreatePodGangNameFromPCSGFQN(pcsgFQN, spgIndex),
 				PodCliqueSetGenerationHash: pcsGenerationHash,
-				PodCliqueScalingGroups:     map[string]int32{pcsgConfig.Name: 1},
+				PCSGReplicaIndices:         map[string][]int32{pcsgConfig.Name: {pcsgReplicaIndex}},
 				DependsOn:                  []string{bpgName},
 			})
 		}
@@ -586,36 +631,52 @@ func computeMVUEntriesFromSpec(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIn
 	standalonePCLQReplicas := componentutils.GetStandalonePCLQReplicasFromPCS(pcs)
 	pcsgReplicas := componentutils.GetPCSGReplicasFromPCS(pcs)
 
+	// Build the initial PCSG index pool: for each PCSG, [0, totalReplicas) sorted ascending.
+	// MVU PodGangs and Tail-PGs draw the lowest indices first as they are popped.
+	pcsgIndexPool := make(map[string][]int32, len(pcsgReplicas))
+	for name, total := range pcsgReplicas {
+		indices := make([]int32, 0, total)
+		for i := int32(0); i < total; i++ {
+			indices = append(indices, i)
+		}
+		pcsgIndexPool[name] = indices
+	}
+
 	var podGangIndex int32
 	entryBuilder := componentutils.NewPodGangEntryBuilder(pcs.Name, int32(pcsReplicaIndex), pcsGenerationHash, &podGangIndex)
-	return computeAllMVUPodGangEntries(template, standalonePCLQReplicas, pcsgReplicas, entryBuilder)
+	return computeAllMVUPodGangEntries(template, standalonePCLQReplicas, pcsgIndexPool, entryBuilder)
 }
 
 // computeAllMVUPodGangEntries computes all MPG and Tail-PG entries by distributing
-// the given standalone PCLQ replicas and PCSG replicas into MVU PodGangs.
+// the given standalone PCLQ pod counts and PCSG replica indices into MVU PodGangs.
+//
+// pcsgIndexPool is mutated in place: indices are popped from the head of each slice as
+// MVU PodGangs and Tail-PGs claim them.
 func computeAllMVUPodGangEntries(
 	template componentutils.MVUTemplate,
 	standalonePCLQReplicas map[string]int32,
-	pcsgReplicas map[string]int32,
+	pcsgIndexPool map[string][]int32,
 	entryBuilder componentutils.PodGangEntryBuilder,
 ) []grovecorev1alpha1.PodGangEntry {
 	var entries []grovecorev1alpha1.PodGangEntry
 	var mpgNames []string
 
-	canFormAnotherMVU := canFormMVUFromRemainingReplicas(template, standalonePCLQReplicas, pcsgReplicas)
+	canFormAnotherMVU := canFormMVUFromRemainingReplicas(template, standalonePCLQReplicas, pcsgIndexPool)
 	for canFormAnotherMVU {
 		mvuPCLQs := make(map[string]int32)
 		for name, minAvail := range template.StandalonePCLQs {
 			mvuPCLQs[name] = minAvail
 			standalonePCLQReplicas[name] -= minAvail
 		}
-		mvuPCSGs := make(map[string]int32)
+		mvuPCSGIndices := make(map[string][]int32, len(template.PCSGs))
 		for name, minAvail := range template.PCSGs {
-			mvuPCSGs[name] = minAvail
-			pcsgReplicas[name] -= minAvail
+			pool := pcsgIndexPool[name]
+			taken := append([]int32(nil), pool[:minAvail]...)
+			pcsgIndexPool[name] = pool[minAvail:]
+			mvuPCSGIndices[name] = taken
 		}
 
-		canFormAnotherMVU = canFormMVUFromRemainingReplicas(template, standalonePCLQReplicas, pcsgReplicas)
+		canFormAnotherMVU = canFormMVUFromRemainingReplicas(template, standalonePCLQReplicas, pcsgIndexPool)
 		if !canFormAnotherMVU {
 			for name := range template.StandalonePCLQs {
 				if standalonePCLQReplicas[name] > 0 {
@@ -625,15 +686,17 @@ func computeAllMVUPodGangEntries(
 			}
 		}
 
-		mpgEntry := entryBuilder(mvuPCLQs, mvuPCSGs, nil)
+		mpgEntry := entryBuilder(mvuPCLQs, mvuPCSGIndices, nil)
 		mpgNames = append(mpgNames, mpgEntry.Name)
 		entries = append(entries, mpgEntry)
 	}
 
 	for name := range template.PCSGs {
-		for pcsgReplicas[name] > 0 {
-			entries = append(entries, entryBuilder(nil, map[string]int32{name: 1}, mpgNames))
-			pcsgReplicas[name]--
+		for len(pcsgIndexPool[name]) > 0 {
+			pool := pcsgIndexPool[name]
+			taken := []int32{pool[0]}
+			pcsgIndexPool[name] = pool[1:]
+			entries = append(entries, entryBuilder(nil, map[string][]int32{name: taken}, mpgNames))
 		}
 	}
 
@@ -641,7 +704,7 @@ func computeAllMVUPodGangEntries(
 }
 
 // canFormMVUFromRemainingReplicas checks if there are enough remaining replicas to form a complete MVU PodGang.
-func canFormMVUFromRemainingReplicas(template componentutils.MVUTemplate, standalonePCLQReplicas, pcsgReplicas map[string]int32) bool {
+func canFormMVUFromRemainingReplicas(template componentutils.MVUTemplate, standalonePCLQReplicas map[string]int32, pcsgIndexPool map[string][]int32) bool {
 	if len(template.StandalonePCLQs) == 0 && len(template.PCSGs) == 0 {
 		return false
 	}
@@ -651,7 +714,7 @@ func canFormMVUFromRemainingReplicas(template componentutils.MVUTemplate, standa
 		}
 	}
 	for name, minAvail := range template.PCSGs {
-		if pcsgReplicas[name] < minAvail {
+		if int32(len(pcsgIndexPool[name])) < minAvail {
 			return false
 		}
 	}
@@ -716,7 +779,7 @@ func buildEntriesFromStatuses(existingEntries []grovecorev1alpha1.PodGangEntry, 
 	}
 	for _, pcsg := range pcsgs {
 		pcsgConfigName := apicommon.ExtractScalingGroupNameFromPCSGFQN(pcsg.Name, pcsNameReplica)
-		for pgName, replicaCount := range pcsg.Status.PodGangMapping {
+		for pgName, replicaIndices := range pcsg.Status.PodGangMapping {
 			entry, ok := entryByName[pgName]
 			if !ok {
 				entry = &grovecorev1alpha1.PodGangEntry{
@@ -726,10 +789,12 @@ func buildEntriesFromStatuses(existingEntries []grovecorev1alpha1.PodGangEntry, 
 				}
 				entryByName[pgName] = entry
 			}
-			if entry.PodCliqueScalingGroups == nil {
-				entry.PodCliqueScalingGroups = make(map[string]int32)
+			if entry.PCSGReplicaIndices == nil {
+				entry.PCSGReplicaIndices = make(map[string][]int32)
 			}
-			entry.PodCliqueScalingGroups[pcsgConfigName] = replicaCount
+			indices := slices.Clone(replicaIndices)
+			slices.Sort(indices)
+			entry.PCSGReplicaIndices[pcsgConfigName] = indices
 		}
 	}
 

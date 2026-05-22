@@ -64,15 +64,17 @@ spec:
                       description: Name is the name of the PodGang this entry corresponds
                         to.
                       type: string
-                    podCliqueScalingGroups:
+                    pcsgReplicaIndices:
                       additionalProperties:
-                        format: int32
-                        type: integer
+                        items:
+                          format: int32
+                          type: integer
+                        type: array
                       description: |-
-                        PodCliqueScalingGroups maps PodCliqueScalingGroup name to the number of replicas of that
-                        PodCliqueScalingGroup that belong to this PodGang. A PodClique reconciler for a
-                        PodCliqueScalingGroup-owned PodClique uses this field to find its target PodGang by looking
-                        up its owning PodCliqueScalingGroup name here.
+                        PCSGReplicaIndices maps PodCliqueScalingGroup config name to the PCSG replica indices
+                        that belong to this PodGang. The number of replicas is len(slice). Indices are stable
+                        identities that survive entry reshuffles, so a PodClique reconciler for a PodCliqueScalingGroup-
+                        owned PodClique can find its target PodGang by looking up its replica index here.
                       type: object
                     podCliqueSetGenerationHash:
                       description: |-
@@ -88,7 +90,7 @@ spec:
                         PodCliques maps standalone PodClique name to the number of pods that belong to this PodGang.
                         Only standalone PodCliques (not owned by a PodCliqueScalingGroup) are listed here.
                         PodCliques owned by a PodCliqueScalingGroup derive their PodGang association via
-                        PodCliqueScalingGroups below.
+                        PCSGReplicaIndices below.
                       type: object
                   required:
                   - name

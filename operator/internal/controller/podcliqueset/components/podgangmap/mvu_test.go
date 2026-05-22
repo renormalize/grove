@@ -18,6 +18,7 @@ package podgangmap
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
@@ -50,7 +51,7 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQUpdated(t *testing.T) {
 		pcsgs:           map[string]int32{},
 	}
 	oldEntries := []grovecorev1alpha1.PodGangEntry{
-		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5}, PodCliqueScalingGroups: map[string]int32{"prefill": 1, "decode": 1}},
+		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5}, PCSGReplicaIndices: map[string][]int32{"prefill": {0}, "decode": {0}}},
 	}
 	counter := 0
 	builder := makeTestEntryBuilder(&counter)
@@ -60,7 +61,7 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQUpdated(t *testing.T) {
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
-	assert.Empty(t, state.newEntries[0].PodCliqueScalingGroups)
+	assert.Empty(t, state.newEntries[0].PCSGReplicaIndices)
 	require.Len(t, state.oldEntries, 1)
 	assert.Equal(t, int32(3), state.oldEntries[0].PodCliques["frontend"])
 
@@ -69,10 +70,10 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQUpdated(t *testing.T) {
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(3), state.newEntries[0].PodCliques["frontend"])
-	// BPG still has P:1, D:1 so it's not removed
+	// BPG still has Prefill:[0], Decode:[0] so it's not removed
 	require.Len(t, state.oldEntries, 1)
 	assert.Equal(t, int32(0), state.oldEntries[0].PodCliques["frontend"])
-	assert.Equal(t, int32(1), state.oldEntries[0].PodCliqueScalingGroups["prefill"])
+	assert.Equal(t, []int32{0}, state.oldEntries[0].PCSGReplicaIndices["prefill"])
 
 	// Iteration 3: done (no PCSGs in template, remaining F=0)
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
@@ -148,35 +149,36 @@ func TestComputeNextPodGangMapState_SinglePCSGUpdated(t *testing.T) {
 		pcsgs:           map[string]int32{"prefill": 1},
 	}
 	oldEntries := []grovecorev1alpha1.PodGangEntry{
-		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5}, PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-3", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
+		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5}, PCSGReplicaIndices: map[string][]int32{"prefill": {0}}},
+		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {1}}},
+		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {2}}},
+		{Name: "spg-3", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {3}}},
 	}
 	counter := 0
 	builder := makeTestEntryBuilder(&counter)
 
-	// Iteration 1: takes from bpg-0 (lowest index)
+	// Iteration 1: takes index 0 from bpg-0 (lowest index in slice order).
 	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
-	// bpg-0 has P:0 but still has F:5, so it remains. SPGs still have P:1 each.
+	assert.Equal(t, []int32{0}, state.newEntries[0].PCSGReplicaIndices["prefill"])
+	// bpg-0 has prefill emptied but still has F:5, so it remains. SPGs still have their indices.
 	require.Len(t, state.oldEntries, 4)
 
-	// Iterations 2-4: each takes from next lowest SPG
-	for i := range 3 {
+	// Iterations 2-4: each takes the next index from the next SPG (1, 2, 3).
+	expectedIndices := []int32{1, 2, 3}
+	for i, expected := range expectedIndices {
 		state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 		require.False(t, state.done, "iteration %d should not be done", i+2)
 		require.Len(t, state.newEntries, 1)
-		assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, []int32{expected}, state.newEntries[0].PCSGReplicaIndices["prefill"])
 	}
 
-	// After 4 iterations: only bpg-0 with F:5 remains (no prefill left anywhere)
+	// After 4 iterations: only bpg-0 with F:5 remains (no prefill left anywhere).
 	require.Len(t, state.oldEntries, 1)
 	assert.Equal(t, int32(5), state.oldEntries[0].PodCliques["frontend"])
 
-	// Iteration 5: done
+	// Iteration 5: done.
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
@@ -205,33 +207,35 @@ func TestComputeNextPodGangMapState_MultiplePCSGsUpdated(t *testing.T) {
 		pcsgs:           map[string]int32{"prefill": 1, "decode": 1},
 	}
 	oldEntries := []grovecorev1alpha1.PodGangEntry{
-		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5}, PodCliqueScalingGroups: map[string]int32{"prefill": 1, "decode": 1}},
-		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-3", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-4", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"decode": 1}},
-		{Name: "spg-5", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"decode": 1}},
+		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5}, PCSGReplicaIndices: map[string][]int32{"prefill": {0}, "decode": {0}}},
+		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {1}}},
+		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {2}}},
+		{Name: "spg-3", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {3}}},
+		{Name: "spg-4", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"decode": {1}}},
+		{Name: "spg-5", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"decode": {2}}},
 	}
 	counter := 0
 	builder := makeTestEntryBuilder(&counter)
 
-	// Iterations 1-3: MVU {P:1, D:1}
+	// Iterations 1-3: MVU pulls prefill index 0,1,2 (in that order) and decode 0,1,2.
+	expectedPrefill := []int32{0, 1, 2}
+	expectedDecode := []int32{0, 1, 2}
 	state := podGangMapState{oldEntries: oldEntries}
 	for i := range 3 {
 		state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 		require.False(t, state.done, "iteration %d should not be done", i+1)
 		require.Len(t, state.newEntries, 1)
-		assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
-		assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["decode"])
+		assert.Equal(t, []int32{expectedPrefill[i]}, state.newEntries[0].PCSGReplicaIndices["prefill"])
+		assert.Equal(t, []int32{expectedDecode[i]}, state.newEntries[0].PCSGReplicaIndices["decode"])
 	}
 
-	// Iteration 4: cannot form MVU (D=0 < 1). Tail-PG: {P:1}
+	// Iteration 4: cannot form MVU (decode exhausted). Tail-PG with prefill=[3].
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
+	assert.Equal(t, []int32{3}, state.newEntries[0].PCSGReplicaIndices["prefill"])
 
-	// Iteration 5: done
+	// Iteration 5: done.
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
@@ -261,38 +265,43 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQAndSinglePCSGUpdated(t *
 		pcsgs:           map[string]int32{"prefill": 1},
 	}
 	oldEntries := []grovecorev1alpha1.PodGangEntry{
-		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5}, PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-3", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
+		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5}, PCSGReplicaIndices: map[string][]int32{"prefill": {0}}},
+		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {1}}},
+		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {2}}},
+		{Name: "spg-3", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {3}}},
 	}
 	counter := 0
 	builder := makeTestEntryBuilder(&counter)
 
-	// Iteration 1
+	// Iteration 1: MVU pulls prefill[0] from BPG.
 	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
+	assert.Equal(t, []int32{0}, state.newEntries[0].PCSGReplicaIndices["prefill"])
 
-	// Iteration 2: absorbs remaining 1F
+	// Iteration 2: MVU pulls prefill[1] from spg-1, absorbs remaining 1F.
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(3), state.newEntries[0].PodCliques["frontend"])
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
+	assert.Equal(t, []int32{1}, state.newEntries[0].PCSGReplicaIndices["prefill"])
 
-	// Iteration 3: Tail-PGs
+	// Iteration 3: Tail-PGs for prefill[2] and prefill[3].
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 2)
+	tailIndices := []int32{
+		state.newEntries[0].PCSGReplicaIndices["prefill"][0],
+		state.newEntries[1].PCSGReplicaIndices["prefill"][0],
+	}
+	slices.Sort(tailIndices)
+	assert.Equal(t, []int32{2, 3}, tailIndices)
 	for _, e := range state.newEntries {
-		assert.Equal(t, int32(1), e.PodCliqueScalingGroups["prefill"])
 		assert.Empty(t, e.PodCliques)
 	}
 
-	// Iteration 4: done
+	// Iteration 4: done.
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
@@ -322,50 +331,47 @@ func TestComputeNextPodGangMapState_SingleStandalonePCLQAndMultiplePCSGsUpdated(
 		pcsgs:           map[string]int32{"prefill": 1, "decode": 1},
 	}
 	oldEntries := []grovecorev1alpha1.PodGangEntry{
-		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5}, PodCliqueScalingGroups: map[string]int32{"prefill": 1, "decode": 1}},
-		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-3", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-4", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"decode": 1}},
-		{Name: "spg-5", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"decode": 1}},
+		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5}, PCSGReplicaIndices: map[string][]int32{"prefill": {0}, "decode": {0}}},
+		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {1}}},
+		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {2}}},
+		{Name: "spg-3", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {3}}},
+		{Name: "spg-4", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"decode": {1}}},
+		{Name: "spg-5", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"decode": {2}}},
 	}
 	counter := 0
 	builder := makeTestEntryBuilder(&counter)
 
-	// Iteration 1
+	// Iteration 1: MVU pulls prefill[0], decode[0] from BPG; F=2.
 	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["decode"])
+	assert.Equal(t, []int32{0}, state.newEntries[0].PCSGReplicaIndices["prefill"])
+	assert.Equal(t, []int32{0}, state.newEntries[0].PCSGReplicaIndices["decode"])
 
-	// Iteration 2: absorbs remaining 1F
+	// Iteration 2: MVU pulls prefill[1] from spg-1, decode[1] from spg-4; absorbs remaining 1F.
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(3), state.newEntries[0].PodCliques["frontend"])
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["decode"])
+	assert.Equal(t, []int32{1}, state.newEntries[0].PCSGReplicaIndices["prefill"])
+	assert.Equal(t, []int32{1}, state.newEntries[0].PCSGReplicaIndices["decode"])
 
-	// Iteration 3: Tail-PGs
+	// Iteration 3: Tail-PGs for prefill[2], prefill[3], decode[2].
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 3)
-	prefillTails := 0
-	decodeTails := 0
+	prefillTailIndices, decodeTailIndices := []int32{}, []int32{}
 	for _, e := range state.newEntries {
-		if e.PodCliqueScalingGroups["prefill"] == 1 {
-			prefillTails++
-		}
-		if e.PodCliqueScalingGroups["decode"] == 1 {
-			decodeTails++
-		}
+		prefillTailIndices = append(prefillTailIndices, e.PCSGReplicaIndices["prefill"]...)
+		decodeTailIndices = append(decodeTailIndices, e.PCSGReplicaIndices["decode"]...)
 	}
-	assert.Equal(t, 2, prefillTails)
-	assert.Equal(t, 1, decodeTails)
+	slices.Sort(prefillTailIndices)
+	slices.Sort(decodeTailIndices)
+	assert.Equal(t, []int32{2, 3}, prefillTailIndices)
+	assert.Equal(t, []int32{2}, decodeTailIndices)
 
-	// Iteration 4: done
+	// Iteration 4: done.
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
@@ -395,40 +401,45 @@ func TestComputeNextPodGangMapState_MultipleStandalonePCLQsAndSinglePCSGUpdated(
 		pcsgs:           map[string]int32{"prefill": 1},
 	}
 	oldEntries := []grovecorev1alpha1.PodGangEntry{
-		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5, "backend": 3}, PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-3", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
+		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5, "backend": 3}, PCSGReplicaIndices: map[string][]int32{"prefill": {0}}},
+		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {1}}},
+		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {2}}},
+		{Name: "spg-3", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {3}}},
 	}
 	counter := 0
 	builder := makeTestEntryBuilder(&counter)
 
-	// Iteration 1
+	// Iteration 1: MVU {F:2, B:1, prefill[0]}.
 	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
 	assert.Equal(t, int32(1), state.newEntries[0].PodCliques["backend"])
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
+	assert.Equal(t, []int32{0}, state.newEntries[0].PCSGReplicaIndices["prefill"])
 
-	// Iteration 2: absorbs F=1, B=1
+	// Iteration 2: absorbs F=1, B=1; takes prefill[1] from spg-1.
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(3), state.newEntries[0].PodCliques["frontend"])
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["backend"])
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
+	assert.Equal(t, []int32{1}, state.newEntries[0].PCSGReplicaIndices["prefill"])
 
-	// Iteration 3: Tail-PGs
+	// Iteration 3: Tail-PGs for prefill[2] and prefill[3].
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 2)
+	tailIndices := []int32{
+		state.newEntries[0].PCSGReplicaIndices["prefill"][0],
+		state.newEntries[1].PCSGReplicaIndices["prefill"][0],
+	}
+	slices.Sort(tailIndices)
+	assert.Equal(t, []int32{2, 3}, tailIndices)
 	for _, e := range state.newEntries {
-		assert.Equal(t, int32(1), e.PodCliqueScalingGroups["prefill"])
 		assert.Empty(t, e.PodCliques)
 	}
 
-	// Iteration 4: done
+	// Iteration 4: done.
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
@@ -457,52 +468,49 @@ func TestComputeNextPodGangMapState_MultipleStandalonePCLQsAndMultiplePCSGsUpdat
 		pcsgs:           map[string]int32{"prefill": 1, "decode": 1},
 	}
 	oldEntries := []grovecorev1alpha1.PodGangEntry{
-		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5, "backend": 3}, PodCliqueScalingGroups: map[string]int32{"prefill": 1, "decode": 1}},
-		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-3", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-4", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"decode": 1}},
-		{Name: "spg-5", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"decode": 1}},
+		{Name: "bpg-0", PodCliqueSetGenerationHash: "old-hash", PodCliques: map[string]int32{"frontend": 5, "backend": 3}, PCSGReplicaIndices: map[string][]int32{"prefill": {0}, "decode": {0}}},
+		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {1}}},
+		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {2}}},
+		{Name: "spg-3", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {3}}},
+		{Name: "spg-4", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"decode": {1}}},
+		{Name: "spg-5", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"decode": {2}}},
 	}
 	counter := 0
 	builder := makeTestEntryBuilder(&counter)
 
-	// Iteration 1
+	// Iteration 1: MVU pulls F=2, B=1, prefill[0], decode[0].
 	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["frontend"])
 	assert.Equal(t, int32(1), state.newEntries[0].PodCliques["backend"])
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["decode"])
+	assert.Equal(t, []int32{0}, state.newEntries[0].PCSGReplicaIndices["prefill"])
+	assert.Equal(t, []int32{0}, state.newEntries[0].PCSGReplicaIndices["decode"])
 
-	// Iteration 2: absorbs F=1, B=1
+	// Iteration 2: absorbs F=1, B=1; pulls prefill[1] from spg-1, decode[1] from spg-4.
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 1)
 	assert.Equal(t, int32(3), state.newEntries[0].PodCliques["frontend"])
 	assert.Equal(t, int32(2), state.newEntries[0].PodCliques["backend"])
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["prefill"])
-	assert.Equal(t, int32(1), state.newEntries[0].PodCliqueScalingGroups["decode"])
+	assert.Equal(t, []int32{1}, state.newEntries[0].PCSGReplicaIndices["prefill"])
+	assert.Equal(t, []int32{1}, state.newEntries[0].PCSGReplicaIndices["decode"])
 
-	// Iteration 3: Tail-PGs
+	// Iteration 3: Tail-PGs prefill[2], prefill[3], decode[2].
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 3)
-	prefillTails := 0
-	decodeTails := 0
+	prefillTailIndices, decodeTailIndices := []int32{}, []int32{}
 	for _, e := range state.newEntries {
-		if e.PodCliqueScalingGroups["prefill"] == 1 {
-			prefillTails++
-		}
-		if e.PodCliqueScalingGroups["decode"] == 1 {
-			decodeTails++
-		}
+		prefillTailIndices = append(prefillTailIndices, e.PCSGReplicaIndices["prefill"]...)
+		decodeTailIndices = append(decodeTailIndices, e.PCSGReplicaIndices["decode"]...)
 	}
-	assert.Equal(t, 2, prefillTails)
-	assert.Equal(t, 1, decodeTails)
+	slices.Sort(prefillTailIndices)
+	slices.Sort(decodeTailIndices)
+	assert.Equal(t, []int32{2, 3}, prefillTailIndices)
+	assert.Equal(t, []int32{2}, decodeTailIndices)
 
-	// Iteration 4: done
+	// Iteration 4: done.
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
@@ -588,23 +596,28 @@ func TestComputeNextPodGangMapState_OnlyTailPGsFromStart(t *testing.T) {
 		pcsgs:           map[string]int32{"prefill": 1},
 	}
 	oldEntries := []grovecorev1alpha1.PodGangEntry{
-		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
-		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PodCliqueScalingGroups: map[string]int32{"prefill": 1}},
+		{Name: "spg-1", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {0}}},
+		{Name: "spg-2", PodCliqueSetGenerationHash: "old-hash", PCSGReplicaIndices: map[string][]int32{"prefill": {1}}},
 	}
 	counter := 0
 	builder := makeTestEntryBuilder(&counter)
 
-	// Cannot form MVU (F=0 < 2). Directly produces Tail-PGs.
+	// Cannot form MVU (F=0 < 2). Directly produces Tail-PGs for prefill[0] and prefill[1].
 	state := computeNextPodGangMapState(template, oldEntries, nil, builder)
 	require.False(t, state.done)
 	require.Len(t, state.newEntries, 2)
+	tailIndices := []int32{
+		state.newEntries[0].PCSGReplicaIndices["prefill"][0],
+		state.newEntries[1].PCSGReplicaIndices["prefill"][0],
+	}
+	slices.Sort(tailIndices)
+	assert.Equal(t, []int32{0, 1}, tailIndices)
 	for _, e := range state.newEntries {
-		assert.Equal(t, int32(1), e.PodCliqueScalingGroups["prefill"])
 		assert.Empty(t, e.PodCliques)
 	}
 	assert.Empty(t, state.oldEntries)
 
-	// Next call: done
+	// Next call: done.
 	state = computeNextPodGangMapState(template, state.oldEntries, nil, builder)
 	assert.True(t, state.done)
 	assert.Nil(t, state.newEntries)
@@ -667,17 +680,266 @@ func TestComputeNextPodGangMapState_DeductsFromLowestIndexFirst(t *testing.T) {
 }
 
 // makeTestEntryBuilder creates a simple entryBuilder that produces entries with an incrementing
-// name and the given composition.
+// name and the given composition. PCSG content is supplied as an explicit slice of replica
+// indices (not a count), matching the post-refactor PodGangEntryBuilder signature.
 func makeTestEntryBuilder(counter *int) componentutils.PodGangEntryBuilder {
-	return func(standalonePCLQPods map[string]int32, pcsgReplicas map[string]int32, dependsOn []string) grovecorev1alpha1.PodGangEntry {
+	return func(standalonePCLQPods map[string]int32, pcsgReplicaIndices map[string][]int32, dependsOn []string) grovecorev1alpha1.PodGangEntry {
 		name := fmt.Sprintf("mvu-%d", *counter)
 		*counter++
 		return grovecorev1alpha1.PodGangEntry{
 			Name:                       name,
 			PodCliqueSetGenerationHash: "new-hash",
 			PodCliques:                 standalonePCLQPods,
-			PodCliqueScalingGroups:     pcsgReplicas,
+			PCSGReplicaIndices:         pcsgReplicaIndices,
 			DependsOn:                  dependsOn,
 		}
 	}
+}
+
+// TestPopPCSGIndicesFromOldEntries_SingleEntryEnoughReplicas pops indices from a single entry
+// that holds enough replicas. Verifies smallest indices are popped first and the entry's
+// slice has them removed.
+func TestPopPCSGIndicesFromOldEntries_SingleEntryEnoughReplicas(t *testing.T) {
+	entries := []grovecorev1alpha1.PodGangEntry{
+		{Name: "old-0", PCSGReplicaIndices: map[string][]int32{"sg": {0, 1, 2, 3}}},
+	}
+
+	mutated, taken := popPCSGIndicesFromOldEntries(entries, "sg", 2)
+
+	assert.Equal(t, []int32{0, 1}, taken, "should pop the two smallest indices")
+	require.Len(t, mutated, 1)
+	assert.Equal(t, []int32{2, 3}, mutated[0].PCSGReplicaIndices["sg"], "remaining indices should be the larger ones")
+}
+
+// TestPopPCSGIndicesFromOldEntries_AcrossMultipleEntries pops indices spanning multiple
+// entries. Verifies the walk takes the smallest indices from the first entry before moving
+// to the next, and that the returned slice is sorted across entries.
+func TestPopPCSGIndicesFromOldEntries_AcrossMultipleEntries(t *testing.T) {
+	entries := []grovecorev1alpha1.PodGangEntry{
+		{Name: "old-0", PCSGReplicaIndices: map[string][]int32{"sg": {0, 5}}},
+		{Name: "old-1", PCSGReplicaIndices: map[string][]int32{"sg": {2, 7}}},
+		{Name: "old-2", PCSGReplicaIndices: map[string][]int32{"sg": {3}}},
+	}
+
+	mutated, taken := popPCSGIndicesFromOldEntries(entries, "sg", 4)
+
+	// take min(4,2)=2 from old-0 → [0,5], remaining 2; take min(2,2)=2 from old-1 → [2,7],
+	// remaining 0. Final taken (sorted): [0, 2, 5, 7].
+	assert.Equal(t, []int32{0, 2, 5, 7}, taken)
+	assert.Empty(t, mutated[0].PCSGReplicaIndices["sg"])
+	assert.Empty(t, mutated[1].PCSGReplicaIndices["sg"])
+	assert.Equal(t, []int32{3}, mutated[2].PCSGReplicaIndices["sg"], "third entry untouched")
+}
+
+// TestPopPCSGIndicesFromOldEntries_PartialFromEntry confirms that when an entry has more
+// indices than needed, only the smallest are taken and the rest stay.
+func TestPopPCSGIndicesFromOldEntries_PartialFromEntry(t *testing.T) {
+	entries := []grovecorev1alpha1.PodGangEntry{
+		{Name: "old-0", PCSGReplicaIndices: map[string][]int32{"sg": {1, 4, 8}}},
+	}
+
+	_, taken := popPCSGIndicesFromOldEntries(entries, "sg", 1)
+
+	assert.Equal(t, []int32{1}, taken)
+	assert.Equal(t, []int32{4, 8}, entries[0].PCSGReplicaIndices["sg"])
+}
+
+// TestPopPCSGIndicesFromOldEntries_FewerAvailableThanRequested asks for more than is
+// available. Verifies it returns whatever's there without erroring.
+func TestPopPCSGIndicesFromOldEntries_FewerAvailableThanRequested(t *testing.T) {
+	entries := []grovecorev1alpha1.PodGangEntry{
+		{Name: "old-0", PCSGReplicaIndices: map[string][]int32{"sg": {2}}},
+	}
+
+	_, taken := popPCSGIndicesFromOldEntries(entries, "sg", 5)
+
+	assert.Equal(t, []int32{2}, taken)
+	assert.Empty(t, entries[0].PCSGReplicaIndices["sg"])
+}
+
+// TestPopPCSGIndicesFromOldEntries_UnsortedSliceWithinEntry confirms defensive sorting:
+// even if an entry's slice is unsorted on entry, the function pops the smallest first.
+func TestPopPCSGIndicesFromOldEntries_UnsortedSliceWithinEntry(t *testing.T) {
+	entries := []grovecorev1alpha1.PodGangEntry{
+		{Name: "old-0", PCSGReplicaIndices: map[string][]int32{"sg": {7, 2, 5}}},
+	}
+
+	_, taken := popPCSGIndicesFromOldEntries(entries, "sg", 2)
+
+	assert.Equal(t, []int32{2, 5}, taken, "should pop the two smallest regardless of input order")
+	assert.Equal(t, []int32{7}, entries[0].PCSGReplicaIndices["sg"])
+}
+
+// TestPopPCSGIndicesFromOldEntries_DifferentPCSGUntouched confirms that popping for one
+// PCSG does not disturb other PCSGs' index slices on the same entry.
+func TestPopPCSGIndicesFromOldEntries_DifferentPCSGUntouched(t *testing.T) {
+	entries := []grovecorev1alpha1.PodGangEntry{
+		{Name: "old-0", PCSGReplicaIndices: map[string][]int32{"sg-a": {0, 1}, "sg-b": {0, 1}}},
+	}
+
+	_, taken := popPCSGIndicesFromOldEntries(entries, "sg-a", 1)
+
+	assert.Equal(t, []int32{0}, taken)
+	assert.Equal(t, []int32{1}, entries[0].PCSGReplicaIndices["sg-a"])
+	assert.Equal(t, []int32{0, 1}, entries[0].PCSGReplicaIndices["sg-b"], "sg-b unchanged")
+}
+
+// TestPopPCSGIndicesFromOldEntries_ZeroCount popping zero indices is a no-op.
+func TestPopPCSGIndicesFromOldEntries_ZeroCount(t *testing.T) {
+	entries := []grovecorev1alpha1.PodGangEntry{
+		{Name: "old-0", PCSGReplicaIndices: map[string][]int32{"sg": {0, 1, 2}}},
+	}
+
+	_, taken := popPCSGIndicesFromOldEntries(entries, "sg", 0)
+
+	assert.Empty(t, taken)
+	assert.Equal(t, []int32{0, 1, 2}, entries[0].PCSGReplicaIndices["sg"], "entry untouched")
+}
+
+// TestSumPCSGReplicasInEntries_SumsLengthsAcrossEntries verifies sum is computed from slice
+// lengths, not from a separate count.
+func TestSumPCSGReplicasInEntries_SumsLengthsAcrossEntries(t *testing.T) {
+	entries := []grovecorev1alpha1.PodGangEntry{
+		{Name: "e-0", PCSGReplicaIndices: map[string][]int32{"sg": {0, 1}}},
+		{Name: "e-1", PCSGReplicaIndices: map[string][]int32{"sg": {2}}},
+		{Name: "e-2", PCSGReplicaIndices: map[string][]int32{"sg-other": {0}}},
+	}
+
+	assert.Equal(t, int32(3), sumPCSGReplicasInEntries(entries, "sg"))
+	assert.Equal(t, int32(1), sumPCSGReplicasInEntries(entries, "sg-other"))
+	assert.Equal(t, int32(0), sumPCSGReplicasInEntries(entries, "sg-missing"))
+}
+
+// TestRemoveEmptyEntries_KeepsEntriesWithIndicesOrPods verifies an entry stays as long as
+// it has at least one positive PCLQ count or one non-empty PCSG index slice.
+func TestRemoveEmptyEntries_KeepsEntriesWithIndicesOrPods(t *testing.T) {
+	entries := []grovecorev1alpha1.PodGangEntry{
+		{Name: "all-empty", PodCliques: map[string]int32{"f": 0}, PCSGReplicaIndices: map[string][]int32{"sg": {}}},
+		{Name: "has-pclq", PodCliques: map[string]int32{"f": 2}},
+		{Name: "has-pcsg", PCSGReplicaIndices: map[string][]int32{"sg": {3}}},
+		{Name: "all-nil"},
+	}
+
+	out := removeEmptyEntries(entries)
+
+	require.Len(t, out, 2)
+	names := []string{out[0].Name, out[1].Name}
+	assert.Contains(t, names, "has-pclq")
+	assert.Contains(t, names, "has-pcsg")
+}
+
+// TestComputeNextMVUPodGang_AssignsLowestIndicesToMVU verifies that during a coherent
+// update, the MVU PodGang absorbs the LOWEST replica indices from old entries, leaving
+// higher-indexed replicas in old entries (which become Tail-PGs once no further MVU forms).
+//
+// Starting state:
+//
+//	Old BPG: {sg replicas [0]} (minAvailable indices)
+//	Old SPG-0: {sg replicas [1]}
+//	Old SPG-1: {sg replicas [2]}
+//	Old SPG-2: {sg replicas [3]}
+//
+// MVU template requires sg minAvailable=2.
+//
+// Expected after iteration 1:
+//
+//	MVU absorbs sg=[0, 1] (lowest two across BPG and SPG-0).
+//	Old BPG empty (entry removed). SPG-0 empty (removed). SPG-1 and SPG-2 retain [2] and [3].
+func TestComputeNextMVUPodGang_AssignsLowestIndicesToMVU(t *testing.T) {
+	template := mvuTemplate{
+		standalonePCLQs: map[string]int32{},
+		pcsgs:           map[string]int32{"sg": 2},
+	}
+	oldEntries := []grovecorev1alpha1.PodGangEntry{
+		{Name: "bpg-0", PodCliqueSetGenerationHash: "old", PCSGReplicaIndices: map[string][]int32{"sg": {0}}},
+		{Name: "spg-0", PodCliqueSetGenerationHash: "old", PCSGReplicaIndices: map[string][]int32{"sg": {1}}},
+		{Name: "spg-1", PodCliqueSetGenerationHash: "old", PCSGReplicaIndices: map[string][]int32{"sg": {2}}},
+		{Name: "spg-2", PodCliqueSetGenerationHash: "old", PCSGReplicaIndices: map[string][]int32{"sg": {3}}},
+	}
+	counter := 0
+	builder := makeTestEntryBuilder(&counter)
+
+	updatedOld, newEntries := computeNextMVUPodGang(template, oldEntries, builder)
+
+	require.Len(t, newEntries, 1)
+	assert.Equal(t, []int32{0, 1}, newEntries[0].PCSGReplicaIndices["sg"], "MVU should absorb the two lowest indices")
+
+	require.Len(t, updatedOld, 2, "BPG and SPG-0 should be removed (their indices absorbed)")
+	assert.Equal(t, []int32{2}, updatedOld[0].PCSGReplicaIndices["sg"])
+	assert.Equal(t, []int32{3}, updatedOld[1].PCSGReplicaIndices["sg"])
+}
+
+// TestComputeNextMVUPodGang_PCSGAbsorptionDoesNotHappen verifies the documented invariant
+// that PCSG replicas are NOT absorbed beyond what the MVU template requires (only standalone
+// PCLQ pods are absorbed when no more MVU can form). Leftover PCSG replicas should remain
+// in old entries to become Tail-PGs.
+func TestComputeNextMVUPodGang_PCSGAbsorptionDoesNotHappen(t *testing.T) {
+	// Template requires sg=2 plus 2 frontend pods. After this MVU step, only 1 sg replica is
+	// left so another MVU cannot form. Frontend pods (none left here) would be absorbed; sg
+	// replicas must NOT be absorbed.
+	template := mvuTemplate{
+		standalonePCLQs: map[string]int32{"frontend": 2},
+		pcsgs:           map[string]int32{"sg": 2},
+	}
+	oldEntries := []grovecorev1alpha1.PodGangEntry{
+		{Name: "bpg-0", PodCliqueSetGenerationHash: "old", PodCliques: map[string]int32{"frontend": 2}, PCSGReplicaIndices: map[string][]int32{"sg": {0, 1, 2}}},
+	}
+	counter := 0
+	builder := makeTestEntryBuilder(&counter)
+
+	updatedOld, newEntries := computeNextMVUPodGang(template, oldEntries, builder)
+
+	require.Len(t, newEntries, 1)
+	assert.Equal(t, []int32{0, 1}, newEntries[0].PCSGReplicaIndices["sg"], "MVU absorbs only the template-required count")
+	assert.Equal(t, int32(2), newEntries[0].PodCliques["frontend"])
+
+	require.Len(t, updatedOld, 1, "BPG should still hold the leftover sg index")
+	assert.Equal(t, []int32{2}, updatedOld[0].PCSGReplicaIndices["sg"], "leftover sg index stays for Tail-PG")
+}
+
+// TestComputeTailPodGangs_OneEntryPerLeftoverIndex verifies that each leftover PCSG replica
+// becomes its own Tail-PG, with that single index recorded.
+func TestComputeTailPodGangs_OneEntryPerLeftoverIndex(t *testing.T) {
+	template := mvuTemplate{
+		standalonePCLQs: map[string]int32{},
+		pcsgs:           map[string]int32{"sg": 1},
+	}
+	oldEntries := []grovecorev1alpha1.PodGangEntry{
+		{Name: "bpg-0", PodCliqueSetGenerationHash: "old", PCSGReplicaIndices: map[string][]int32{"sg": {2, 3}}},
+		{Name: "spg-0", PodCliqueSetGenerationHash: "old", PCSGReplicaIndices: map[string][]int32{"sg": {5}}},
+	}
+	counter := 0
+	builder := makeTestEntryBuilder(&counter)
+	mpgNames := []string{"mpg-0"}
+
+	updatedOld, newEntries, done := computeTailPodGangs(template, oldEntries, mpgNames, builder)
+
+	assert.False(t, done)
+	require.Len(t, newEntries, 3, "one Tail-PG per leftover replica index")
+	// Tail-PGs are minted in pop order: 2, 3, 5.
+	assert.Equal(t, []int32{2}, newEntries[0].PCSGReplicaIndices["sg"])
+	assert.Equal(t, []int32{3}, newEntries[1].PCSGReplicaIndices["sg"])
+	assert.Equal(t, []int32{5}, newEntries[2].PCSGReplicaIndices["sg"])
+	for _, e := range newEntries {
+		assert.Equal(t, mpgNames, e.DependsOn, "Tail-PGs depend on the supplied MPG names")
+	}
+	assert.Empty(t, updatedOld, "all leftover entries fully drained")
+}
+
+// TestComputeTailPodGangs_DoneWhenNothingLeft confirms the done flag is set when there are
+// no leftover indices to drain.
+func TestComputeTailPodGangs_DoneWhenNothingLeft(t *testing.T) {
+	template := mvuTemplate{
+		standalonePCLQs: map[string]int32{},
+		pcsgs:           map[string]int32{"sg": 1},
+	}
+	oldEntries := []grovecorev1alpha1.PodGangEntry{}
+	counter := 0
+	builder := makeTestEntryBuilder(&counter)
+
+	updatedOld, newEntries, done := computeTailPodGangs(template, oldEntries, nil, builder)
+
+	assert.True(t, done)
+	assert.Nil(t, newEntries)
+	assert.Empty(t, updatedOld)
 }
