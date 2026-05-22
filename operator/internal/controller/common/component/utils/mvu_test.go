@@ -26,7 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-func TestComputeMVUTemplateFromPCS(t *testing.T) {
+func TestComputeMVUTemplateFromPCSTemplateSpec(t *testing.T) {
 	tests := []struct {
 		name                    string
 		pcs                     *grovecorev1alpha1.PodCliqueSet
@@ -92,7 +92,7 @@ func TestComputeMVUTemplateFromPCS(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			template := ComputeMVUTemplateFromPCS(tc.pcs)
+			template := ComputeMVUTemplateFromPCSTemplateSpec(tc.pcs)
 			assert.Equal(t, tc.expectedStandalonePCLQs, template.StandalonePCLQs)
 			assert.Equal(t, tc.expectedPCSGs, template.PCSGs)
 		})
@@ -115,7 +115,7 @@ func TestGetStandalonePCLQReplicasFromSpec(t *testing.T) {
 		},
 	}
 
-	result := GetStandalonePCLQReplicasFromPCS(pcs)
+	result := GetStandalonePCLQReplicasFromPCSTemplateSpec(pcs)
 	assert.Equal(t, map[string]int32{"frontend": 5}, result)
 }
 
@@ -132,7 +132,7 @@ func TestGetPCSGReplicasFromSpec(t *testing.T) {
 		},
 	}
 
-	result := GetPCSGReplicasFromPCS(pcs)
+	result := GetPCSGReplicasFromPCSTemplateSpec(pcs)
 	assert.Equal(t, map[string]int32{"prefill": 4, "decode": 3}, result)
 }
 

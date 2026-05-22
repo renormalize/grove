@@ -35,16 +35,16 @@ type MVUTemplate struct {
 // and PCSG replica indices for the PodGang, and the names of PodGangs this entry depends on.
 type PodGangEntryBuilder func(standalonePCLQReplicas map[string]int32, pcsgReplicaIndices map[string][]int32, dependsOn []string) grovecorev1alpha1.PodGangEntry
 
-// ComputeMVUTemplateFromPCS computes the MVU template for a PCS from its spec.
-func ComputeMVUTemplateFromPCS(pcs *grovecorev1alpha1.PodCliqueSet) MVUTemplate {
+// ComputeMVUTemplateFromPCSTemplateSpec computes the MVU template for a PCS from its spec.
+func ComputeMVUTemplateFromPCSTemplateSpec(pcs *grovecorev1alpha1.PodCliqueSet) MVUTemplate {
 	return MVUTemplate{
-		StandalonePCLQs: GetStandalonePCLQMinAvailableFromPCS(pcs),
-		PCSGs:           GetPCSGMinAvailableFromPCS(pcs),
+		StandalonePCLQs: GetStandalonePCLQMinAvailableFromPCSTemplateSpec(pcs),
+		PCSGs:           GetPCSGMinAvailableFromPCSTemplateSpec(pcs),
 	}
 }
 
-// GetStandalonePCLQMinAvailableFromPCS returns the minAvailable pod count per standalone PCLQ from the PCS spec.
-func GetStandalonePCLQMinAvailableFromPCS(pcs *grovecorev1alpha1.PodCliqueSet) map[string]int32 {
+// GetStandalonePCLQMinAvailableFromPCSTemplateSpec returns the minAvailable pod count per standalone PCLQ from the PCS spec.
+func GetStandalonePCLQMinAvailableFromPCSTemplateSpec(pcs *grovecorev1alpha1.PodCliqueSet) map[string]int32 {
 	result := make(map[string]int32)
 	for _, cliqueTemplate := range pcs.Spec.Template.Cliques {
 		pcsgConfig := FindScalingGroupConfigForClique(pcs.Spec.Template.PodCliqueScalingGroupConfigs, cliqueTemplate.Name)
@@ -55,8 +55,8 @@ func GetStandalonePCLQMinAvailableFromPCS(pcs *grovecorev1alpha1.PodCliqueSet) m
 	return result
 }
 
-// GetStandalonePCLQReplicasFromPCS returns the total replica count per standalone PCLQ from the PCS spec.
-func GetStandalonePCLQReplicasFromPCS(pcs *grovecorev1alpha1.PodCliqueSet) map[string]int32 {
+// GetStandalonePCLQReplicasFromPCSTemplateSpec returns the total replica count per standalone PCLQ from the PCS spec.
+func GetStandalonePCLQReplicasFromPCSTemplateSpec(pcs *grovecorev1alpha1.PodCliqueSet) map[string]int32 {
 	result := make(map[string]int32)
 	for _, cliqueTemplate := range pcs.Spec.Template.Cliques {
 		pcsgConfig := FindScalingGroupConfigForClique(pcs.Spec.Template.PodCliqueScalingGroupConfigs, cliqueTemplate.Name)
@@ -67,8 +67,8 @@ func GetStandalonePCLQReplicasFromPCS(pcs *grovecorev1alpha1.PodCliqueSet) map[s
 	return result
 }
 
-// GetPCSGMinAvailableFromPCS returns the minAvailable replica count per PCSG from the PCS spec.
-func GetPCSGMinAvailableFromPCS(pcs *grovecorev1alpha1.PodCliqueSet) map[string]int32 {
+// GetPCSGMinAvailableFromPCSTemplateSpec returns the minAvailable replica count per PCSG from the PCS spec.
+func GetPCSGMinAvailableFromPCSTemplateSpec(pcs *grovecorev1alpha1.PodCliqueSet) map[string]int32 {
 	result := make(map[string]int32)
 	for _, pcsgConfig := range pcs.Spec.Template.PodCliqueScalingGroupConfigs {
 		result[pcsgConfig.Name] = *pcsgConfig.MinAvailable
@@ -76,8 +76,8 @@ func GetPCSGMinAvailableFromPCS(pcs *grovecorev1alpha1.PodCliqueSet) map[string]
 	return result
 }
 
-// GetPCSGReplicasFromPCS returns the total replica count per PCSG from the PCS spec.
-func GetPCSGReplicasFromPCS(pcs *grovecorev1alpha1.PodCliqueSet) map[string]int32 {
+// GetPCSGReplicasFromPCSTemplateSpec returns the total replica count per PCSG from the PCS spec.
+func GetPCSGReplicasFromPCSTemplateSpec(pcs *grovecorev1alpha1.PodCliqueSet) map[string]int32 {
 	result := make(map[string]int32)
 	for _, pcsgConfig := range pcs.Spec.Template.PodCliqueScalingGroupConfigs {
 		result[pcsgConfig.Name] = *pcsgConfig.Replicas

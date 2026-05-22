@@ -535,7 +535,7 @@ func (r _resource) createPodGangMapForReplica(ctx context.Context, sc *syncConte
 	if !hasMVUPodGangs(sc.pcs) && len(sc.pclqsByReplica[pcsReplicaIndex]) > 0 {
 		entries = buildBaseAndScaledPodGangEntries(sc.pcs, pcsReplicaIndex, sc.pclqsByReplica[pcsReplicaIndex], sc.pcsgsByReplica[pcsReplicaIndex])
 	} else {
-		entries = computeMVUEntriesFromSpec(sc.pcs, pcsReplicaIndex)
+		entries = computeMVUEntriesFromPCSTemplateSpec(sc.pcs, pcsReplicaIndex)
 	}
 	return r.createOrPatchPodGangMap(ctx, sc.pcs, pgmName, pcsReplicaIndex, entries)
 }
@@ -624,12 +624,12 @@ func getPCSGCurrentReplicas(pcsgs []grovecorev1alpha1.PodCliqueScalingGroup, pcs
 	return int(*pcsgConfig.Replicas)
 }
 
-// computeMVUEntriesFromSpec computes all MVU PodGang and Tail-PG entries for a PCS replica from spec.
-func computeMVUEntriesFromSpec(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex int) []grovecorev1alpha1.PodGangEntry {
-	template := componentutils.ComputeMVUTemplateFromPCS(pcs)
+// computeMVUEntriesFromPCSTemplateSpec computes all MVU PodGang and Tail-PG entries for a PCS replica from spec.
+func computeMVUEntriesFromPCSTemplateSpec(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex int) []grovecorev1alpha1.PodGangEntry {
+	template := componentutils.ComputeMVUTemplateFromPCSTemplateSpec(pcs)
 	pcsGenerationHash := *pcs.Status.CurrentGenerationHash
-	standalonePCLQReplicas := componentutils.GetStandalonePCLQReplicasFromPCS(pcs)
-	pcsgReplicas := componentutils.GetPCSGReplicasFromPCS(pcs)
+	standalonePCLQReplicas := componentutils.GetStandalonePCLQReplicasFromPCSTemplateSpec(pcs)
+	pcsgReplicas := componentutils.GetPCSGReplicasFromPCSTemplateSpec(pcs)
 
 	// Build the initial PCSG index pool: for each PCSG, [0, totalReplicas) sorted ascending.
 	// MVU PodGangs and Tail-PGs draw the lowest indices first as they are popped.

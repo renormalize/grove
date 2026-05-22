@@ -387,7 +387,7 @@ func TestComputeMVUEntriesFromSpec(t *testing.T) {
 			nil,
 		)
 
-		entries := computeMVUEntriesFromSpec(pcs, 0)
+		entries := computeMVUEntriesFromPCSTemplateSpec(pcs, 0)
 
 		// 5 replicas, minAvailable=2: 2 full MVUs (2+3 with absorption), 0 Tail-PGs
 		require.Len(t, entries, 2)
@@ -406,7 +406,7 @@ func TestComputeMVUEntriesFromSpec(t *testing.T) {
 			},
 		)
 
-		entries := computeMVUEntriesFromSpec(pcs, 0)
+		entries := computeMVUEntriesFromPCSTemplateSpec(pcs, 0)
 
 		// No standalone PCLQs. PCSG: 4 replicas, minAvail=1. Index pool [0,1,2,3].
 		// MVU iter 1 takes [0]; 3 Tail-PGs take [1], [2], [3] in order.
@@ -430,7 +430,7 @@ func TestComputeMVUEntriesFromSpec(t *testing.T) {
 			},
 		)
 
-		entries := computeMVUEntriesFromSpec(pcs, 0)
+		entries := computeMVUEntriesFromPCSTemplateSpec(pcs, 0)
 
 		// Frontend: 5 pods, minAvail=2. PCSG prefill: 4 replicas, minAvail=1. Pool [0,1,2,3].
 		// MVU template: {frontend: 2, prefill: 1}
@@ -451,7 +451,7 @@ func TestComputeMVUEntriesFromSpec(t *testing.T) {
 	t.Run("empty PCS spec produces no entries", func(t *testing.T) {
 		pcs := newTestPCS("my-pcs", "gen-hash-1", nil, nil)
 
-		entries := computeMVUEntriesFromSpec(pcs, 0)
+		entries := computeMVUEntriesFromPCSTemplateSpec(pcs, 0)
 		assert.Empty(t, entries)
 	})
 }
