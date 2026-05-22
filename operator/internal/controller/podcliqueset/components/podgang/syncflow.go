@@ -459,7 +459,7 @@ func (r _resource) verifyAllPodsCreated(sc *syncContext, pgi *podGangInfo) error
 		)
 	}
 	// check the health of each podclique
-	numPendingPods := r.getPodsPendingCreationOrAssociation(sc, pgi)
+	numPendingPods := r.getPodsPendingCreationOrAssociation(pgi)
 	if numPendingPods > 0 {
 		sc.logger.Info("skipping creation of PodGang as all desired replicas have not yet been created or assigned", "podGang", pgi.fqn, "numPendingPodsToCreateOrAssociate", numPendingPods)
 		return groveerr.New(groveerr.ErrCodeRequeueAfter,
@@ -471,30 +471,24 @@ func (r _resource) verifyAllPodsCreated(sc *syncContext, pgi *podGangInfo) error
 }
 
 // getPodsPendingCreationOrAssociation counts how many of this PodGang's expected pods are not
-// yet created or not yet labeled for this PodGang. Pods of the same PCLQ that are associated to
-// a different PodGang (e.g. another MVU PodGang in the same PCS replica) are ignored — they
-// belong to a sibling PodGang and are not this PodGang's responsibility.
-func (r _resource) getPodsPendingCreationOrAssociation(sc *syncContext, podGang *podGangInfo) int {
-	numPodsPendingPCLQCreate := r.getPodsForPodCliquesPendingCreation(sc, podGang)
-
-	var numPodsPendingCreateOrAssociate int
+// yet associated to it. For each constituent PodClique, the deficit is
+// `pclq.replicas - len(pclq.associatedPodNames)`:
+//   - If the PCLQ resource itself does not exist yet, `associatedPodNames` is empty, so the
+//     full replica count is reported as pending.
+//   - If the PCLQ exists but some pods haven't been created yet, only those uncreated pods are
+//     reported as pending.
+//   - Pods of the same PCLQ that are associated to a different PodGang (e.g. another MVU PodGang
+//     in the same PCS replica) do not appear in this PodGang's `associatedPodNames` and are
+//     correctly excluded — they belong to a sibling PodGang.
+func (r _resource) getPodsPendingCreationOrAssociation(podGang *podGangInfo) int {
+	var pending int
 	for _, pclq := range podGang.pclqs {
 		deficit := int(pclq.replicas) - len(pclq.associatedPodNames)
 		if deficit > 0 {
-			numPodsPendingCreateOrAssociate += deficit
+			pending += deficit
 		}
 	}
-	return numPodsPendingPCLQCreate + numPodsPendingCreateOrAssociate
-}
-
-// getPodsForPodCliquesPendingCreation counts expected pods from non-existent PodCliques.
-func (r _resource) getPodsForPodCliquesPendingCreation(sc *syncContext, podGang *podGangInfo) int {
-	return lo.Reduce(podGang.pclqs, func(agg int, pclq pclqInfo, _ int) int {
-		if _, ok := sc.existingPCLQByName[pclq.fqn]; !ok {
-			return agg + int(pclq.replicas)
-		}
-		return agg
-	}, 0)
+	return pending
 }
 
 // arePodGangMinReplicasReady returns true if, for each PodGroup in the PodGang, at least

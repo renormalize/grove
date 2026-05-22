@@ -237,11 +237,17 @@ func TestVerifyAllPodsCreated(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			sc := &syncContext{
-				logger:             ctrllogger.FromContext(t.Context()).WithName("test"),
-				existingPCLQPods:   tc.existingPods,
-				existingPCLQs:      tc.existingPCLQs,
-				existingPCLQByName: componentutils.PodCliqueByName(tc.existingPCLQs),
+				logger:                ctrllogger.FromContext(t.Context()).WithName("test"),
+				existingPCLQPods:      tc.existingPods,
+				existingPCLQs:         tc.existingPCLQs,
+				existingPCLQByName:    componentutils.PodCliqueByName(tc.existingPCLQs),
+				expectedPodGangs:      []*podGangInfo{tc.podGang},
+				expectedPodGangByName: map[string]*podGangInfo{tc.podGang.fqn: tc.podGang},
+				unassignedPodsByPCLQ:  map[string][]corev1.Pod{},
 			}
+			// Populate pclqInfo.associatedPodNames the same way prepareSyncFlow does in
+			// production, so verifyAllPodsCreated has the same view.
+			sc.initializeAssignedAndUnassignedPodsForPCS()
 			r := &_resource{}
 			err := r.verifyAllPodsCreated(sc, tc.podGang)
 			if tc.wantRequeue {
@@ -357,7 +363,7 @@ func TestGetPodsPendingCreation(t *testing.T) {
 			for i, podGang := range sc.expectedPodGangs {
 				isPodGangPendingCreation := slices.Contains(pendingPodGangNames, podGang.fqn)
 				assert.True(t, isPodGangPendingCreation)
-				numPendingPods := r.getPodsPendingCreationOrAssociation(sc, podGang)
+				numPendingPods := r.getPodsPendingCreationOrAssociation(podGang)
 				assert.Equal(t, tc.expectedPendingPodsPerPodGang[i], numPendingPods)
 				totalNumPendingPods += numPendingPods
 			}
