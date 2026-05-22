@@ -40,48 +40,43 @@ func TestBuildEntriesFromStatuses(t *testing.T) {
 		},
 	)
 
-	t.Run("standalone PCLQs and PCSGs with PodGangMapping", func(t *testing.T) {
-		pclqs := []grovecorev1alpha1.PodClique{
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-pcs-0-frontend",
-					Namespace: "default",
-					Labels: map[string]string{
-						apicommon.LabelPartOfKey:                "my-pcs",
-						apicommon.LabelPodCliqueSetReplicaIndex: "0",
-					},
-					OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueSet", Name: "my-pcs"}},
+	standalonePCLQ := func(mapping map[string]int32) grovecorev1alpha1.PodClique {
+		return grovecorev1alpha1.PodClique{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-pcs-0-frontend",
+				Namespace: "default",
+				Labels: map[string]string{
+					apicommon.LabelPartOfKey:                "my-pcs",
+					apicommon.LabelPodCliqueSetReplicaIndex: "0",
 				},
-				Status: grovecorev1alpha1.PodCliqueStatus{
-					PodGangMapping: map[string]int32{
-						"pg-0": 2,
-						"pg-1": 3,
-					},
-				},
+				OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueSet", Name: "my-pcs"}},
 			},
+			Status: grovecorev1alpha1.PodCliqueStatus{PodGangMapping: mapping},
+		}
+	}
+	pcsg := func(mapping map[string]int32) grovecorev1alpha1.PodCliqueScalingGroup {
+		return grovecorev1alpha1.PodCliqueScalingGroup{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-pcs-0-prefill",
+				Namespace: "default",
+				Labels:    map[string]string{apicommon.LabelPodCliqueSetReplicaIndex: "0"},
+			},
+			Status: grovecorev1alpha1.PodCliqueScalingGroupStatus{PodGangMapping: mapping},
+		}
+	}
+
+	t.Run("standalone PCLQs and PCSGs with PodGangMapping", func(t *testing.T) {
+		standalonePCLQs := []grovecorev1alpha1.PodClique{
+			standalonePCLQ(map[string]int32{"pg-0": 2, "pg-1": 3}),
 		}
 		pcsgs := []grovecorev1alpha1.PodCliqueScalingGroup{
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-pcs-0-prefill",
-					Namespace: "default",
-					Labels: map[string]string{
-						apicommon.LabelPodCliqueSetReplicaIndex: "0",
-					},
-				},
-				Status: grovecorev1alpha1.PodCliqueScalingGroupStatus{
-					PodGangMapping: map[string]int32{
-						"pg-0": 1,
-						"pg-2": 1,
-					},
-				},
-			},
+			pcsg(map[string]int32{"pg-0": 1, "pg-2": 1}),
 		}
 
-		entries := buildEntriesFromStatuses(pcs, 0, pclqs, pcsgs)
+		entries := buildEntriesFromStatuses(nil, pcs, standalonePCLQs, pcsgs, 0)
 
 		require.Len(t, entries, 3)
-		entryMap := make(map[string]grovecorev1alpha1.PodGangEntry)
+		entryMap := make(map[string]grovecorev1alpha1.PodGangEntry, len(entries))
 		for _, e := range entries {
 			entryMap[e.Name] = e
 		}
@@ -101,23 +96,121 @@ func TestBuildEntriesFromStatuses(t *testing.T) {
 	})
 
 	t.Run("empty PodGangMapping returns no entries", func(t *testing.T) {
-		pclqs := []grovecorev1alpha1.PodClique{
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-pcs-0-frontend",
-					Namespace: "default",
-					Labels: map[string]string{
-						apicommon.LabelPartOfKey:                "my-pcs",
-						apicommon.LabelPodCliqueSetReplicaIndex: "0",
-					},
-					OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueSet", Name: "my-pcs"}},
-				},
-				Status: grovecorev1alpha1.PodCliqueStatus{},
-			},
+		standalonePCLQs := []grovecorev1alpha1.PodClique{standalonePCLQ(nil)}
+
+		entries := buildEntriesFromStatuses(nil, pcs, standalonePCLQs, nil, 0)
+		assert.Empty(t, entries)
+	})
+
+	t.Run("preserves DependsOn on entries that already exist in PGM", func(t *testing.T) {
+		// Existing PGM has a TailPG with DependsOn=[mpg-0]. The follower must keep that
+		// DependsOn intact when the same name reappears in a status mapping.
+		existing := []grovecorev1alpha1.PodGangEntry{
+			{Name: "mpg-0", PodCliqueSetGenerationHash: "gen-hash-1"},
+			{Name: "tail-0", PodCliqueSetGenerationHash: "gen-hash-1", DependsOn: []string{"mpg-0"}},
+		}
+		standalonePCLQs := []grovecorev1alpha1.PodClique{
+			standalonePCLQ(map[string]int32{"mpg-0": 2, "tail-0": 1}),
 		}
 
-		entries := buildEntriesFromStatuses(pcs, 0, pclqs, nil)
-		assert.Empty(t, entries)
+		entries := buildEntriesFromStatuses(existing, pcs, standalonePCLQs, nil, 0)
+
+		entryMap := make(map[string]grovecorev1alpha1.PodGangEntry, len(entries))
+		for _, e := range entries {
+			entryMap[e.Name] = e
+		}
+		assert.Empty(t, entryMap["mpg-0"].DependsOn, "mpg-0 is an anchor — DependsOn stays empty")
+		assert.Equal(t, []string{"mpg-0"}, entryMap["tail-0"].DependsOn, "tail-0's DependsOn must be preserved")
+	})
+
+	t.Run("net-new Scaled-PG inherits DependsOn from the anchor entries", func(t *testing.T) {
+		// PGM has two anchor MPGs (DependsOn empty). PCSG status introduces a new Scaled-PG
+		// "spg-new" not yet in PGM. The new entry's DependsOn must list both MPGs so that a
+		// future gang-termination recreate enforces "anchors schedule before scale-outs".
+		existing := []grovecorev1alpha1.PodGangEntry{
+			{Name: "mpg-0", PodCliqueSetGenerationHash: "gen-hash-1"},
+			{Name: "mpg-1", PodCliqueSetGenerationHash: "gen-hash-1"},
+		}
+		pcsgs := []grovecorev1alpha1.PodCliqueScalingGroup{
+			pcsg(map[string]int32{"mpg-0": 1, "mpg-1": 1, "spg-new": 1}),
+		}
+
+		entries := buildEntriesFromStatuses(existing, pcs, nil, pcsgs, 0)
+
+		entryMap := make(map[string]grovecorev1alpha1.PodGangEntry, len(entries))
+		for _, e := range entries {
+			entryMap[e.Name] = e
+		}
+		require.Contains(t, entryMap, "spg-new")
+		assert.ElementsMatch(t, []string{"mpg-0", "mpg-1"}, entryMap["spg-new"].DependsOn)
+		// Anchor MPGs themselves stay anchors — DependsOn empty.
+		assert.Empty(t, entryMap["mpg-0"].DependsOn)
+		assert.Empty(t, entryMap["mpg-1"].DependsOn)
+	})
+}
+
+func TestFilterStandalonePCLQs(t *testing.T) {
+	standalone := grovecorev1alpha1.PodClique{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "my-pcs-0-frontend",
+			OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueSet", Name: "my-pcs"}},
+		},
+	}
+	pcsgOwned := grovecorev1alpha1.PodClique{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "my-pcs-0-prefill-0-pworker",
+			OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueScalingGroup", Name: "my-pcs-0-prefill"}},
+		},
+	}
+
+	t.Run("returns only PCLQs owned by PodCliqueSet", func(t *testing.T) {
+		got := filterStandalonePCLQs([]grovecorev1alpha1.PodClique{standalone, pcsgOwned, standalone})
+		require.Len(t, got, 2)
+		for _, p := range got {
+			assert.Equal(t, "my-pcs-0-frontend", p.Name)
+		}
+	})
+
+	t.Run("empty input returns empty", func(t *testing.T) {
+		assert.Empty(t, filterStandalonePCLQs(nil))
+	})
+}
+
+func TestAllOwnerMappingsInitialized(t *testing.T) {
+	pclqWith := func(mapping map[string]int32) grovecorev1alpha1.PodClique {
+		return grovecorev1alpha1.PodClique{
+			Status: grovecorev1alpha1.PodCliqueStatus{PodGangMapping: mapping},
+		}
+	}
+	pcsgWith := func(mapping map[string]int32) grovecorev1alpha1.PodCliqueScalingGroup {
+		return grovecorev1alpha1.PodCliqueScalingGroup{
+			Status: grovecorev1alpha1.PodCliqueScalingGroupStatus{PodGangMapping: mapping},
+		}
+	}
+
+	t.Run("returns true when every owner has a non-empty mapping", func(t *testing.T) {
+		assert.True(t, allOwnerMappingsInitialized(
+			[]grovecorev1alpha1.PodClique{pclqWith(map[string]int32{"pg-0": 1})},
+			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string]int32{"pg-0": 1})},
+		))
+	})
+
+	t.Run("returns false when any standalone PCLQ has nil mapping", func(t *testing.T) {
+		assert.False(t, allOwnerMappingsInitialized(
+			[]grovecorev1alpha1.PodClique{pclqWith(nil)},
+			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string]int32{"pg-0": 1})},
+		))
+	})
+
+	t.Run("returns false when any PCSG has empty mapping", func(t *testing.T) {
+		assert.False(t, allOwnerMappingsInitialized(
+			[]grovecorev1alpha1.PodClique{pclqWith(map[string]int32{"pg-0": 1})},
+			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string]int32{})},
+		))
+	})
+
+	t.Run("returns true when both slices are empty (vacuous)", func(t *testing.T) {
+		assert.True(t, allOwnerMappingsInitialized(nil, nil))
 	})
 }
 
