@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestSync_NoPGMsExist_NoCoherentUpdate_NoOp(t *testing.T) {
@@ -392,6 +393,29 @@ func TestComputeCoherentUpdateEntries_SubsequentReconcile(t *testing.T) {
 	assert.Equal(t, newHash, entries[1].PodCliqueSetGenerationHash)
 	assert.Equal(t, int32(3), entries[1].PodCliques["frontend"])
 	assert.Equal(t, int32(1), entries[1].PodCliqueScalingGroups["prefill"])
+}
+
+// TestBuildResource_EntriesAreSorted verifies that buildResource sorts PodGangMap entries
+// by name regardless of the order they are passed in.
+func TestBuildResource_EntriesAreSorted(t *testing.T) {
+	pcs := newTestPCS("my-pcs", "abc12xyz", nil, nil)
+
+	r := &_resource{scheme: groveclientscheme.Scheme}
+
+	// Pass entries in deliberately reverse-alphabetical order.
+	entries := []grovecorev1alpha1.PodGangEntry{
+		{Name: "my-pcs-0-zzz-hash-2", PodCliques: map[string]int32{"frontend": 1}},
+		{Name: "my-pcs-0-mmm-hash-1", PodCliques: map[string]int32{"frontend": 2}},
+		{Name: "my-pcs-0-aaa-hash-0", PodCliques: map[string]int32{"frontend": 3}},
+	}
+
+	pgm := emptyPodGangMap(client.ObjectKey{Namespace: "default", Name: "my-pcs-0"})
+	require.NoError(t, r.buildResource(pgm, pcs, 0, entries))
+
+	require.Len(t, pgm.Spec.Entries, 3)
+	assert.Equal(t, "my-pcs-0-aaa-hash-0", pgm.Spec.Entries[0].Name)
+	assert.Equal(t, "my-pcs-0-mmm-hash-1", pgm.Spec.Entries[1].Name)
+	assert.Equal(t, "my-pcs-0-zzz-hash-2", pgm.Spec.Entries[2].Name)
 }
 
 // --- Test helpers ---
