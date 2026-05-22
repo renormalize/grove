@@ -417,7 +417,7 @@ func (r _resource) syncSteadyStateEntries(ctx context.Context, sc *syncContext) 
 
 		standalonePCLQs := filterStandalonePCLQs(sc.pclqsByReplica[int(pcsReplicaIndex)])
 		pcsgs := sc.pcsgsByReplica[int(pcsReplicaIndex)]
-		if !allOwnerMappingsInitialized(standalonePCLQs, pcsgs) {
+		if !allOwnerMappingsInitialized(sc.pcs, standalonePCLQs, pcsgs) {
 			continue
 		}
 
@@ -448,12 +448,24 @@ func filterStandalonePCLQs(pclqs []grovecorev1alpha1.PodClique) []grovecorev1alp
 	return out
 }
 
-// allOwnerMappingsInitialized returns true when every standalone PCLQ and every PCSG in the
-// replica has a non-empty Status.PodGangMapping. The caller filters PCLQs to standalone-only
-// beforehand. Once a reconciler seeds its mapping with non-empty content, normal steady-state
-// reconciles never zero it out — so the gate flips true once and stays true until the next
-// coherent update.
-func allOwnerMappingsInitialized(standalonePCLQs []grovecorev1alpha1.PodClique, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup) bool {
+// allOwnerMappingsInitialized returns true when every standalone PCLQ and every PCSG that the
+// PCS spec declares is observed in the cache AND has a non-empty Status.PodGangMapping. The
+// caller filters PCLQs to standalone-only beforehand. Once a reconciler seeds its mapping with
+// non-empty content, normal steady-state reconciles never zero it out — so the gate flips true
+// once and stays true until the next coherent update.
+//
+// The gate compares observed-owner counts against PCS spec, not just non-empty checks against
+// whatever owners are currently visible. During the bootstrap window between PCS creation and
+// the first PCLQ/PCSG resource being observed by the watch cache, len(standalonePCLQs) or
+// len(pcsgs) can be smaller than what spec declares. Rebuilding PGM from a partial owner set
+// in that window would wipe entries seeded from spec by createPodGangMapForReplica.
+func allOwnerMappingsInitialized(pcs *grovecorev1alpha1.PodCliqueSet, standalonePCLQs []grovecorev1alpha1.PodClique, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup) bool {
+	if len(standalonePCLQs) < componentutils.CountStandalonePCLQs(pcs) {
+		return false
+	}
+	if len(pcsgs) < len(pcs.Spec.Template.PodCliqueScalingGroupConfigs) {
+		return false
+	}
 	for _, pclq := range standalonePCLQs {
 		if len(pclq.Status.PodGangMapping) == 0 {
 			return false

@@ -182,6 +182,17 @@ func TestFilterStandalonePCLQs(t *testing.T) {
 }
 
 func TestAllOwnerMappingsInitialized(t *testing.T) {
+	// Default test PCS: 1 standalone PCLQ (frontend) + 1 PCSG (prefill).
+	pcs := newTestPCS("my-pcs", "abc12",
+		[]grovecorev1alpha1.PodCliqueTemplateSpec{
+			{Name: "frontend", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 5, MinAvailable: ptr.To(int32(2))}},
+			{Name: "pworker", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 3, MinAvailable: ptr.To(int32(2))}},
+		},
+		[]grovecorev1alpha1.PodCliqueScalingGroupConfig{
+			{Name: "prefill", CliqueNames: []string{"pworker"}, Replicas: ptr.To(int32(3)), MinAvailable: ptr.To(int32(1))},
+		},
+	)
+
 	pclqWith := func(mapping map[string]int32) grovecorev1alpha1.PodClique {
 		return grovecorev1alpha1.PodClique{
 			Status: grovecorev1alpha1.PodCliqueStatus{PodGangMapping: mapping},
@@ -193,29 +204,51 @@ func TestAllOwnerMappingsInitialized(t *testing.T) {
 		}
 	}
 
-	t.Run("returns true when every owner has a non-empty mapping", func(t *testing.T) {
-		assert.True(t, allOwnerMappingsInitialized(
+	t.Run("returns true when every spec-declared owner is observed and has a non-empty mapping", func(t *testing.T) {
+		assert.True(t, allOwnerMappingsInitialized(pcs,
 			[]grovecorev1alpha1.PodClique{pclqWith(map[string]int32{"pg-0": 1})},
 			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string]int32{"pg-0": 1})},
 		))
 	})
 
 	t.Run("returns false when any standalone PCLQ has nil mapping", func(t *testing.T) {
-		assert.False(t, allOwnerMappingsInitialized(
+		assert.False(t, allOwnerMappingsInitialized(pcs,
 			[]grovecorev1alpha1.PodClique{pclqWith(nil)},
 			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string]int32{"pg-0": 1})},
 		))
 	})
 
 	t.Run("returns false when any PCSG has empty mapping", func(t *testing.T) {
-		assert.False(t, allOwnerMappingsInitialized(
+		assert.False(t, allOwnerMappingsInitialized(pcs,
 			[]grovecorev1alpha1.PodClique{pclqWith(map[string]int32{"pg-0": 1})},
 			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string]int32{})},
 		))
 	})
 
-	t.Run("returns true when both slices are empty (vacuous)", func(t *testing.T) {
-		assert.True(t, allOwnerMappingsInitialized(nil, nil))
+	t.Run("returns false when no owners observed yet (PCS bootstrap window)", func(t *testing.T) {
+		// Spec declares 1 standalone PCLQ + 1 PCSG; cache hasn't seen them yet. The follower
+		// must not rebuild PGM during this window — it would wipe entries seeded from spec
+		// by createPodGangMapForReplica.
+		assert.False(t, allOwnerMappingsInitialized(pcs, nil, nil))
+	})
+
+	t.Run("returns false when standalone PCLQ observed but PCSG cache lags", func(t *testing.T) {
+		// Spec has 1 standalone PCLQ + 1 PCSG. PCLQ seeded its mapping; PCSG cache hasn't
+		// caught up. Rebuilding now would drop the PCSG-side counts from PGM.
+		assert.False(t, allOwnerMappingsInitialized(pcs,
+			[]grovecorev1alpha1.PodClique{pclqWith(map[string]int32{"pg-0": 1})},
+			nil,
+		))
+	})
+
+	t.Run("returns false during gang-termination window when PCLQs deleted but PCSGs remain", func(t *testing.T) {
+		// Gang termination deletes all PCLQs (standalone + PCSG-owned) but leaves PCSGs.
+		// Spec still declares 1 standalone PCLQ; cache reports 0. Gate must stay closed
+		// until the PCS reconciler recreates the PCLQs and their pod component reseeds.
+		assert.False(t, allOwnerMappingsInitialized(pcs,
+			nil,
+			[]grovecorev1alpha1.PodCliqueScalingGroup{pcsgWith(map[string]int32{"pg-0": 1})},
+		))
 	})
 }
 
@@ -710,6 +743,66 @@ func TestSyncSteadyStateEntries_Integration(t *testing.T) {
 		require.Len(t, got.Spec.Entries, 1)
 		assert.Equal(t, "stale-pg", got.Spec.Entries[0].Name)
 		assert.Equal(t, int32(999), got.Spec.Entries[0].PodCliques["frontend"], "PGM must not be touched while the gate is closed")
+	})
+
+	t.Run("gate closed during PCS bootstrap (PCSG cache lags) leaves PGM untouched", func(t *testing.T) {
+		// Spec declares 1 standalone PCLQ + 1 PCSG. PCLQ has been observed and seeded its
+		// status mapping; the PCSG resource is not yet in the cache (`pcsgs` slice empty
+		// because no PCSG object is created in the fake client). The follower must skip
+		// this replica until the PCSG is observed — otherwise PGM would be rebuilt from a
+		// partial owner set and lose the PCSG-side counts seeded from spec.
+		pcs := pcsTemplate()
+		pclq := standalonePCLQ(map[string]int32{"my-pcs-0-abc12-0": 5})
+		stalePGM := pgmWithEntries([]grovecorev1alpha1.PodGangEntry{
+			{
+				Name:                       "my-pcs-0-abc12-0",
+				PodCliqueSetGenerationHash: pcsHash,
+				PodCliques:                 map[string]int32{"frontend": 5},
+				PodCliqueScalingGroups:     map[string]int32{"prefill": 2},
+			},
+		})
+
+		cl := testutils.NewTestClientBuilder().WithObjects(pcs, pclq, stalePGM).Build()
+		r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
+
+		require.NoError(t, r.Sync(context.Background(), logr.Discard(), pcs))
+
+		got := &grovecorev1alpha1.PodGangMap{}
+		require.NoError(t, cl.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: pcsName + "-0"}, got))
+		require.Len(t, got.Spec.Entries, 1)
+		// PCSG-side count must survive — confirms the follower did not rebuild from a partial owner set.
+		assert.Equal(t, int32(2), got.Spec.Entries[0].PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, int32(5), got.Spec.Entries[0].PodCliques["frontend"])
+	})
+
+	t.Run("gate closed during gang termination (PCLQs deleted, PCSG remains) leaves PGM untouched", func(t *testing.T) {
+		// Gang termination deletes all PCLQs (standalone + PCSG-owned) but leaves PCSGs.
+		// Cache reports zero standalone PCLQs while spec declares one. Gate must stay
+		// closed until the PCS reconciler recreates the PCLQs and their pod component
+		// reseeds — otherwise PGM would lose its PCLQ-side counts and the recreated
+		// PCLQs would seed from a corrupted PGM.
+		pcs := pcsTemplate()
+		pcsgWithStaleMapping := pcsg(map[string]int32{"my-pcs-0-abc12-0": 1})
+		stalePGM := pgmWithEntries([]grovecorev1alpha1.PodGangEntry{
+			{
+				Name:                       "my-pcs-0-abc12-0",
+				PodCliqueSetGenerationHash: pcsHash,
+				PodCliques:                 map[string]int32{"frontend": 5},
+				PodCliqueScalingGroups:     map[string]int32{"prefill": 1},
+			},
+		})
+
+		cl := testutils.NewTestClientBuilder().WithObjects(pcs, pcsgWithStaleMapping, stalePGM).Build()
+		r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
+
+		require.NoError(t, r.Sync(context.Background(), logr.Discard(), pcs))
+
+		got := &grovecorev1alpha1.PodGangMap{}
+		require.NoError(t, cl.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: pcsName + "-0"}, got))
+		require.Len(t, got.Spec.Entries, 1)
+		// Standalone PCLQ-side count must survive even though no PCLQ is observed.
+		assert.Equal(t, int32(5), got.Spec.Entries[0].PodCliques["frontend"])
+		assert.Equal(t, int32(1), got.Spec.Entries[0].PodCliqueScalingGroups["prefill"])
 	})
 
 	t.Run("gate open: existing DependsOn preserved, net-new Scaled-PG inherits anchors, ghost dropped", func(t *testing.T) {
