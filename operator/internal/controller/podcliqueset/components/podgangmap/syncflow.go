@@ -392,16 +392,18 @@ func getCreatedPodGangCount(pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex in
 	return pcs.Status.PodGangCounter[strconv.Itoa(replicaIndex)]
 }
 
-// syncSteadyStateEntries ensures PodGangMap resources exist and reflect the current PCLQ/PCSG state.
+// syncSteadyStateEntries follows the desired PCLQ/PCSG status mappings into PGM entries.
 // For each PCS replica:
 //
-//	  If its PodGangMap doesn't exist it is created:
-//			1. For a new PCS replica it uses the PCS spec to create the expected PodGangs since nothing exists yet.
-//			2. If the PCS replica exists, and it has Base and Scaled PodGangs, then it will compute expected based
-//			on what should exist when using Base and Scaled PodGangs for a PCS replica.
-//	  If the PodGangMap exists, it is synced from PCLQ/PCSG statuses — but only when PodGangMapping is
-//	  fully settled (all PCLQs and PCSGs report a total pod count matching Spec.Replicas). If not settled,
-//	  the existing entries are preserved unchanged to avoid corrupting pod-label assignments in flight.
+//	If its PodGangMap doesn't exist yet, it is created via createPodGangMapForReplica
+//	(which decides between MVU-from-spec and Base/Scaled-from-existing-resources).
+//
+//	If the PodGangMap exists, the follower applies a single rule: skip the replica until
+//	every standalone PCLQ AND every PCSG has a non-empty Status.PodGangMapping. Once that
+//	gate is open, the follower reconstructs the entry list from the current status mappings
+//	via buildEntriesFromStatuses (with the existing entries supplied so that DependsOn is
+//	preserved on entries that are still around and inherited by net-new Scaled-PG shells),
+//	then drops zero-count entries via removeEmptyEntries.
 func (r _resource) syncSteadyStateEntries(ctx context.Context, sc *syncContext) error {
 	existingPGMNames := sets.New[string](sc.existingPGMNames...)
 	for pcsReplicaIndex := range sc.pcs.Spec.Replicas {
@@ -412,16 +414,20 @@ func (r _resource) syncSteadyStateEntries(ctx context.Context, sc *syncContext) 
 			}
 			continue
 		}
-		var entries []grovecorev1alpha1.PodGangEntry
-		if isPodGangMappingSettled(sc.pclqsByReplica[int(pcsReplicaIndex)], sc.pcsgsByReplica[int(pcsReplicaIndex)]) {
-			entries = buildEntriesFromStatuses(sc.pcs, int(pcsReplicaIndex), sc.pclqsByReplica[int(pcsReplicaIndex)], sc.pcsgsByReplica[int(pcsReplicaIndex)])
-		} else {
-			var err error
-			entries, err = r.getExistingPGMEntries(ctx, sc.pcs, pgmName)
-			if err != nil {
-				return err
-			}
+
+		standalonePCLQs := filterStandalonePCLQs(sc.pclqsByReplica[int(pcsReplicaIndex)])
+		pcsgs := sc.pcsgsByReplica[int(pcsReplicaIndex)]
+		if !allOwnerMappingsInitialized(standalonePCLQs, pcsgs) {
+			continue
 		}
+
+		existingEntries, err := r.getExistingPGMEntries(ctx, sc.pcs, pgmName)
+		if err != nil {
+			return err
+		}
+		entries := buildEntriesFromStatuses(existingEntries, sc.pcs, standalonePCLQs, pcsgs, int(pcsReplicaIndex))
+		entries = removeEmptyEntries(entries)
+
 		if err := r.createOrPatchPodGangMap(ctx, sc.pcs, pgmName, int(pcsReplicaIndex), entries); err != nil {
 			return err
 		}
@@ -429,50 +435,36 @@ func (r _resource) syncSteadyStateEntries(ctx context.Context, sc *syncContext) 
 	return nil
 }
 
-// isPodGangMappingSettled returns true when every PCLQ and PCSG in the replica has a fully
-// settled PodGangMapping — i.e. PodGangMapping is non-nil and its total pod/replica count
-// equals Spec.Replicas. Only when all resources pass this check is PodGangMapping authoritative
-// enough to overwrite the PodGangMap entries.
-//
-// Returns false when both slices are empty: no resources have been created yet, so there is
-// nothing authoritative to derive entries from.
-func isPodGangMappingSettled(pclqs []grovecorev1alpha1.PodClique, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup) bool {
-	if len(pclqs) == 0 && len(pcsgs) == 0 {
-		return false
-	}
+// filterStandalonePCLQs returns the subset of input PCLQs for which IsStandalonePCLQ is true.
+// PCSG-owned PCLQs do not carry Status.PodGangMapping in the steady-state contract; their
+// PodGang membership is conveyed via the owning PCSG's mapping.
+func filterStandalonePCLQs(pclqs []grovecorev1alpha1.PodClique) []grovecorev1alpha1.PodClique {
+	out := make([]grovecorev1alpha1.PodClique, 0, len(pclqs))
 	for i := range pclqs {
-		if !isPCLQMappingSettled(&pclqs[i]) {
+		if componentutils.IsStandalonePCLQ(&pclqs[i]) {
+			out = append(out, pclqs[i])
+		}
+	}
+	return out
+}
+
+// allOwnerMappingsInitialized returns true when every standalone PCLQ and every PCSG in the
+// replica has a non-empty Status.PodGangMapping. The caller filters PCLQs to standalone-only
+// beforehand. Once a reconciler seeds its mapping with non-empty content, normal steady-state
+// reconciles never zero it out — so the gate flips true once and stays true until the next
+// coherent update.
+func allOwnerMappingsInitialized(standalonePCLQs []grovecorev1alpha1.PodClique, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup) bool {
+	for _, pclq := range standalonePCLQs {
+		if len(pclq.Status.PodGangMapping) == 0 {
 			return false
 		}
 	}
-	for i := range pcsgs {
-		if !isPCSGMappingSettled(&pcsgs[i]) {
+	for _, pcsg := range pcsgs {
+		if len(pcsg.Status.PodGangMapping) == 0 {
 			return false
 		}
 	}
 	return true
-}
-
-func isPCLQMappingSettled(pclq *grovecorev1alpha1.PodClique) bool {
-	if pclq.Status.PodGangMapping == nil {
-		return false
-	}
-	var total int32
-	for _, count := range pclq.Status.PodGangMapping {
-		total += count
-	}
-	return total == pclq.Spec.Replicas
-}
-
-func isPCSGMappingSettled(pcsg *grovecorev1alpha1.PodCliqueScalingGroup) bool {
-	if pcsg.Status.PodGangMapping == nil {
-		return false
-	}
-	var total int32
-	for _, count := range pcsg.Status.PodGangMapping {
-		total += count
-	}
-	return total == pcsg.Spec.Replicas
 }
 
 // getExistingPGMEntries reads the current entries from the named PodGangMap. Returns nil on
@@ -654,53 +646,86 @@ func canFormMVUFromRemainingReplicas(template componentutils.MVUTemplate, standa
 	return true
 }
 
-// buildEntriesFromStatuses constructs PodGangMap entries by reading PodGangMapping from PCLQ and PCSG statuses.
-func buildEntriesFromStatuses(pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex int, pclqs []grovecorev1alpha1.PodClique, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup) []grovecorev1alpha1.PodGangEntry {
-	entryMap := make(map[string]*grovecorev1alpha1.PodGangEntry)
-	pcsGenerationHash := *pcs.Status.CurrentGenerationHash
+// buildEntriesFromStatuses produces the steady-state PodGangEntry list from PCLQ and PCSG
+// Status.PodGangMapping. Counts come from those mappings; DependsOn is preserved or inherited
+// from existingEntries:
+//
+//   - An entry whose name is already in existingEntries inherits that entry's DependsOn.
+//   - A net-new PodGang name (a Scaled-PG just minted by PCSG scale-out) inherits DependsOn
+//     from the anchor PodGangs (existing entries with empty DependsOn — MPGs in MVU PGMs,
+//     BPG in legacy PGMs). This guarantees a future gang-termination recreate enforces
+//     "anchors schedule before scale-outs" via the pod-component gate-removal logic.
+//
+// Names absent from a status mapping receive count 0, which lets removeEmptyEntries drop
+// scaled-in entries downstream.
+func buildEntriesFromStatuses(existingEntries []grovecorev1alpha1.PodGangEntry, pcs *grovecorev1alpha1.PodCliqueSet, standalonePCLQs []grovecorev1alpha1.PodClique, pcsgs []grovecorev1alpha1.PodCliqueScalingGroup, pcsReplicaIndex int) []grovecorev1alpha1.PodGangEntry {
+	hash := *pcs.Status.CurrentGenerationHash
+	pcsNameReplica := apicommon.ResourceNameReplica{Name: pcs.Name, Replica: pcsReplicaIndex}
 
-	for i := range pclqs {
-		if !componentutils.IsStandalonePCLQ(&pclqs[i]) {
-			continue
+	// anchorNames are the names of "anchor" PodGang entries — entries that carry the
+	// MinAvailable floor of the gang and are not themselves gated on any other PodGang
+	// (i.e. their DependsOn is empty). In the new MVU naming convention these are MPGs
+	// (Migration PodGangs); in the legacy convention this is the BPG (Base PodGang).
+	// Net-new entries minted in this pass — Scaled-PGs created by PCSG scale-out — adopt
+	// these as their DependsOn so a future gang-termination recreate keeps the
+	// "anchors schedule before scale-outs" ordering enforced by the pod-component gate
+	// removal logic.
+	anchorNames := collectMPGNamesFromEntries(existingEntries)
+	existingDependsOn := make(map[string][]string, len(existingEntries))
+	for _, e := range existingEntries {
+		existingDependsOn[e.Name] = e.DependsOn
+	}
+	dependsOnFor := func(pgName string) []string {
+		if d, ok := existingDependsOn[pgName]; ok {
+			return d
 		}
-		cliqueName, _ := utils.GetPodCliqueNameFromPodCliqueFQN(pclqs[i].ObjectMeta)
-		for pgName, podCount := range pclqs[i].Status.PodGangMapping {
-			entry := getOrCreateEntry(entryMap, pgName, pcsGenerationHash)
+		return anchorNames
+	}
+
+	entryByName := make(map[string]*grovecorev1alpha1.PodGangEntry)
+
+	for _, pclq := range standalonePCLQs {
+		cliqueName, _ := utils.GetPodCliqueNameFromPodCliqueFQN(pclq.ObjectMeta)
+		for pgName, podCount := range pclq.Status.PodGangMapping {
+			entry, ok := entryByName[pgName]
+			if !ok {
+				entry = &grovecorev1alpha1.PodGangEntry{
+					Name:                       pgName,
+					PodCliqueSetGenerationHash: hash,
+					DependsOn:                  dependsOnFor(pgName),
+				}
+				entryByName[pgName] = entry
+			}
 			if entry.PodCliques == nil {
 				entry.PodCliques = make(map[string]int32)
 			}
 			entry.PodCliques[cliqueName] = podCount
 		}
 	}
-
-	for i := range pcsgs {
-		pcsgName := apicommon.ExtractScalingGroupNameFromPCSGFQN(pcsgs[i].Name, apicommon.ResourceNameReplica{Name: pcs.Name, Replica: pcsReplicaIndex})
-		for pgName, replicaCount := range pcsgs[i].Status.PodGangMapping {
-			entry := getOrCreateEntry(entryMap, pgName, pcsGenerationHash)
+	for _, pcsg := range pcsgs {
+		pcsgConfigName := apicommon.ExtractScalingGroupNameFromPCSGFQN(pcsg.Name, pcsNameReplica)
+		for pgName, replicaCount := range pcsg.Status.PodGangMapping {
+			entry, ok := entryByName[pgName]
+			if !ok {
+				entry = &grovecorev1alpha1.PodGangEntry{
+					Name:                       pgName,
+					PodCliqueSetGenerationHash: hash,
+					DependsOn:                  dependsOnFor(pgName),
+				}
+				entryByName[pgName] = entry
+			}
 			if entry.PodCliqueScalingGroups == nil {
 				entry.PodCliqueScalingGroups = make(map[string]int32)
 			}
-			entry.PodCliqueScalingGroups[pcsgName] = replicaCount
+			entry.PodCliqueScalingGroups[pcsgConfigName] = replicaCount
 		}
 	}
 
-	entries := make([]grovecorev1alpha1.PodGangEntry, 0, len(entryMap))
-	for _, entry := range entryMap {
+	entries := make([]grovecorev1alpha1.PodGangEntry, 0, len(entryByName))
+	for _, entry := range entryByName {
 		entries = append(entries, *entry)
 	}
 	return entries
-}
-
-func getOrCreateEntry(entryMap map[string]*grovecorev1alpha1.PodGangEntry, pgName, pcsGenerationHash string) *grovecorev1alpha1.PodGangEntry {
-	if entry, ok := entryMap[pgName]; ok {
-		return entry
-	}
-	entry := &grovecorev1alpha1.PodGangEntry{
-		Name:                       pgName,
-		PodCliqueSetGenerationHash: pcsGenerationHash,
-	}
-	entryMap[pgName] = entry
-	return entry
 }
 
 // createOrPatchPodGangMap creates or patches a PodGangMap with the given entries.
