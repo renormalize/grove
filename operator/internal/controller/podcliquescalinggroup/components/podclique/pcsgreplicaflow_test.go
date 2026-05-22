@@ -659,9 +659,11 @@ func TestComputeDesiredPCSGReplicaMapping(t *testing.T) {
 		assert.Equal(t, int32(1), got[tcsScaledPG1])
 	})
 
-	t.Run("scale-in — decrements via Tier 1/2/3 walk; BPG never touched", func(t *testing.T) {
+	t.Run("scale-in — decrements via Tier 1/2/3 walk; BPG never touched; zeroed entries pruned", func(t *testing.T) {
 		// Status sums to 6 (BPG=2, MPG0=2, LegacySPG0=1, ScaledPG0=1); spec=4 → diff=-2.
-		// Tier 1 drains LegacySPG0; Tier 2 drains ScaledPG0; MPG0 and BPG untouched.
+		// Tier 1 drains LegacySPG0; Tier 2 drains ScaledPG0. Both zeroed entries are pruned
+		// from the output so subsequent scale-out can reuse the freed Scaled-PG indices.
+		// MPG0 and BPG retain their counts.
 		sc := newSyncContextForMappingTests(
 			4,
 			map[string]int32{
@@ -675,10 +677,44 @@ func TestComputeDesiredPCSGReplicaMapping(t *testing.T) {
 		)
 		got, err := r.computeDesiredPCSGReplicaMapping(sc)
 		require.NoError(t, err)
-		assert.Equal(t, int32(2), got[tcsBPGName])
-		assert.Equal(t, int32(2), got[tcsMPG0])
-		assert.Equal(t, int32(0), got[tcsLegacySPG0])
-		assert.Equal(t, int32(0), got[tcsScaledPG0])
+		assert.Equal(t, map[string]int32{tcsBPGName: 2, tcsMPG0: 2}, got)
+	})
+
+	t.Run("scale-out after scale-in reuses the freed Scaled-PG index", func(t *testing.T) {
+		// Reproduces the bug fixed by the prune step:
+		//   1. Initial scale-out minted ScaledPG-0.
+		//   2. Scale-in decremented ScaledPG-0 to 0; without pruning, the key would survive.
+		//   3. Scale-out again mints what should be ScaledPG-0 (reusing the freed index),
+		//      not ScaledPG-1 (skipping it).
+		// The test simulates the post-step-2 state (already pruned) and confirms the next
+		// scale-out picks index 0.
+		sc := newSyncContextForMappingTests(
+			1,
+			// Status mapping after scale-in: only the anchor MPG remains; ScaledPG-0 was
+			// pruned. Spec.Replicas grows from 0 to 1 → diff=+1.
+			map[string]int32{tcsMPG0: 0},
+			nil,
+			false,
+		)
+		got, err := r.computeDesiredPCSGReplicaMapping(sc)
+		require.NoError(t, err)
+		// MPG0 was zero-count and gets pruned. The next Scaled-PG mint reuses index 0.
+		assert.Equal(t, map[string]int32{tcsScaledPG0: 1}, got)
+	})
+
+	t.Run("orphan zero-count entries (e.g. from earlier controller version) are pruned", func(t *testing.T) {
+		// A pre-existing zero-count entry sitting in PCSG.Status.PodGangMapping must be removed
+		// even when no scale-in/scale-out runs in this reconcile. Otherwise nextScaledPodGangIndex
+		// would treat the orphan's trailing index as occupied.
+		sc := newSyncContextForMappingTests(
+			2,
+			map[string]int32{tcsMPG0: 2, tcsScaledPG1: 0}, // ScaledPG1 is the orphan
+			nil,
+			false,
+		)
+		got, err := r.computeDesiredPCSGReplicaMapping(sc)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]int32{tcsMPG0: 2}, got)
 	})
 
 	t.Run("scale-in does not mutate the input status mapping (clone)", func(t *testing.T) {

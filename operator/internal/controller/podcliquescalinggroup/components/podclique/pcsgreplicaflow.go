@@ -118,6 +118,16 @@ func (r _resource) computeDesiredPCSGReplicaMapping(sc *syncContext) (map[string
 					client.ObjectKeyFromObject(sc.pcsg)))
 		}
 	}
+	// Prune zero-count entries so the index space stays compact. decrementPCSGMappingForScaleIn
+	// leaves entries at 0 rather than removing them, and earlier controller versions may also
+	// have left orphan {name: 0} keys in pcsg.Status.PodGangMapping. If we kept those entries,
+	// nextScaledPodGangIndex would treat their trailing index as occupied and the next scale-out
+	// would mint a higher-indexed name instead of reusing the freed slot.
+	for name, count := range desired {
+		if count == 0 {
+			delete(desired, name)
+		}
+	}
 	return desired, nil
 }
 
