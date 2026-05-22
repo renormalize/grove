@@ -17,16 +17,21 @@
 package podgangmap
 
 import (
+	"context"
 	"testing"
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	groveclientscheme "github.com/ai-dynamo/grove/operator/internal/client"
+	testutils "github.com/ai-dynamo/grove/operator/test/utils"
 	groveschedulerv1alpha1 "github.com/ai-dynamo/grove/scheduler/api/core/v1alpha1"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestBuildEntriesFromStatuses(t *testing.T) {
@@ -607,4 +612,161 @@ func TestGetPodGangPCSReplicaIndex(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSyncSteadyStateEntries_Integration exercises the full Sync() path with a fake client to
+// confirm two follower behaviours end-to-end:
+//
+//  1. Gate closed (some owner has empty Status.PodGangMapping) → PGM is left as-is.
+//  2. Gate open with stale PGM contents → PGM is reconciled to current PCLQ/PCSG status:
+//     existing entries' DependsOn is preserved, net-new Scaled-PGs inherit DependsOn from
+//     the anchor entries, ghost entries are dropped.
+func TestSyncSteadyStateEntries_Integration(t *testing.T) {
+	const (
+		pcsName    = "my-pcs"
+		pcsHash    = "abc12"
+		pcsReplica = 0
+		pcsUID     = "pcs-test-uid"
+	)
+	pcsTemplate := func() *grovecorev1alpha1.PodCliqueSet {
+		pcs := newTestPCS(pcsName, pcsHash,
+			[]grovecorev1alpha1.PodCliqueTemplateSpec{
+				{Name: "frontend", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 5}},
+				{Name: "pworker", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 2}},
+			},
+			[]grovecorev1alpha1.PodCliqueScalingGroupConfig{
+				{Name: "prefill", CliqueNames: []string{"pworker"}},
+			},
+		)
+		pcs.UID = pcsUID
+		pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy}
+		return pcs
+	}
+	standalonePCLQ := func(mapping map[string]int32) *grovecorev1alpha1.PodClique {
+		return &grovecorev1alpha1.PodClique{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-pcs-0-frontend",
+				Namespace: "default",
+				Labels: map[string]string{
+					apicommon.LabelManagedByKey:             apicommon.LabelManagedByValue,
+					apicommon.LabelPartOfKey:                pcsName,
+					apicommon.LabelPodCliqueSetReplicaIndex: "0",
+				},
+				OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueSet", Name: pcsName, UID: pcsUID, Controller: ptr.To(true)}},
+			},
+			Status: grovecorev1alpha1.PodCliqueStatus{PodGangMapping: mapping},
+		}
+	}
+	pcsg := func(mapping map[string]int32) *grovecorev1alpha1.PodCliqueScalingGroup {
+		return &grovecorev1alpha1.PodCliqueScalingGroup{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-pcs-0-prefill",
+				Namespace: "default",
+				Labels: map[string]string{
+					apicommon.LabelManagedByKey:             apicommon.LabelManagedByValue,
+					apicommon.LabelPartOfKey:                pcsName,
+					apicommon.LabelPodCliqueSetReplicaIndex: "0",
+				},
+			},
+			Status: grovecorev1alpha1.PodCliqueScalingGroupStatus{PodGangMapping: mapping},
+		}
+	}
+	pgmWithEntries := func(entries []grovecorev1alpha1.PodGangEntry) *grovecorev1alpha1.PodGangMap {
+		return &grovecorev1alpha1.PodGangMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pcsName + "-0",
+				Namespace: "default",
+				Labels:    getLabels(pcsName, pcsReplica),
+				OwnerReferences: []metav1.OwnerReference{
+					{APIVersion: grovecorev1alpha1.SchemeGroupVersion.String(), Kind: "PodCliqueSet", Name: pcsName, UID: pcsUID, Controller: ptr.To(true)},
+				},
+			},
+			Spec: grovecorev1alpha1.PodGangMapSpec{
+				PodCliqueSetReplicaIndex: pcsReplica,
+				Entries:                  entries,
+			},
+		}
+	}
+
+	t.Run("gate closed (PCSG mapping nil) leaves PGM untouched", func(t *testing.T) {
+		pcs := pcsTemplate()
+		pclq := standalonePCLQ(map[string]int32{"my-pcs-0-abc12-0": 5})
+		pcsgUninitialised := pcsg(nil) // gate must close on this
+		stalePGM := pgmWithEntries([]grovecorev1alpha1.PodGangEntry{
+			{
+				Name:                       "stale-pg",
+				PodCliqueSetGenerationHash: pcsHash,
+				PodCliques:                 map[string]int32{"frontend": 999},
+			},
+		})
+
+		cl := testutils.NewTestClientBuilder().WithObjects(pcs, pclq, pcsgUninitialised, stalePGM).Build()
+		r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
+
+		require.NoError(t, r.Sync(context.Background(), logr.Discard(), pcs))
+
+		got := &grovecorev1alpha1.PodGangMap{}
+		require.NoError(t, cl.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: pcsName + "-0"}, got))
+		require.Len(t, got.Spec.Entries, 1)
+		assert.Equal(t, "stale-pg", got.Spec.Entries[0].Name)
+		assert.Equal(t, int32(999), got.Spec.Entries[0].PodCliques["frontend"], "PGM must not be touched while the gate is closed")
+	})
+
+	t.Run("gate open: existing DependsOn preserved, net-new Scaled-PG inherits anchors, ghost dropped", func(t *testing.T) {
+		pcs := pcsTemplate()
+		// Status mappings: standalone PCLQ contributes one MPG; PCSG contributes the same MPG
+		// plus a brand-new Scaled-PG name that is NOT in the existing PGM.
+		pclq := standalonePCLQ(map[string]int32{"my-pcs-0-abc12-0": 5})
+		pcsgInitialised := pcsg(map[string]int32{
+			"my-pcs-0-abc12-0":         1,
+			"my-pcs-0-abc12-prefill-0": 1, // freshly minted Scaled-PG
+		})
+		// Stale PGM:
+		//  - real anchor entry "my-pcs-0-abc12-0" with wrong counts (must be overwritten)
+		//  - ghost entry "ghost-pg" not referenced by any owner mapping (must be dropped).
+		//    DependsOn is set so it is not mistaken for an anchor by collectMPGNamesFromEntries.
+		stalePGM := pgmWithEntries([]grovecorev1alpha1.PodGangEntry{
+			{
+				Name:                       "my-pcs-0-abc12-0",
+				PodCliqueSetGenerationHash: pcsHash,
+				PodCliques:                 map[string]int32{"frontend": 999},
+				PodCliqueScalingGroups:     map[string]int32{"prefill": 999},
+			},
+			{
+				Name:                       "ghost-pg",
+				PodCliqueSetGenerationHash: pcsHash,
+				PodCliques:                 map[string]int32{"frontend": 7},
+				DependsOn:                  []string{"my-pcs-0-abc12-0"},
+			},
+		})
+
+		cl := testutils.NewTestClientBuilder().WithObjects(pcs, pclq, pcsgInitialised, stalePGM).Build()
+		r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
+
+		require.NoError(t, r.Sync(context.Background(), logr.Discard(), pcs))
+
+		got := &grovecorev1alpha1.PodGangMap{}
+		require.NoError(t, cl.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: pcsName + "-0"}, got))
+
+		entryByName := make(map[string]grovecorev1alpha1.PodGangEntry, len(got.Spec.Entries))
+		for _, e := range got.Spec.Entries {
+			entryByName[e.Name] = e
+		}
+
+		// Two entries: the anchor MPG and the new Scaled-PG. Ghost is gone.
+		assert.Len(t, got.Spec.Entries, 2, "ghost-pg must be removed")
+		_, hasGhost := entryByName["ghost-pg"]
+		assert.False(t, hasGhost)
+
+		// my-pcs-0-abc12-0: counts overwritten to status; DependsOn preserved (was nil here).
+		anchor := entryByName["my-pcs-0-abc12-0"]
+		assert.Equal(t, int32(5), anchor.PodCliques["frontend"])
+		assert.Equal(t, int32(1), anchor.PodCliqueScalingGroups["prefill"])
+		assert.Empty(t, anchor.DependsOn, "anchor MPG retains its empty DependsOn")
+
+		// my-pcs-0-abc12-prefill-0: new entry, DependsOn inherited from the anchor.
+		scaled := entryByName["my-pcs-0-abc12-prefill-0"]
+		assert.Equal(t, int32(1), scaled.PodCliqueScalingGroups["prefill"])
+		assert.Equal(t, []string{"my-pcs-0-abc12-0"}, scaled.DependsOn)
+	})
 }
