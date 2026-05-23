@@ -436,6 +436,17 @@ func TestCheckAndAdvanceCoherentUpdate(t *testing.T) {
 			expectReplicaDone: true,
 		},
 		{
+			// Regression: prior to the early-exit reorder, an empty InFlightPodGangs reconcile
+			// after the replica was already done would call populateInFlightPodGangs and loop
+			// on "no new in-flight PodGangs found, requeueing" forever. The early-exit at the
+			// top of checkAndAdvanceCoherentUpdate now marks done immediately.
+			name:                  "empty InFlightPodGangs but replica already done marks done without populate",
+			inFlightPodGangs:      nil,
+			currentGenerationHash: ptrString("new-hash"),
+			replicaDone:           true,
+			expectReplicaDone:     true,
+		},
+		{
 			name:             "all Available but replica not done clears InFlightPodGangs",
 			inFlightPodGangs: []string{"pg-0"},
 			podGangs: []*groveschedulerv1alpha1.PodGang{
@@ -485,21 +496,25 @@ func TestCheckAndAdvanceCoherentUpdate(t *testing.T) {
 				updateWork.pendingReplicaIndices = []int{0}
 			}
 
-			err := r.checkAndAdvanceCoherentUpdate(context.Background(), logr.Discard(), pcs, updateWork)
+			replicaDone, err := r.checkAndAdvanceCoherentUpdate(context.Background(), logr.Discard(), pcs, updateWork)
 
 			if tc.expectRequeue {
 				require.Error(t, err)
 				testutils.CheckGroveError(t, &groveerr.GroveError{Code: groveerr.ErrCodeContinueReconcileAndRequeue, Operation: component.OperationSync}, err)
+				assert.False(t, replicaDone)
 			} else if tc.expectReplicaDone {
 				require.NoError(t, err)
+				assert.True(t, replicaDone)
 				assert.NotNil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].UpdateEndedAt)
 				assert.Nil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].InFlightPodGangs)
 			} else if tc.expectInFlightPodGangsCleared {
 				require.NoError(t, err)
+				assert.False(t, replicaDone)
 				assert.Nil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].InFlightPodGangs)
 				assert.Nil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].UpdateEndedAt)
 			} else if tc.expectInFlightPodGangsSet != nil {
 				require.NoError(t, err)
+				assert.False(t, replicaDone)
 				assert.ElementsMatch(t, tc.expectInFlightPodGangsSet, pcs.Status.UpdateProgress.CurrentlyUpdating[0].InFlightPodGangs)
 			}
 		})
