@@ -784,13 +784,6 @@ func (in *PodCliqueSetStatus) DeepCopyInto(out *PodCliqueSetStatus) {
 		*out = new(PodCliqueSetUpdateProgress)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.PodGangCounter != nil {
-		in, out := &in.PodGangCounter, &out.PodGangCounter
-		*out = make(map[string]int32, len(*in))
-		for key, val := range *in {
-			(*out)[key] = val
-		}
-	}
 	return
 }
 

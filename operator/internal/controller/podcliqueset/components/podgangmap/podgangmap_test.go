@@ -185,7 +185,7 @@ func TestExtractCliqueName(t *testing.T) {
 //	Existing PodGangs:
 //	  - BPG "my-pcs-0": {5 Frontend, 1 Prefill replica (pleader+pworker)}
 //	  - SPG "my-pcs-0-spg-1": {1 Prefill replica (pleader+pworker)}
-//	No PodGangMap exists yet. PodGangCounter = 0.
+//	No PodGangMap exists yet.
 //
 // MVU template: {Frontend: 2 pods, Prefill: 1 replica}
 //
@@ -210,7 +210,6 @@ func TestComputeCoherentUpdateEntries_PodGangMapNotFound(t *testing.T) {
 		UpdatedStandalonePodCliques:   []string{"frontend"},
 		UpdatedPodCliqueScalingGroups: []string{"prefill"},
 	}
-	pcs.Status.PodGangCounter = map[string]int32{"0": 0}
 
 	pgLabels := map[string]string{
 		"app.kubernetes.io/managed-by":        "grove-operator",
@@ -275,7 +274,7 @@ func TestComputeCoherentUpdateEntries_PodGangMapNotFound(t *testing.T) {
 
 	template, err := computeMVUTemplate(pcs)
 	require.NoError(t, err)
-	entries, err := r.computeCoherentUpdateEntries(context.Background(), pcs, 0, pclqs, template)
+	entries, err := r.computeCoherentUpdateEntries(context.Background(), pcs, 0, "", pclqs, template)
 	require.NoError(t, err)
 
 	// Expected: 2 old entries (BPG reduced + SPG) + 1 new MVU entry.
@@ -311,7 +310,6 @@ func TestComputeCoherentUpdateEntries_PodGangMapNotFound(t *testing.T) {
 //	PodGangMap exists with:
 //	  - Old entry "bpg-0" (old hash): {F:3, P:1} (reduced from first iteration)
 //	  - New entry "my-pcs-0-newhash12345-0" (new hash): {F:2, P:1} (from first iteration)
-//	PodGangCounter = 1.
 //
 // MVU template: {Frontend: 2, Prefill: 1}
 // Remaining in old: F=3, P=1. canFormMVU? Yes (3≥2, 1≥1). After deduction: F=1, P=0.
@@ -338,7 +336,6 @@ func TestComputeCoherentUpdateEntries_SubsequentReconcile(t *testing.T) {
 		UpdatedStandalonePodCliques:   []string{"frontend"},
 		UpdatedPodCliqueScalingGroups: []string{"prefill"},
 	}
-	pcs.Status.PodGangCounter = map[string]int32{"0": 1}
 
 	// Existing PodGangMap from prior iteration. After the first MVU iteration the BPG holds
 	// prefill[1] (prefill[0] was absorbed into the first MPG). The first MPG entry holds prefill[0].
@@ -386,7 +383,7 @@ func TestComputeCoherentUpdateEntries_SubsequentReconcile(t *testing.T) {
 
 	template, err := computeMVUTemplate(pcs)
 	require.NoError(t, err)
-	entries, err := r.computeCoherentUpdateEntries(context.Background(), pcs, 0, pclqs, template)
+	entries, err := r.computeCoherentUpdateEntries(context.Background(), pcs, 0, "my-pcs-0", pclqs, template)
 	require.NoError(t, err)
 
 	// Old entry {F:3, P:1}: deduct F:2 + P:1 for MVU → F:1, P:0.

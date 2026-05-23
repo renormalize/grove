@@ -252,132 +252,6 @@ func TestAllOwnerMappingsInitialized(t *testing.T) {
 	})
 }
 
-func TestBuildBasePodGangEntry(t *testing.T) {
-	pcs := newTestPCS("my-pcs", "gen-hash-1",
-		[]grovecorev1alpha1.PodCliqueTemplateSpec{
-			{Name: "frontend", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 5, MinAvailable: ptr.To(int32(2))}},
-			{Name: "pworker", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 3, MinAvailable: ptr.To(int32(2))}},
-		},
-		[]grovecorev1alpha1.PodCliqueScalingGroupConfig{
-			{Name: "prefill", CliqueNames: []string{"pworker"}, Replicas: ptr.To(int32(3)), MinAvailable: ptr.To(int32(1))},
-		},
-	)
-	pcsNameReplica := apicommon.ResourceNameReplica{Name: "my-pcs", Replica: 0}
-
-	pclqs := []grovecorev1alpha1.PodClique{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "my-pcs-0-frontend",
-				Namespace: "default",
-				Labels: map[string]string{
-					apicommon.LabelPartOfKey:                "my-pcs",
-					apicommon.LabelPodCliqueSetReplicaIndex: "0",
-				},
-				OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueSet", Name: "my-pcs"}},
-			},
-			Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 5},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "my-pcs-0-prefill-0-pworker",
-				Namespace: "default",
-				Labels: map[string]string{
-					apicommon.LabelPodCliqueScalingGroup:             "my-pcs-0-prefill",
-					apicommon.LabelPodCliqueScalingGroupReplicaIndex: "0",
-					apicommon.LabelPodCliqueSetReplicaIndex:          "0",
-				},
-				OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueScalingGroup", Name: "my-pcs-0-prefill"}},
-			},
-			Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 3},
-		},
-	}
-
-	entry := buildBasePodGangEntry(pcs, pcsNameReplica, "gen-hash-1", pclqs)
-
-	assert.Equal(t, "my-pcs-0", entry.Name)
-	assert.Equal(t, "gen-hash-1", entry.PodCliqueSetGenerationHash)
-	// Only standalone PCLQ (frontend) should be in PodCliques
-	assert.Equal(t, map[string]int32{"frontend": 5}, entry.PodCliques)
-	// PCSG minAvailable holds the lowest indices [0, minAvailable).
-	assert.Equal(t, map[string][]int32{"prefill": {0}}, entry.PCSGReplicaIndices)
-}
-
-func TestBuildScaledPodGangEntries(t *testing.T) {
-	pcs := newTestPCS("my-pcs", "gen-hash-1",
-		[]grovecorev1alpha1.PodCliqueTemplateSpec{
-			{Name: "pworker", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 3, MinAvailable: ptr.To(int32(2))}},
-		},
-		[]grovecorev1alpha1.PodCliqueScalingGroupConfig{
-			{Name: "prefill", CliqueNames: []string{"pworker"}, Replicas: ptr.To(int32(4)), MinAvailable: ptr.To(int32(1))},
-		},
-	)
-	pcsNameReplica := apicommon.ResourceNameReplica{Name: "my-pcs", Replica: 0}
-
-	t.Run("creates SPG entries for replicas above minAvailable", func(t *testing.T) {
-		pcsgs := []grovecorev1alpha1.PodCliqueScalingGroup{
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0-prefill", Namespace: "default"},
-				Spec:       grovecorev1alpha1.PodCliqueScalingGroupSpec{Replicas: 4},
-			},
-		}
-
-		entries := buildScaledPodGangEntries(pcs, pcsNameReplica, "gen-hash-1", pcsgs)
-
-		// 4 replicas - 1 minAvailable = 3 scaled PodGangs holding indices [1], [2], [3].
-		require.Len(t, entries, 3)
-		assert.Equal(t, "my-pcs-0-prefill-0", entries[0].Name)
-		assert.Equal(t, "my-pcs-0-prefill-1", entries[1].Name)
-		assert.Equal(t, "my-pcs-0-prefill-2", entries[2].Name)
-		expectedIndices := []int32{1, 2, 3}
-		for i, entry := range entries {
-			assert.Equal(t, "gen-hash-1", entry.PodCliqueSetGenerationHash)
-			assert.Equal(t, map[string][]int32{"prefill": {expectedIndices[i]}}, entry.PCSGReplicaIndices)
-			assert.Nil(t, entry.PodCliques)
-		}
-	})
-
-	t.Run("no SPG entries when replicas equals minAvailable", func(t *testing.T) {
-		pcsgs := []grovecorev1alpha1.PodCliqueScalingGroup{
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0-prefill", Namespace: "default"},
-				Spec:       grovecorev1alpha1.PodCliqueScalingGroupSpec{Replicas: 1},
-			},
-		}
-
-		entries := buildScaledPodGangEntries(pcs, pcsNameReplica, "gen-hash-1", pcsgs)
-		assert.Empty(t, entries)
-	})
-
-	t.Run("falls back to config replicas when PCSG resource not found", func(t *testing.T) {
-		// No PCSGs passed — falls back to config Replicas=4
-		entries := buildScaledPodGangEntries(pcs, pcsNameReplica, "gen-hash-1", nil)
-
-		// 4 replicas - 1 minAvailable = 3 scaled PodGangs
-		require.Len(t, entries, 3)
-	})
-}
-
-func TestGetPCSGCurrentReplicas(t *testing.T) {
-	pcsgConfig := grovecorev1alpha1.PodCliqueScalingGroupConfig{
-		Name:     "prefill",
-		Replicas: ptr.To(int32(3)),
-	}
-
-	t.Run("returns spec replicas when PCSG exists", func(t *testing.T) {
-		pcsgs := []grovecorev1alpha1.PodCliqueScalingGroup{
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0-prefill"},
-				Spec:       grovecorev1alpha1.PodCliqueScalingGroupSpec{Replicas: 5},
-			},
-		}
-		assert.Equal(t, 5, getPCSGCurrentReplicas(pcsgs, "my-pcs-0-prefill", pcsgConfig))
-	})
-
-	t.Run("falls back to config replicas when PCSG not found", func(t *testing.T) {
-		assert.Equal(t, 3, getPCSGCurrentReplicas(nil, "my-pcs-0-prefill", pcsgConfig))
-	})
-}
-
 func TestComputeMVUEntriesFromSpec(t *testing.T) {
 	t.Run("standalone PCLQs only", func(t *testing.T) {
 		pcs := newTestPCS("my-pcs", "gen-hash-1",
@@ -456,31 +330,6 @@ func TestComputeMVUEntriesFromSpec(t *testing.T) {
 	})
 }
 
-func TestHasMVUPodGangs(t *testing.T) {
-	t.Run("returns true when PodGangCounter has entries", func(t *testing.T) {
-		pcs := &grovecorev1alpha1.PodCliqueSet{
-			Status: grovecorev1alpha1.PodCliqueSetStatus{
-				PodGangCounter: map[string]int32{"0": 2},
-			},
-		}
-		assert.True(t, hasMVUPodGangs(pcs))
-	})
-
-	t.Run("returns false when PodGangCounter is nil", func(t *testing.T) {
-		pcs := &grovecorev1alpha1.PodCliqueSet{}
-		assert.False(t, hasMVUPodGangs(pcs))
-	})
-
-	t.Run("returns false when PodGangCounter is empty", func(t *testing.T) {
-		pcs := &grovecorev1alpha1.PodCliqueSet{
-			Status: grovecorev1alpha1.PodCliqueSetStatus{
-				PodGangCounter: map[string]int32{},
-			},
-		}
-		assert.False(t, hasMVUPodGangs(pcs))
-	})
-}
-
 func TestHasInFlightPodGangs(t *testing.T) {
 	t.Run("returns false when UpdateProgress is nil", func(t *testing.T) {
 		pcs := &grovecorev1alpha1.PodCliqueSet{}
@@ -523,54 +372,187 @@ func TestHasInFlightPodGangs(t *testing.T) {
 	})
 }
 
-func TestBuildBaseAndScaledPodGangEntries(t *testing.T) {
-	pcs := newTestPCS("my-pcs", "gen-hash-1",
-		[]grovecorev1alpha1.PodCliqueTemplateSpec{
-			{Name: "frontend", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 5, MinAvailable: ptr.To(int32(2))}},
-			{Name: "pworker", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 3, MinAvailable: ptr.To(int32(2))}},
-		},
-		[]grovecorev1alpha1.PodCliqueScalingGroupConfig{
-			{Name: "prefill", CliqueNames: []string{"pworker"}, Replicas: ptr.To(int32(3)), MinAvailable: ptr.To(int32(1))},
-		},
+// TestNextPodGangNameIndex covers the index-derivation that fixed the skipped-MPG-indices
+// bug. The function must:
+//   - Return 0 when no MPG/Tail-PG entry from the current hash exists.
+//   - Return max(parsed-trailing-int)+1 across MPG/Tail-PG entries from the current hash.
+//   - Ignore entries from other hashes (so a coherent update doesn't reuse old indices).
+//   - Ignore Scaled-PG-shaped names (extra segment after the hash).
+func TestNextPodGangNameIndex(t *testing.T) {
+	const (
+		pcsName    = "my-pcs"
+		replicaIdx = 0
+		curHash    = "newh"
+		oldHash    = "oldh"
 	)
-
-	pclqs := []grovecorev1alpha1.PodClique{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "my-pcs-0-frontend",
-				Namespace: "default",
-				Labels: map[string]string{
-					apicommon.LabelPartOfKey:                "my-pcs",
-					apicommon.LabelPodCliqueSetReplicaIndex: "0",
-				},
-				OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueSet", Name: "my-pcs"}},
-			},
-			Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 5},
-		},
+	mkEntry := func(name, hash string) grovecorev1alpha1.PodGangEntry {
+		return grovecorev1alpha1.PodGangEntry{Name: name, PodCliqueSetGenerationHash: hash}
 	}
 
-	pcsgs := []grovecorev1alpha1.PodCliqueScalingGroup{
-		{
-			ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0-prefill", Namespace: "default"},
-			Spec:       grovecorev1alpha1.PodCliqueScalingGroupSpec{Replicas: 3},
-		},
+	t.Run("no entries returns 0", func(t *testing.T) {
+		assert.Equal(t, int32(0), nextPodGangNameIndex(nil, pcsName, replicaIdx, curHash))
+	})
+
+	t.Run("no entries match current hash returns 0", func(t *testing.T) {
+		entries := []grovecorev1alpha1.PodGangEntry{
+			mkEntry("my-pcs-0-oldh-0", oldHash),
+			mkEntry("my-pcs-0-oldh-1", oldHash),
+		}
+		assert.Equal(t, int32(0), nextPodGangNameIndex(entries, pcsName, replicaIdx, curHash))
+	})
+
+	t.Run("returns max+1 across MPG/Tail-PG entries with current hash", func(t *testing.T) {
+		entries := []grovecorev1alpha1.PodGangEntry{
+			mkEntry("my-pcs-0-newh-0", curHash),
+			mkEntry("my-pcs-0-newh-2", curHash), // gap is fine — we want max+1, not first-free
+			mkEntry("my-pcs-0-newh-1", curHash),
+		}
+		assert.Equal(t, int32(3), nextPodGangNameIndex(entries, pcsName, replicaIdx, curHash))
+	})
+
+	t.Run("ignores Scaled-PG-shaped names with current hash", func(t *testing.T) {
+		entries := []grovecorev1alpha1.PodGangEntry{
+			mkEntry("my-pcs-0-newh-0", curHash),
+			// Scaled-PG: <pcs>-<replica>-<hash>-<pcsg>-<int> — extra segment, must be ignored.
+			mkEntry("my-pcs-0-newh-prefill-5", curHash),
+		}
+		assert.Equal(t, int32(1), nextPodGangNameIndex(entries, pcsName, replicaIdx, curHash))
+	})
+
+	t.Run("ignores entries from a different hash", func(t *testing.T) {
+		entries := []grovecorev1alpha1.PodGangEntry{
+			mkEntry("my-pcs-0-oldh-7", oldHash), // must not contribute
+			mkEntry("my-pcs-0-newh-0", curHash),
+		}
+		assert.Equal(t, int32(1), nextPodGangNameIndex(entries, pcsName, replicaIdx, curHash))
+	})
+
+	t.Run("ignores entries from a different PCS replica", func(t *testing.T) {
+		entries := []grovecorev1alpha1.PodGangEntry{
+			mkEntry("my-pcs-1-newh-9", curHash), // wrong replica index, must not contribute
+			mkEntry("my-pcs-0-newh-0", curHash),
+		}
+		assert.Equal(t, int32(1), nextPodGangNameIndex(entries, pcsName, replicaIdx, curHash))
+	})
+}
+
+// TestExtractMPGOrTailPGNameIndex covers the strict-shape parser for MPG/Tail-PG names.
+func TestExtractMPGOrTailPGNameIndex(t *testing.T) {
+	const (
+		pcsName    = "my-pcs"
+		replicaIdx = 0
+		curHash    = "abch"
+	)
+	tests := []struct {
+		name        string
+		input       string
+		wantIdx     int32
+		wantOK      bool
+	}{
+		{name: "MPG/Tail-PG shape", input: "my-pcs-0-abch-3", wantIdx: 3, wantOK: true},
+		{name: "MPG/Tail-PG shape, index 0", input: "my-pcs-0-abch-0", wantIdx: 0, wantOK: true},
+		{name: "Scaled-PG shape rejected", input: "my-pcs-0-abch-prefill-2"},
+		{name: "wrong PCS prefix", input: "other-0-abch-1"},
+		{name: "wrong replica index", input: "my-pcs-1-abch-1"},
+		{name: "wrong hash", input: "my-pcs-0-zzzz-1"},
+		{name: "non-integer trailing segment", input: "my-pcs-0-abch-foo"},
+		{name: "empty trailing", input: "my-pcs-0-abch-"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			idx, ok := extractMPGOrTailPGNameIndex(tc.input, pcsName, replicaIdx, curHash)
+			assert.Equal(t, tc.wantOK, ok)
+			if tc.wantOK {
+				assert.Equal(t, tc.wantIdx, idx)
+			}
+		})
+	}
+}
+
+// TestPodGangGenerationHash covers the three-source priority:
+//  1. PodGang's own LabelPodCliqueSetGenerationHash.
+//  2. Pre-update hash from any live PCLQ when a coherent update is in flight.
+//  3. PCS.Status.CurrentGenerationHash in steady state.
+func TestPodGangGenerationHash(t *testing.T) {
+	const (
+		pcsName     = "my-pcs"
+		labelHash   = "labelh"
+		pclqHash    = "pclqh"
+		currentHash = "curh"
+	)
+	mkPG := func(label string) groveschedulerv1alpha1.PodGang {
+		pg := groveschedulerv1alpha1.PodGang{
+			ObjectMeta: metav1.ObjectMeta{Name: pcsName + "-0"},
+		}
+		if label != "" {
+			pg.Labels = map[string]string{apicommon.LabelPodCliqueSetGenerationHash: label}
+		}
+		return pg
+	}
+	mkPCLQ := func(hash *string) grovecorev1alpha1.PodClique {
+		return grovecorev1alpha1.PodClique{
+			Status: grovecorev1alpha1.PodCliqueStatus{CurrentPodCliqueSetGenerationHash: hash},
+		}
+	}
+	pcsSteady := newTestPCS(pcsName, currentHash, nil, nil)
+	pcsCoherent := newTestPCS(pcsName, currentHash, nil, nil)
+	pcsCoherent.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy}
+	pcsCoherent.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+		UpdateStartedAt: metav1.Now(),
 	}
 
-	entries := buildBaseAndScaledPodGangEntries(pcs, 0, pclqs, pcsgs)
+	t.Run("label present takes precedence over PCLQ status and PCS current hash", func(t *testing.T) {
+		got := podGangGenerationHash(pcsCoherent, mkPG(labelHash), []grovecorev1alpha1.PodClique{mkPCLQ(ptr.To(pclqHash))})
+		assert.Equal(t, labelHash, got)
+	})
 
-	// 1 BPG + 2 SPGs (3 replicas - 1 minAvailable = 2 scaled)
-	require.Len(t, entries, 3)
+	t.Run("label absent + coherent update in flight uses PCLQ status hash", func(t *testing.T) {
+		got := podGangGenerationHash(pcsCoherent, mkPG(""), []grovecorev1alpha1.PodClique{mkPCLQ(ptr.To(pclqHash))})
+		assert.Equal(t, pclqHash, got)
+	})
 
-	// BPG holds prefill[0] (the lowest minAvailable indices).
-	assert.Equal(t, "my-pcs-0", entries[0].Name)
-	assert.Equal(t, int32(5), entries[0].PodCliques["frontend"])
-	assert.Equal(t, []int32{0}, entries[0].PCSGReplicaIndices["prefill"])
+	t.Run("label absent + steady state uses PCS current hash", func(t *testing.T) {
+		// PCLQ has a hash but no update is in flight — must fall through to PCS.
+		got := podGangGenerationHash(pcsSteady, mkPG(""), []grovecorev1alpha1.PodClique{mkPCLQ(ptr.To(pclqHash))})
+		assert.Equal(t, currentHash, got)
+	})
 
-	// SPGs hold higher indices: [1], [2].
-	assert.Equal(t, "my-pcs-0-prefill-0", entries[1].Name)
-	assert.Equal(t, map[string][]int32{"prefill": {1}}, entries[1].PCSGReplicaIndices)
-	assert.Equal(t, "my-pcs-0-prefill-1", entries[2].Name)
-	assert.Equal(t, map[string][]int32{"prefill": {2}}, entries[2].PCSGReplicaIndices)
+	t.Run("label absent + coherent update + no PCLQ status falls through to PCS current hash", func(t *testing.T) {
+		// Mid-update but no PCLQ has reported its hash yet — fall back to PCS current hash
+		// (the only available source). Tested to lock in the fallback behaviour.
+		got := podGangGenerationHash(pcsCoherent, mkPG(""), []grovecorev1alpha1.PodClique{mkPCLQ(nil)})
+		assert.Equal(t, "", got, "preUpdateHashFromPCLQStatus returns empty when no PCLQ has a hash; coherent path returns that empty value rather than falling further")
+	})
+
+	t.Run("no label, no PCLQs, no coherent update, no current hash returns empty", func(t *testing.T) {
+		pcsEmpty := &grovecorev1alpha1.PodCliqueSet{}
+		got := podGangGenerationHash(pcsEmpty, mkPG(""), nil)
+		assert.Equal(t, "", got)
+	})
+}
+
+// TestPreUpdateHashFromPCLQStatus covers the helper that samples a hash from any live PCLQ.
+func TestPreUpdateHashFromPCLQStatus(t *testing.T) {
+	t.Run("returns empty when no PCLQs", func(t *testing.T) {
+		assert.Equal(t, "", preUpdateHashFromPCLQStatus(nil))
+	})
+
+	t.Run("returns empty when all PCLQs have nil hash", func(t *testing.T) {
+		pclqs := []grovecorev1alpha1.PodClique{
+			{Status: grovecorev1alpha1.PodCliqueStatus{CurrentPodCliqueSetGenerationHash: nil}},
+			{Status: grovecorev1alpha1.PodCliqueStatus{CurrentPodCliqueSetGenerationHash: nil}},
+		}
+		assert.Equal(t, "", preUpdateHashFromPCLQStatus(pclqs))
+	})
+
+	t.Run("returns the first non-nil hash encountered", func(t *testing.T) {
+		pclqs := []grovecorev1alpha1.PodClique{
+			{Status: grovecorev1alpha1.PodCliqueStatus{CurrentPodCliqueSetGenerationHash: nil}},
+			{Status: grovecorev1alpha1.PodCliqueStatus{CurrentPodCliqueSetGenerationHash: ptr.To("hash-a")}},
+			{Status: grovecorev1alpha1.PodCliqueStatus{CurrentPodCliqueSetGenerationHash: ptr.To("hash-b")}},
+		}
+		assert.Equal(t, "hash-a", preUpdateHashFromPCLQStatus(pclqs))
+	})
 }
 
 func TestGetPodGangPCSReplicaIndex(t *testing.T) {

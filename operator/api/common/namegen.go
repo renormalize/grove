@@ -133,9 +133,10 @@ func ExtractScalingGroupNameFromPCSGFQN(pcsgFQN string, pcsNameReplica ResourceN
 // (GenerateBasePodGangName, CreatePodGangNameFromPCSGFQN) will be retired in favour
 // of this scheme.
 //
-// createdPodGangCount must be the value of PodCliqueSetStatus.PodGangCounter[replicaIndex]
-// at the time of PodGang creation (before incrementing). pcsGenerationHash must not
-// be empty; callers should ensure CurrentGenerationHash is set before calling this function.
+// createdPodGangCount is the per-replica creation sequence within the current update; the
+// caller derives it (e.g. by scanning existing PodGangs in the same generation hash and
+// taking max+1). pcsGenerationHash must not be empty; callers should ensure
+// CurrentGenerationHash is set before calling this function.
 func GeneratePodGangName(pcsName string, replicaIndex int32, pcsGenerationHash string, createdPodGangCount int32) string {
 	return fmt.Sprintf("%s-%d-%s-%d", pcsName, replicaIndex, pcsGenerationHash, createdPodGangCount)
 }

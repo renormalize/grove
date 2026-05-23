@@ -108,15 +108,6 @@ type PodCliqueSetStatus struct {
 	CurrentGenerationHash *string `json:"currentGenerationHash,omitempty"`
 	// UpdateProgress represents the progress of an update.
 	UpdateProgress *PodCliqueSetUpdateProgress `json:"updateProgress,omitempty"`
-	// PodGangCounter tracks the number of PodGangs created per PodCliqueSet replica.
-	// Key is the stringified replica index; value is the creation count of PodGangs for that replica.
-	// The counter resets to zero at the start of each new update and increments once per
-	// PodGang create — during an update as well as for scale-out events between updates.
-	// It is never decremented, including on PodCliqueScalingGroup scale-in. Combined with
-	// the generation hash segment in the PodGang name, it ensures unique PodGang names
-	// across all iterations within a single update.
-	// +optional
-	PodGangCounter map[string]int32 `json:"podGangCounter,omitempty"`
 }
 
 // UpdateStrategyType defines the type of update strategy for PodCliqueSet.

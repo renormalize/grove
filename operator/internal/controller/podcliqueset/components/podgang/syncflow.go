@@ -534,23 +534,28 @@ func (r _resource) releaseMinReplicasConstraint(ctx context.Context, sc *syncCon
 }
 
 // patchPodGangCondition patches a condition on the PodGang status.
+//
+// Implementation note: it does a Get-modify-Patch using client.MergeFrom rather than building
+// a fresh PodGang with only the new condition. JSON Merge Patch (RFC 7396) — what client.Merge
+// produces for CRDs — replaces list fields wholesale, so a patch sourced from a struct that
+// only has the one new condition would wipe every previously-set condition. Reading the live
+// state first and feeding meta.SetStatusCondition the full slice avoids that.
 func (r _resource) patchPodGangCondition(ctx context.Context, sc *syncContext, podGangName string, conditionType groveschedulerv1alpha1.PodGangConditionType, status metav1.ConditionStatus, reason, message string) error {
-	statusPatch := &groveschedulerv1alpha1.PodGang{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      podGangName,
-			Namespace: sc.pcs.Namespace,
-		},
+	pg, err := componentutils.GetPodGang(ctx, r.client, podGangName, sc.pcs.Namespace)
+	if err != nil {
+		return err
 	}
+	patchBase := pg.DeepCopy()
 	condition := metav1.Condition{
 		Type:               string(conditionType),
 		Status:             status,
-		ObservedGeneration: statusPatch.Generation,
+		ObservedGeneration: pg.Generation,
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
 		Message:            message,
 	}
-	meta.SetStatusCondition(&statusPatch.Status.Conditions, condition)
-	if err := r.client.Status().Patch(ctx, statusPatch, client.Merge); err != nil {
+	meta.SetStatusCondition(&pg.Status.Conditions, condition)
+	if err := r.client.Status().Patch(ctx, pg, client.MergeFrom(patchBase)); err != nil {
 		return err
 	}
 	sc.logger.Info("Successfully patched PodGang condition",

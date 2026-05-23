@@ -10941,19 +10941,6 @@ spec:
                   by the controller.
                 format: int64
                 type: integer
-              podGangCounter:
-                additionalProperties:
-                  format: int32
-                  type: integer
-                description: |-
-                  PodGangCounter tracks the number of PodGangs created per PodCliqueSet replica.
-                  Key is the stringified replica index; value is the creation count of PodGangs for that replica.
-                  The counter resets to zero at the start of each new update and increments once per
-                  PodGang create — during an update as well as for scale-out events between updates.
-                  It is never decremented, including on PodCliqueScalingGroup scale-in. Combined with
-                  the generation hash segment in the PodGang name, it ensures unique PodGang names
-                  across all iterations within a single update.
-                type: object
               podGangStatuses:
                 description: |-
                   PodGangStatuses captures the status for all the PodGang's that are part of the PodCliqueSet.

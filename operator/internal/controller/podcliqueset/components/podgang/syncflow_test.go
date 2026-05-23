@@ -1897,3 +1897,65 @@ func TestArePodGangMinReplicasReady(t *testing.T) {
 		})
 	}
 }
+
+// TestPatchPodGangCondition verifies that patchPodGangCondition uses Get-modify-Patch with
+// client.MergeFrom so existing conditions on the PodGang are preserved when a new condition
+// is set. The earlier implementation built a fresh PodGang with only the new condition and
+// patched with client.Merge — JSON Merge Patch (RFC 7396) replaces lists wholesale, which
+// wiped every previously-set condition. This test locks in the fix.
+func TestPatchPodGangCondition(t *testing.T) {
+	ctx := t.Context()
+	const (
+		pcsName = "test-pcs"
+		ns      = "test-ns"
+		pgName  = "test-pcs-0"
+	)
+
+	pcs := &grovecorev1alpha1.PodCliqueSet{
+		ObjectMeta: metav1.ObjectMeta{Name: pcsName, Namespace: ns},
+	}
+	existingPG := &groveschedulerv1alpha1.PodGang{
+		ObjectMeta: metav1.ObjectMeta{Name: pgName, Namespace: ns},
+		Status: groveschedulerv1alpha1.PodGangStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:               string(groveschedulerv1alpha1.PodGangConditionTypeInitialized),
+					Status:             metav1.ConditionTrue,
+					Reason:             groveschedulerv1alpha1.ConditionReasonPodGangPodsCreated,
+					Message:            "Initial seed",
+					LastTransitionTime: metav1.Now(),
+				},
+			},
+		},
+	}
+
+	fakeClient := testutils.NewTestClientBuilder().
+		WithObjects(pcs, existingPG).
+		WithStatusSubresource(&groveschedulerv1alpha1.PodGang{}).
+		Build()
+	r := &_resource{client: fakeClient, scheme: groveclientscheme.Scheme}
+	sc := &syncContext{pcs: pcs, logger: ctrllogger.FromContext(ctx).WithName("test")}
+
+	// Add a second condition; the existing Initialized condition must remain.
+	require.NoError(t, r.patchPodGangCondition(
+		ctx, sc, pgName,
+		groveschedulerv1alpha1.PodGangConditionTypeAvailable,
+		metav1.ConditionTrue,
+		groveschedulerv1alpha1.ConditionReasonPodGangAvailable,
+		"all min-replica pods are ready",
+	))
+
+	got := &groveschedulerv1alpha1.PodGang{}
+	require.NoError(t, fakeClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: pgName}, got))
+
+	assert.Len(t, got.Status.Conditions, 2, "existing Initialized condition must not be wiped")
+	condByType := make(map[string]metav1.Condition, len(got.Status.Conditions))
+	for _, c := range got.Status.Conditions {
+		condByType[c.Type] = c
+	}
+	require.Contains(t, condByType, string(groveschedulerv1alpha1.PodGangConditionTypeInitialized))
+	require.Contains(t, condByType, string(groveschedulerv1alpha1.PodGangConditionTypeAvailable))
+	assert.Equal(t, metav1.ConditionTrue, condByType[string(groveschedulerv1alpha1.PodGangConditionTypeAvailable)].Status)
+	assert.Equal(t, "Initial seed", condByType[string(groveschedulerv1alpha1.PodGangConditionTypeInitialized)].Message,
+		"existing condition message must be preserved untouched")
+}
