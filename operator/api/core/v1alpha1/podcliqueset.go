@@ -187,6 +187,18 @@ type PodCliqueSetUpdateProgress struct {
 	// OnDelete update strategy.
 	// +optional
 	CurrentlyUpdating []PodCliqueSetReplicaUpdateProgress `json:"currentlyUpdating,omitempty"`
+	// UpdatedStandalonePodCliques captures the names of standalone PodCliques whose pod template was detected
+	// as out-of-date when this coherent update started. The set is frozen for the lifetime of the update
+	// (cleared together with UpdateEndedAt). The MVU machinery uses this set, in combination with the live PCS
+	// spec, to compute the MVU template; a fresh recomputation from live PCLQ hashes would shrink the set as
+	// pods roll over and break the MVU invariants. Only populated for the Coherent strategy.
+	// +optional
+	UpdatedStandalonePodCliques []string `json:"updatedStandalonePodCliques,omitempty"`
+	// UpdatedPodCliqueScalingGroups captures the config names of PodCliqueScalingGroups that had at least one
+	// constituent PodClique detected as out-of-date when this coherent update started. Same lifetime semantics
+	// as UpdatedStandalonePodCliques. Only populated for the Coherent strategy.
+	// +optional
+	UpdatedPodCliqueScalingGroups []string `json:"updatedPodCliqueScalingGroups,omitempty"`
 }
 
 // PodCliqueSetReplicaUpdateProgress captures the progress of an update for a specific PodCliqueSet replica.

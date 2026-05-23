@@ -43,6 +43,18 @@ func FindScalingGroupConfigForClique(scalingGroupConfigs []grovecorev1alpha1.Pod
 	return &pcsgConfig
 }
 
+// FindScalingGroupConfigByName retrieves the PodCliqueScalingGroupConfig from the PodCliqueSet by its name.
+// Returns nil if no scaling group config with the given name exists in the PCS spec.
+func FindScalingGroupConfigByName(pcs *grovecorev1alpha1.PodCliqueSet, pcsgConfigName string) *grovecorev1alpha1.PodCliqueScalingGroupConfig {
+	pcsgConfig, ok := lo.Find(pcs.Spec.Template.PodCliqueScalingGroupConfigs, func(c grovecorev1alpha1.PodCliqueScalingGroupConfig) bool {
+		return c.Name == pcsgConfigName
+	})
+	if !ok {
+		return nil
+	}
+	return &pcsgConfig
+}
+
 // ListPCSGsForPCS fetches all PodCliqueScalingGroups for a PodCliqueSet.
 func ListPCSGsForPCS(ctx context.Context, cl client.Client, pcsObjKey client.ObjectKey) ([]grovecorev1alpha1.PodCliqueScalingGroup, error) {
 	pcsgList := &grovecorev1alpha1.PodCliqueScalingGroupList{}

@@ -17,12 +17,12 @@
 package podgangmap
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
-	"github.com/ai-dynamo/grove/operator/internal/utils"
 )
 
 // mvuTemplate describes the composition of one MVU PodGang.
@@ -34,67 +34,36 @@ type mvuTemplate struct {
 	pcsgs map[string]int32
 }
 
-// computeMVUTemplate determines which components have been updated and computes the MVU template.
-// To determine which components of a PCS has been updated it compares the new expected pod template
-// hash (from the PCS spec) and compares it against the live PCLQ pod template hash.
-// For each updated standalone PCLQ, include its minAvailable in the template.
-// For each PCSG that has at least one updated constituent PCLQ, include its minAvailable in the template.
-func computeMVUTemplate(pcs *grovecorev1alpha1.PodCliqueSet, existingPCLQs []grovecorev1alpha1.PodClique) (*mvuTemplate, error) {
-	updatedStandalonePCLQTuples, updatedPCSGPCLQNames, err := findUpdatedPodCliques(pcs, existingPCLQs)
-	if err != nil {
-		return nil, err
+// computeMVUTemplate builds the MVU template from the snapshot of out-of-date components captured
+// on PCS.Status.UpdateProgress at update start. The snapshot is frozen for the lifetime of the
+// update so the template stays stable as PCLQs roll over to the new hash. MinAvailable values are
+// looked up live from PCS.Spec.Template — the webhook prevents MinAvailable changes mid-update,
+// so the spec values are the same as they were at update start.
+func computeMVUTemplate(pcs *grovecorev1alpha1.PodCliqueSet) (*mvuTemplate, error) {
+	progress := pcs.Status.UpdateProgress
+	if progress == nil {
+		return nil, fmt.Errorf("UpdateProgress is unset on PodCliqueSet %s; cannot derive MVU template", pcs.Name)
 	}
 
-	// Find the PCSGs that have been updated using the updatedPCSGPCLQNames computed earlier.
-	updatedPCSGTuples := make(map[string]int32, len(pcs.Spec.Template.PodCliqueScalingGroupConfigs))
-	for _, pcsgConfig := range pcs.Spec.Template.PodCliqueScalingGroupConfigs {
-		for _, cliqueName := range pcsgConfig.CliqueNames {
-			if slices.Contains(updatedPCSGPCLQNames, cliqueName) {
-				updatedPCSGTuples[pcsgConfig.Name] = *pcsgConfig.MinAvailable
-				break
-			}
+	standalone := make(map[string]int32, len(progress.UpdatedStandalonePodCliques))
+	for _, name := range progress.UpdatedStandalonePodCliques {
+		template := componentutils.FindPodCliqueTemplateSpecByName(pcs, name)
+		if template == nil {
+			return nil, fmt.Errorf("standalone PodClique %q in UpdateProgress.UpdatedStandalonePodCliques is no longer in PCS %s spec", name, pcs.Name)
 		}
+		standalone[name] = *template.Spec.MinAvailable
 	}
 
-	return &mvuTemplate{
-		standalonePCLQs: updatedStandalonePCLQTuples,
-		pcsgs:           updatedPCSGTuples,
-	}, nil
-}
-
-func findUpdatedPodCliques(pcs *grovecorev1alpha1.PodCliqueSet, existingPCLQs []grovecorev1alpha1.PodClique) (updatedStandalonePCLQTuples map[string]int32, updatedPCSGPCLQNames []string, err error) {
-	updatedStandalonePCLQTuples = make(map[string]int32)
-
-	for _, cliqueTemplate := range pcs.Spec.Template.Cliques {
-		// This should never happen. Since the API allows it as it is []*PodCliqueTemplateSpec this check is added.
-		if cliqueTemplate == nil {
-			continue
+	pcsgs := make(map[string]int32, len(progress.UpdatedPodCliqueScalingGroups))
+	for _, name := range progress.UpdatedPodCliqueScalingGroups {
+		pcsgConfig := componentutils.FindScalingGroupConfigByName(pcs, name)
+		if pcsgConfig == nil {
+			return nil, fmt.Errorf("PodCliqueScalingGroup %q in UpdateProgress.UpdatedPodCliqueScalingGroups is no longer in PCS %s spec", name, pcs.Name)
 		}
-		newPCLQHash := componentutils.ComputePCLQPodTemplateHash(cliqueTemplate, pcs.Spec.Template.PriorityClassName)
-		// Check any live PCLQ with this clique name — we only need one to determine if the spec changed.
-		// All PCLQs with the same clique name share the same template, so checking one suffices.
-		for _, pclq := range existingPCLQs {
-			var cliqueName string
-			cliqueName, err = utils.GetPodCliqueNameFromPodCliqueFQN(pclq.ObjectMeta)
-			if err != nil {
-				return
-			}
-			if cliqueName != cliqueTemplate.Name {
-				continue
-			}
-			// found matching PCLQ, check the hash, if it is different then this PCLQ has been updated.
-			if pclq.Status.CurrentPodTemplateHash == nil || *pclq.Status.CurrentPodTemplateHash != newPCLQHash {
-				// identify if this is a standalone PCLQ or it belongs to a PCSG.
-				if componentutils.IsStandalonePCLQ(&pclq) {
-					updatedStandalonePCLQTuples[cliqueName] = *pclq.Spec.MinAvailable
-				} else {
-					updatedPCSGPCLQNames = append(updatedPCSGPCLQNames, cliqueName)
-				}
-			}
-			break
-		}
+		pcsgs[name] = *pcsgConfig.MinAvailable
 	}
-	return
+
+	return &mvuTemplate{standalonePCLQs: standalone, pcsgs: pcsgs}, nil
 }
 
 // podGangMapState captures the state of the PodGangMap after a computation step:

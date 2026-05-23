@@ -887,6 +887,16 @@ func (in *PodCliqueSetUpdateProgress) DeepCopyInto(out *PodCliqueSetUpdateProgre
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.UpdatedStandalonePodCliques != nil {
+		in, out := &in.UpdatedStandalonePodCliques, &out.UpdatedStandalonePodCliques
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.UpdatedPodCliqueScalingGroups != nil {
+		in, out := &in.UpdatedPodCliqueScalingGroups, &out.UpdatedPodCliqueScalingGroups
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	return
 }
 

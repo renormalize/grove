@@ -11120,6 +11120,14 @@ spec:
                       for the PodCliqueSet.
                     format: date-time
                     type: string
+                  updatedPodCliqueScalingGroups:
+                    description: |-
+                      UpdatedPodCliqueScalingGroups captures the config names of PodCliqueScalingGroups that had at least one
+                      constituent PodClique detected as out-of-date when this coherent update started. Same lifetime semantics
+                      as UpdatedStandalonePodCliques. Only populated for the Coherent strategy.
+                    items:
+                      type: string
+                    type: array
                   updatedPodCliqueScalingGroupsCount:
                     default: 0
                     description: |-
@@ -11134,6 +11142,16 @@ spec:
                       generation hash. Recomputed each reconcile from child generation-hash labels.
                     format: int32
                     type: integer
+                  updatedStandalonePodCliques:
+                    description: |-
+                      UpdatedStandalonePodCliques captures the names of standalone PodCliques whose pod template was detected
+                      as out-of-date when this coherent update started. The set is frozen for the lifetime of the update
+                      (cleared together with UpdateEndedAt). The MVU machinery uses this set, in combination with the live PCS
+                      spec, to compute the MVU template; a fresh recomputation from live PCLQ hashes would shrink the set as
+                      pods roll over and break the MVU invariants. Only populated for the Coherent strategy.
+                    items:
+                      type: string
+                    type: array
                 type: object
               updatedReplicas:
                 default: 0

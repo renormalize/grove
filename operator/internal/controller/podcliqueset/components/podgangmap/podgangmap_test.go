@@ -205,7 +205,11 @@ func TestComputeCoherentUpdateEntries_PodGangMapNotFound(t *testing.T) {
 		},
 	)
 	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy}
-	pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{UpdateStartedAt: metav1.Now()}
+	pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+		UpdateStartedAt:               metav1.Now(),
+		UpdatedStandalonePodCliques:   []string{"frontend"},
+		UpdatedPodCliqueScalingGroups: []string{"prefill"},
+	}
 	pcs.Status.PodGangCounter = map[string]int32{"0": 0}
 
 	pgLabels := map[string]string{
@@ -269,7 +273,9 @@ func TestComputeCoherentUpdateEntries_PodGangMapNotFound(t *testing.T) {
 	cl := testutils.NewTestClientBuilder().WithObjects(pcs, bpg, spg).Build()
 	r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
 
-	entries, err := r.computeCoherentUpdateEntries(context.Background(), pcs, 0, pclqs)
+	template, err := computeMVUTemplate(pcs)
+	require.NoError(t, err)
+	entries, err := r.computeCoherentUpdateEntries(context.Background(), pcs, 0, pclqs, template)
 	require.NoError(t, err)
 
 	// Expected: 2 old entries (BPG reduced + SPG) + 1 new MVU entry.
@@ -327,7 +333,11 @@ func TestComputeCoherentUpdateEntries_SubsequentReconcile(t *testing.T) {
 		},
 	)
 	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy}
-	pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{UpdateStartedAt: metav1.Now()}
+	pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+		UpdateStartedAt:               metav1.Now(),
+		UpdatedStandalonePodCliques:   []string{"frontend"},
+		UpdatedPodCliqueScalingGroups: []string{"prefill"},
+	}
 	pcs.Status.PodGangCounter = map[string]int32{"0": 1}
 
 	// Existing PodGangMap from prior iteration. After the first MVU iteration the BPG holds
@@ -374,7 +384,9 @@ func TestComputeCoherentUpdateEntries_SubsequentReconcile(t *testing.T) {
 	cl := testutils.NewTestClientBuilder().WithObjects(pcs, pgm).Build()
 	r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
 
-	entries, err := r.computeCoherentUpdateEntries(context.Background(), pcs, 0, pclqs)
+	template, err := computeMVUTemplate(pcs)
+	require.NoError(t, err)
+	entries, err := r.computeCoherentUpdateEntries(context.Background(), pcs, 0, pclqs, template)
 	require.NoError(t, err)
 
 	// Old entry {F:3, P:1}: deduct F:2 + P:1 for MVU → F:1, P:0.

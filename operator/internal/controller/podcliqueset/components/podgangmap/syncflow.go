@@ -125,12 +125,23 @@ func (r _resource) runSyncFlow(ctx context.Context, sc *syncContext) error {
 
 // syncCoherentUpdateEntries computes and persists PodGangMap entries during a coherent update.
 func (r _resource) syncCoherentUpdateEntries(ctx context.Context, sc *syncContext) error {
+	// MVU template is the snapshot captured on PCS.Status.UpdateProgress at update start.
+	// It is invariant for the lifetime of the update, so compute it once and reuse across replicas.
+	template, err := computeMVUTemplate(sc.pcs)
+	if err != nil {
+		return groveerr.WrapError(err,
+			errCodeSyncPodGangMap,
+			component.OperationSync,
+			fmt.Sprintf("Error computing MVU template for PodCliqueSet: %v", client.ObjectKeyFromObject(sc.pcs)),
+		)
+	}
+
 	expectedPGMNames := make([]string, 0, sc.pcs.Spec.Replicas)
 	for pcsReplicaIndex := range sc.pcs.Spec.Replicas {
 		pgmName := apicommon.GeneratePodGangMapName(apicommon.ResourceNameReplica{Name: sc.pcs.Name, Replica: int(pcsReplicaIndex)})
 		expectedPGMNames = append(expectedPGMNames, pgmName)
 
-		entries, err := r.computeCoherentUpdateEntries(ctx, sc.pcs, int(pcsReplicaIndex), sc.pclqsByReplica[int(pcsReplicaIndex)])
+		entries, err := r.computeCoherentUpdateEntries(ctx, sc.pcs, int(pcsReplicaIndex), sc.pclqsByReplica[int(pcsReplicaIndex)], template)
 		if err != nil {
 			return groveerr.WrapError(err,
 				errCodeSyncPodGangMap,
@@ -166,13 +177,7 @@ func (r _resource) syncCoherentUpdateEntries(ctx context.Context, sc *syncContex
 // On subsequent reconciles (PodGangMap exists): it reads existing entries, separates into old-hash
 // and new-hash, and computes next iteration's entries.
 // Returns the complete set of entries for the PodGangMap: updated old entries + all new entries.
-func (r _resource) computeCoherentUpdateEntries(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, pclqs []grovecorev1alpha1.PodClique) ([]grovecorev1alpha1.PodGangEntry, error) {
-	// Compute the MVU template from current PCS spec vs live PCLQ hashes.
-	template, err := computeMVUTemplate(pcs, pclqs)
-	if err != nil {
-		return nil, err
-	}
-
+func (r _resource) computeCoherentUpdateEntries(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, replicaIndex int, pclqs []grovecorev1alpha1.PodClique, template *mvuTemplate) ([]grovecorev1alpha1.PodGangEntry, error) {
 	newGenerationHash := *pcs.Status.CurrentGenerationHash
 	// Get old-hash and previously-created new-hash entries.
 	oldEntries, existingNewEntries, err := r.getOldAndNewEntries(ctx, pcs, replicaIndex, pclqs, newGenerationHash)
