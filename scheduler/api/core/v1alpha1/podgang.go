@@ -189,10 +189,12 @@ const (
 // PodGangStatus defines the status of a PodGang.
 type PodGangStatus struct {
 	// Phase is the current phase of a PodGang.
+	// +optional
 	Phase PodGangPhase `json:"phase"`
 	// Conditions is a list of conditions that describe the current state of the PodGang.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// PlacementScore is network optimality score for the PodGang. If the choice that the scheduler has made corresponds to the
 	// best possible placement of the pods in the PodGang, then the score will be 1.0. Higher the score, better the placement.
+	// +optional
 	PlacementScore *float64 `json:"placementScore,omitempty"`
 }
