@@ -209,11 +209,15 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) error {
 		return err
 	}
 
-	// RollingRecreate update: deletes one selected ready replica per pass; the next reconcile
-	// recreates it via reconcilePCSGReplicaDistribution's gap-fill path.
-	if componentutils.IsRollingRecreateUpdateInProgress(sc.pcs) && componentutils.IsPCSGUpdateInProgress(sc.pcsg) {
-		if err := r.processPendingUpdates(logger, sc); err != nil {
-			return err
+	if componentutils.IsPCSGUpdateInProgress(sc.pcsg) {
+		if componentutils.IsRollingRecreateUpdateInProgress(sc.pcs) {
+			if err := r.processPendingUpdates(logger, sc); err != nil {
+				return err
+			}
+		} else if componentutils.IsCoherentUpdateInProgress(sc.pcs) {
+			if err := r.checkAndMarkPCSGCoherentUpdateEnded(logger, sc); err != nil {
+				return err
+			}
 		}
 	}
 

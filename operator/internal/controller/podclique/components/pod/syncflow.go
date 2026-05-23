@@ -206,9 +206,15 @@ func (r _resource) runSyncFlow(logger logr.Logger, sc *syncContext) syncFlowResu
 		}
 	}
 
-	if componentutils.IsRollingRecreateUpdateInProgress(sc.pcs) && componentutils.IsPCLQAutoUpdateInProgress(sc.pclq) {
-		if err := r.processPendingUpdates(logger, sc); err != nil {
-			result.recordError(err)
+	if componentutils.IsPCLQAutoUpdateInProgress(sc.pclq) {
+		if componentutils.IsRollingRecreateUpdateInProgress(sc.pcs) {
+			if err := r.processPendingUpdates(logger, sc); err != nil {
+				result.recordError(err)
+			}
+		} else if sc.isStandalonePCLQ && componentutils.IsCoherentUpdateInProgress(sc.pcs) {
+			if err := r.checkAndMarkPCLQCoherentUpdateEnded(logger, sc); err != nil {
+				result.recordError(err)
+			}
 		}
 	}
 

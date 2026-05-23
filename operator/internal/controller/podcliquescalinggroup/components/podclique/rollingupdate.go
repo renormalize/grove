@@ -162,6 +162,30 @@ func (r _resource) markRollingUpdateEnd(ctx context.Context, logger logr.Logger,
 	return nil
 }
 
+// checkAndMarkPCSGCoherentUpdateEnded closes out the PCSG-level UpdateProgress when a coherent
+// update has finished rolling all owned PCLQs to the new template.
+//
+// In a coherent update PCSG-owned PCLQs roll via reconcilePCSGReplicaDistribution's
+// label-mismatch driven delete-and-recreate flow — there is no per-PCSG orchestrator akin to
+// processPendingUpdates that would call markRollingUpdateEnd. Without an explicit completion
+// step, mutateCurrentHashes refuses to advance pcsg.Status.CurrentPodCliqueSetGenerationHash
+// because IsPCSGUpdateInProgress stays true, which strands the PCS-level orchestrator's
+// "replica done" check.
+//
+// UpdatedPodCliquesCount is computed from constituent PCLQs' updated state by the PCSG status
+// reconciler, so the equality with TotalPodCliquesCount is a cheap, race-free completion signal.
+// The caller already gates this call on IsCoherentUpdateInProgress(pcs) and
+// IsPCSGUpdateInProgress(pcsg).
+func (r _resource) checkAndMarkPCSGCoherentUpdateEnded(logger logr.Logger, sc *syncContext) error {
+	if sc.pcsg.Status.UpdateProgress.TotalPodCliquesCount == 0 {
+		return nil
+	}
+	if sc.pcsg.Status.UpdateProgress.UpdatedPodCliquesCount != sc.pcsg.Status.UpdateProgress.TotalPodCliquesCount {
+		return nil
+	}
+	return r.markRollingUpdateEnd(sc.ctx, logger, sc.pcsg)
+}
+
 // computePendingUpdateWork analyzes existing replicas and categorizes them by update status and availability state
 func computePendingUpdateWork(sc *syncContext) (*updateWork, error) {
 	work := &updateWork{}
