@@ -30,9 +30,11 @@ import (
 	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 	"github.com/ai-dynamo/grove/operator/internal/utils"
+	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
 
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -426,8 +428,15 @@ func (r _resource) applyPCSGPerPodGangDeltas(logger logr.Logger, sc *syncContext
 		}
 	}
 
-	deletions, creations := computePCSGCountDeltas(desiredIndexToPG, sc.existingPCLQs)
-
+	deletions, creations, err := computePCSGCountDeltas(desiredIndexToPG, sc.existingPCLQs, sc.pcsg.Spec.CliqueNames)
+	if err != nil {
+		return groveerr.WrapError(err,
+			errCodeParsePodCliqueScalingGroupReplicaIndex,
+			component.OperationSync,
+			fmt.Sprintf("failed to compute PCSG replica deltas for PodCliqueScalingGroup %v",
+				client.ObjectKeyFromObject(sc.pcsg)))
+	}
+	logger.V(4).Info("pcsg indices for deletions and creations", "deletions", deletions, "creations", creations)
 	if len(deletions) > 0 {
 		if err := r.deletePCSGReplicas(logger, sc, deletions); err != nil {
 			return err
@@ -447,58 +456,75 @@ func (r _resource) applyPCSGPerPodGangDeltas(logger logr.Logger, sc *syncContext
 //     1. Indices not in desiredIndexToPG (obsolete — index belongs to no PodGang).
 //     2. Indices whose live LabelPodGang disagrees with desired (the PCLQ will be recreated
 //     under the correct PodGang on the next reconcile).
-//   - creations: index → PodGang for indices in desired that have no surviving live PCLQ.
-func computePCSGCountDeltas(desiredIndexToPG map[int]string, livePCLQs []grovecorev1alpha1.PodClique) (deletionIndices []int, creations map[int]string) {
+//   - creations: index → PodGang for indices in desired that either have no surviving live PCLQ
+//     or are only partially populated (some cliques present, some missing). Partial replicas
+//     stay in `creations` so the next reconcile creates the missing siblings; the existing
+//     PCLQs are left untouched (the Create attempt swallows AlreadyExists for the present ones).
+//
+// Terminating PCLQs are ignored entirely — they do not contribute to liveByIndex, and the
+// AlreadyExists swallow in doCreate handles the brief race window where the operator tries to
+// re-create an FQN whose old PCLQ is still terminating.
+//
+// All live PCLQs at one PCSG replica index must share the same LabelPodGang (Grove stamps it
+// once at creation and never updates it). A missing label or divergent labels at one index
+// indicate a contract violation and surface as an error.
+func computePCSGCountDeltas(desiredIndexToPG map[int]string, livePCLQs []grovecorev1alpha1.PodClique, pcsgCliqueNames []string) (deletionIndices []int, creations map[int]string, err error) {
 	creations = make(map[int]string, len(desiredIndexToPG))
 	maps.Copy(creations, desiredIndexToPG)
 
-	// liveByIndex: PCSG replica index -> set of live PodGang labels seen on PCLQs at that index.
-	// Multiple PCLQs at the same index (one per clique) all share the same LabelPodGang in steady
-	// state, so the set is normally a singleton. A divergent set (>1 distinct labels) indicates
-	// inconsistent state and is treated as a deletion target.
-	liveByIndex := make(map[int]map[string]struct{})
-	for _, pclq := range livePCLQs {
-		idxStr, ok := pclq.Labels[apicommon.LabelPodCliqueScalingGroupReplicaIndex]
+	// liveByIndex: PCSG replica index → the LabelPodGang shared by every PCLQ at that index.
+	liveByIndex := make(map[int]string)
+	// liveCliquesByIndex: PCSG replica index → set of clique names with a non-terminating PCLQ.
+	// Used to detect "half-populated" indices where some cliques exist and others don't.
+	liveCliquesByIndex := make(map[int]sets.Set[string])
+
+	for i := range livePCLQs {
+		if k8sutils.IsResourceTerminating(livePCLQs[i].ObjectMeta) {
+			continue
+		}
+		idx, parseErr := k8sutils.GetPodCliqueScalingGroupReplicaIndex(livePCLQs[i].ObjectMeta)
+		if parseErr != nil {
+			err = parseErr
+			return
+		}
+		pgLabel, ok := livePCLQs[i].Labels[apicommon.LabelPodGang]
 		if !ok {
-			continue
+			err = fmt.Errorf("PodClique %s is missing required %s label", livePCLQs[i].Name, apicommon.LabelPodGang)
+			return
 		}
-		idx := idxStr
-		var idxInt int
-		if _, err := fmt.Sscanf(idx, "%d", &idxInt); err != nil {
-			continue
+		if existing, seen := liveByIndex[idx]; seen && existing != pgLabel {
+			err = fmt.Errorf("PodCliques at PCSG replica index %d have divergent %s labels: %q vs %q", idx, apicommon.LabelPodGang, existing, pgLabel)
+			return
 		}
-		pgLabel := pclq.Labels[apicommon.LabelPodGang]
-		set := liveByIndex[idxInt]
-		if set == nil {
-			set = make(map[string]struct{})
-			liveByIndex[idxInt] = set
+		liveByIndex[idx] = pgLabel
+
+		cliqueName, parseErr := utils.GetPodCliqueNameFromPodCliqueFQN(livePCLQs[i].ObjectMeta)
+		if parseErr != nil {
+			err = parseErr
+			return
 		}
-		set[pgLabel] = struct{}{}
+		if liveCliquesByIndex[idx] == nil {
+			liveCliquesByIndex[idx] = sets.New[string]()
+		}
+		liveCliquesByIndex[idx].Insert(cliqueName)
 	}
 
-	for idx, labels := range liveByIndex {
+	expectedCliques := sets.New(pcsgCliqueNames...)
+	for idx, livePodGangLabel := range liveByIndex {
 		desiredPG, inDesired := desiredIndexToPG[idx]
-		if !inDesired {
-			// Obsolete index — delete all live PCLQs at this index.
+		if !inDesired || livePodGangLabel != desiredPG {
+			// Either the index is obsolete or its PodGang label disagrees with desired —
+			// delete and let the next reconcile recreate under the correct PodGang.
 			deletionIndices = append(deletionIndices, idx)
 			continue
 		}
-		if len(labels) != 1 {
-			// Divergent labels at this index — delete and recreate.
-			deletionIndices = append(deletionIndices, idx)
-			continue
+		// Correct PodGang label. The index is only fully covered when every clique in the
+		// PCSG config has a non-terminating PCLQ at this index. A half-populated replica
+		// (some cliques missing) keeps creations[idx] populated so the next reconcile creates
+		// the missing siblings; doCreate swallows AlreadyExists for siblings that already exist.
+		if liveCliquesByIndex[idx].Equal(expectedCliques) {
+			delete(creations, idx)
 		}
-		var liveLabel string
-		for k := range labels {
-			liveLabel = k
-		}
-		if liveLabel != desiredPG {
-			// Wrong PodGang label — delete; next reconcile creates under the correct PodGang.
-			deletionIndices = append(deletionIndices, idx)
-			continue
-		}
-		// Correct binding already in place — no creation needed for this index.
-		delete(creations, idx)
 	}
 
 	return
