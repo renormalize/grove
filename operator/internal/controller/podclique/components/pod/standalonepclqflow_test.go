@@ -31,6 +31,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -734,4 +735,163 @@ func TestReconcileStandalonePCLQDistribution_CoherentRealign(t *testing.T) {
 	fresh := &grovecorev1alpha1.PodClique{}
 	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(pclq), fresh))
 	assert.Equal(t, map[string]int32{"workload1-0-abc12-0": 1, "workload1-0-abc12-1": 1}, fresh.Status.PodGangMapping)
+}
+
+// -----------------------------------------------------------------------------
+// guardAgainstStaleSpecDuringCoherentUpdate
+// -----------------------------------------------------------------------------
+
+// TestGuardAgainstStaleSpecDuringCoherentUpdate covers the gate that requeues when the PCLQ cache
+// view is stale relative to an in-flight coherent update. The fixture exercises the three states
+// described on the function plus the negative-paths where the gate must not fire.
+func TestGuardAgainstStaleSpecDuringCoherentUpdate(t *testing.T) {
+	const (
+		oldHash    = "oldgen"
+		newHash    = "newgen"
+		oldTpl     = "oldtpl"
+		newTpl     = "newtpl"
+		cliqueName = "pca"
+	)
+	mkPCS := func(strategy grovecorev1alpha1.UpdateStrategyType, curGenHash string, updatedStandalone []string) *grovecorev1alpha1.PodCliqueSet {
+		pcs := &grovecorev1alpha1.PodCliqueSet{
+			ObjectMeta: metav1.ObjectMeta{Name: testPCSName, Namespace: testNamespace},
+			Spec: grovecorev1alpha1.PodCliqueSetSpec{
+				UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: strategy},
+			},
+		}
+		if curGenHash != "" {
+			pcs.Status.CurrentGenerationHash = ptr.To(curGenHash)
+		}
+		if updatedStandalone != nil {
+			pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+				UpdateStartedAt:             metav1.Now(),
+				UpdatedStandalonePodCliques: updatedStandalone,
+			}
+		}
+		return pcs
+	}
+	mkPCLQ := func(labelTpl string, curTpl *string, progress *grovecorev1alpha1.PodCliqueUpdateProgress) *grovecorev1alpha1.PodClique {
+		return &grovecorev1alpha1.PodClique{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pclqFQN,
+				Namespace: testNamespace,
+				Labels:    map[string]string{apicommon.LabelPodTemplateHash: labelTpl},
+			},
+			Status: grovecorev1alpha1.PodCliqueStatus{
+				CurrentPodTemplateHash: curTpl,
+				UpdateProgress:         progress,
+			},
+		}
+	}
+
+	tests := []struct {
+		name        string
+		pcs         *grovecorev1alpha1.PodCliqueSet
+		pclq        *grovecorev1alpha1.PodClique
+		expectFire  bool
+	}{
+		{
+			name: "RollingRecreate strategy bypasses guard",
+			pcs:  mkPCS(grovecorev1alpha1.RollingRecreateStrategy, newHash, nil),
+			pclq: mkPCLQ(oldTpl, ptr.To(oldTpl), nil),
+		},
+		{
+			name: "Coherent update not in progress (no UpdateProgress) bypasses guard",
+			pcs:  mkPCS(grovecorev1alpha1.CoherentStrategy, newHash, nil),
+			pclq: mkPCLQ(oldTpl, ptr.To(oldTpl), nil),
+		},
+		{
+			name: "Clique not in UpdatedStandalonePodCliques bypasses guard",
+			pcs:  mkPCS(grovecorev1alpha1.CoherentStrategy, newHash, []string{"other-clique"}),
+			pclq: mkPCLQ(oldTpl, ptr.To(oldTpl), nil),
+		},
+		{
+			name: "Status.CurrentPodTemplateHash nil bypasses guard (PCLQ never reconciled)",
+			pcs:  mkPCS(grovecorev1alpha1.CoherentStrategy, newHash, []string{cliqueName}),
+			pclq: mkPCLQ(oldTpl, nil, nil),
+		},
+		{
+			name: "State 2 (roll in progress, label != status) bypasses guard",
+			pcs:  mkPCS(grovecorev1alpha1.CoherentStrategy, newHash, []string{cliqueName}),
+			pclq: mkPCLQ(newTpl, ptr.To(oldTpl), &grovecorev1alpha1.PodCliqueUpdateProgress{
+				UpdateStartedAt:            metav1.Now(),
+				PodCliqueSetGenerationHash: newHash,
+				PodTemplateHash:            newTpl,
+			}),
+		},
+		{
+			name: "State 3 (roll complete for current gen) bypasses guard",
+			pcs:  mkPCS(grovecorev1alpha1.CoherentStrategy, newHash, []string{cliqueName}),
+			pclq: mkPCLQ(newTpl, ptr.To(newTpl), &grovecorev1alpha1.PodCliqueUpdateProgress{
+				UpdateStartedAt:            metav1.Now(),
+				UpdateEndedAt:              &metav1.Time{Time: time.Now()},
+				PodCliqueSetGenerationHash: newHash,
+				PodTemplateHash:            newTpl,
+			}),
+		},
+		{
+			name: "State 1 (cache stale, label == status, no UpdateProgress) requeues",
+			pcs:  mkPCS(grovecorev1alpha1.CoherentStrategy, newHash, []string{cliqueName}),
+			pclq: mkPCLQ(oldTpl, ptr.To(oldTpl), nil),
+			expectFire: true,
+		},
+		{
+			name: "State 1 (UpdateEndedAt set but for previous PCS generation) requeues",
+			// UpdateProgress lingers from a prior PCS update at oldHash; fresh update at newHash
+			// hasn't been observed yet, so label==status==oldTpl. Guard must not mistake the
+			// stale UpdateEndedAt for completion of the current generation.
+			pcs:  mkPCS(grovecorev1alpha1.CoherentStrategy, newHash, []string{cliqueName}),
+			pclq: mkPCLQ(oldTpl, ptr.To(oldTpl), &grovecorev1alpha1.PodCliqueUpdateProgress{
+				UpdateStartedAt:            metav1.Now(),
+				UpdateEndedAt:              &metav1.Time{Time: time.Now()},
+				PodCliqueSetGenerationHash: oldHash,
+				PodTemplateHash:            oldTpl,
+			}),
+			expectFire: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sc := &syncContext{pcs: tc.pcs, pclq: tc.pclq, cliqueName: cliqueName}
+			err := guardAgainstStaleSpecDuringCoherentUpdate(sc)
+			if tc.expectFire {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestIsPCLQUpdateEndedForCurrentPCSGeneration exercises the helper's pointer-safety and
+// generation-tagging logic in isolation.
+func TestIsPCLQUpdateEndedForCurrentPCSGeneration(t *testing.T) {
+	now := metav1.Time{Time: time.Now()}
+	pcs := func(curHash *string) *grovecorev1alpha1.PodCliqueSet {
+		return &grovecorev1alpha1.PodCliqueSet{Status: grovecorev1alpha1.PodCliqueSetStatus{CurrentGenerationHash: curHash}}
+	}
+	pclq := func(progress *grovecorev1alpha1.PodCliqueUpdateProgress) *grovecorev1alpha1.PodClique {
+		return &grovecorev1alpha1.PodClique{Status: grovecorev1alpha1.PodCliqueStatus{UpdateProgress: progress}}
+	}
+
+	t.Run("nil UpdateProgress returns false", func(t *testing.T) {
+		assert.False(t, isPCLQUpdateEndedForCurrentPCSGeneration(pcs(ptr.To("hash")), pclq(nil)))
+	})
+	t.Run("UpdateEndedAt nil returns false", func(t *testing.T) {
+		assert.False(t, isPCLQUpdateEndedForCurrentPCSGeneration(pcs(ptr.To("hash")),
+			pclq(&grovecorev1alpha1.PodCliqueUpdateProgress{PodCliqueSetGenerationHash: "hash"})))
+	})
+	t.Run("PCS CurrentGenerationHash nil returns false", func(t *testing.T) {
+		assert.False(t, isPCLQUpdateEndedForCurrentPCSGeneration(pcs(nil),
+			pclq(&grovecorev1alpha1.PodCliqueUpdateProgress{UpdateEndedAt: &now, PodCliqueSetGenerationHash: "hash"})))
+	})
+	t.Run("hash mismatch returns false (stale prior-update record)", func(t *testing.T) {
+		assert.False(t, isPCLQUpdateEndedForCurrentPCSGeneration(pcs(ptr.To("new-hash")),
+			pclq(&grovecorev1alpha1.PodCliqueUpdateProgress{UpdateEndedAt: &now, PodCliqueSetGenerationHash: "old-hash"})))
+	})
+	t.Run("ended for current generation returns true", func(t *testing.T) {
+		assert.True(t, isPCLQUpdateEndedForCurrentPCSGeneration(pcs(ptr.To("hash")),
+			pclq(&grovecorev1alpha1.PodCliqueUpdateProgress{UpdateEndedAt: &now, PodCliqueSetGenerationHash: "hash"})))
+	})
 }

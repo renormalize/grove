@@ -23,6 +23,7 @@ import (
 	"sort"
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
+	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
 	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
@@ -35,6 +36,67 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// guardAgainstStaleSpecDuringCoherentUpdate requeues when this reconcile sees a fresh PodGangMap
+// but a stale PodClique. The PCS reconciler writes PGM (G0) before the PCLQ Spec (G2); a PGM
+// watch can fire before the PCLQ Spec watch, so the cache may have new MPGs in PGM while
+// pclq.Spec.PodSpec is still the pre-update template. Creating pods from that stale Spec lands
+// them in the new-hash MPG carrying the old pod-template-hash, and the MPG never goes Available.
+//
+// The guard fires only for cliques in pcs.Status.UpdateProgress.UpdatedStandalonePodCliques (the
+// snapshot of cliques the update must roll). For those, label==status on the PCLQ is ambiguous:
+// either the cache has not yet seen the PCS-side patch (label and status both at pre-update), or
+// the roll has finished and mutateCurrentHashes advanced status to match the label. UpdateProgress
+// disambiguates: a finished roll for the *current* PCS generation has UpdateEndedAt set AND
+// PodCliqueSetGenerationHash == pcs.Status.CurrentGenerationHash. Without the generation check a
+// stale UpdateEndedAt from the prior update (preserved until initOrResetUpdate overwrites it on
+// the next reconcile) would be mistaken for completion of the current one.
+func guardAgainstStaleSpecDuringCoherentUpdate(sc *syncContext) error {
+	if !componentutils.IsCoherentUpdateInProgress(sc.pcs) {
+		return nil
+	}
+	if !slices.Contains(sc.pcs.Status.UpdateProgress.UpdatedStandalonePodCliques, sc.cliqueName) {
+		return nil
+	}
+	if sc.pclq.Status.CurrentPodTemplateHash == nil {
+		return nil
+	}
+	if isPCLQUpdateEndedForCurrentPCSGeneration(sc.pcs, sc.pclq) {
+		// Roll for the current PCS generation is complete (state 3). Label may equal Status now
+		// (post-mutateCurrentHashes); that equality reflects a finished roll, not a stale cache.
+		return nil
+	}
+	if sc.pclq.Labels[apicommon.LabelPodTemplateHash] != *sc.pclq.Status.CurrentPodTemplateHash {
+		// State (2): label points at the new target, status still trails. Cache is fresh enough.
+		return nil
+	}
+	// State (1): label equals status and the roll for the current PCS generation hasn't ended.
+	// The cache hasn't observed the PCS-side patch yet; requeue and let the PCLQ Spec watch
+	// deliver the new label.
+	return groveerr.New(groveerr.ErrCodeRequeueAfter,
+		component.OperationSync,
+		fmt.Sprintf("PodClique %v cache is stale relative to coherent update; waiting for label propagation",
+			client.ObjectKeyFromObject(sc.pclq)),
+	)
+}
+
+// isPCLQUpdateEndedForCurrentPCSGeneration returns true when pclq.Status.UpdateProgress records a
+// completed update tagged with the current PCS generation hash. UpdateProgress is overwritten by
+// initOrResetUpdate at the start of each PCLQ-level update, so a stale UpdateEndedAt from a
+// previous PCS generation can linger until the controller observes the new spec — this guard
+// requires the PodCliqueSetGenerationHash to match before treating UpdateEndedAt as authoritative.
+func isPCLQUpdateEndedForCurrentPCSGeneration(pcs *grovecorev1alpha1.PodCliqueSet, pclq *grovecorev1alpha1.PodClique) bool {
+	if pclq.Status.UpdateProgress == nil {
+		return false
+	}
+	if pclq.Status.UpdateProgress.UpdateEndedAt == nil {
+		return false
+	}
+	if pcs.Status.CurrentGenerationHash == nil {
+		return false
+	}
+	return pclq.Status.UpdateProgress.PodCliqueSetGenerationHash == *pcs.Status.CurrentGenerationHash
+}
 
 // reconcileStandalonePCLQDistribution drives the desired-state-driven sync flow for a standalone
 // PodClique. It updates pclq.Status.PodGangMapping to the desired pod-to-PodGang distribution,
@@ -51,6 +113,9 @@ import (
 // via per-PodGang deltas: create the deficit, delete the excess (deletion sorter scoped to
 // each PodGang).
 func (r _resource) reconcileStandalonePCLQDistribution(logger logr.Logger, sc *syncContext) error {
+	if requeueErr := guardAgainstStaleSpecDuringCoherentUpdate(sc); requeueErr != nil {
+		return requeueErr
+	}
 	desiredMapping, err := r.computeDesiredPodGangMapping(sc)
 	if err != nil {
 		return err
