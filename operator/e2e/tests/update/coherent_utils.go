@@ -85,7 +85,14 @@ func pg(pclqs map[string]int32, pcsgs map[string]int32) pgComposition {
 }
 
 func compositionFromEntry(e grovev1alpha1.PodGangEntry) pgComposition {
-	return pgComposition{pclqs: e.PodCliques, pcsgs: e.PodCliqueScalingGroups}
+	var pcsgs map[string]int32
+	if len(e.PCSGReplicaIndices) > 0 {
+		pcsgs = make(map[string]int32, len(e.PCSGReplicaIndices))
+		for name, indices := range e.PCSGReplicaIndices {
+			pcsgs[name] = int32(len(indices))
+		}
+	}
+	return pgComposition{pclqs: e.PodCliques, pcsgs: pcsgs}
 }
 
 func canonicalKey(c pgComposition) string {

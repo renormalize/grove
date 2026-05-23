@@ -1,4 +1,4 @@
-//go:build ignore
+//go:build e2e
 
 // /*
 // Copyright 2026 The Grove Authors.
