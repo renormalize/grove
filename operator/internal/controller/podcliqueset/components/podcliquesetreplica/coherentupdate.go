@@ -119,25 +119,23 @@ func (r _resource) checkAndAdvanceCoherentUpdate(ctx context.Context, logger log
 	}
 
 	// Check if all in-flight PodGangs have become Available.
-	for _, pgName := range currentProgress.InFlightPodGangs {
-		pg, err := componentutils.GetPodGang(ctx, r.client, pgName, pcs.Namespace)
-		if err != nil {
-			return false, groveerr.WrapError(err,
-				errCodeListPCLQs,
-				component.OperationSync,
-				fmt.Sprintf("failed to get PodGang %s to check availability", pgName),
-			)
-		}
-		if !k8sutils.IsConditionTrue(pg.Status.Conditions, string(groveschedulerv1alpha1.PodGangConditionTypeAvailable)) {
-			logger.Info("Waiting for in-flight PodGangs to become Available",
-				"replicaIndex", replicaIndex,
-				"inFlightPodGangs", currentProgress.InFlightPodGangs)
-			return false, groveerr.New(
-				groveerr.ErrCodeContinueReconcileAndRequeue,
-				component.OperationSync,
-				fmt.Sprintf("coherent update of PodCliqueSet replica %d in progress, waiting for PodGang %s to become Available", replicaIndex, pgName),
-			)
-		}
+	available, err := componentutils.ArePodGangsAvailable(ctx, r.client, pcs.Namespace, currentProgress.InFlightPodGangs)
+	if err != nil {
+		return false, groveerr.WrapError(err,
+			errCodeListPCLQs,
+			component.OperationSync,
+			"failed to check availability of in-flight PodGangs",
+		)
+	}
+	if !available {
+		logger.Info("Waiting for in-flight PodGangs to become Available",
+			"replicaIndex", replicaIndex,
+			"inFlightPodGangs", currentProgress.InFlightPodGangs)
+		return false, groveerr.New(
+			groveerr.ErrCodeContinueReconcileAndRequeue,
+			component.OperationSync,
+			fmt.Sprintf("coherent update of PodCliqueSet replica %d in progress, waiting for in-flight PodGangs to become Available", replicaIndex),
+		)
 	}
 
 	// All in-flight PodGangs are Available but the replica is not yet fully updated. Clear

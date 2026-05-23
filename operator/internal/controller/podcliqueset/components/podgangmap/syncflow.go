@@ -29,7 +29,6 @@ import (
 	componentutils "github.com/ai-dynamo/grove/operator/internal/controller/common/component/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 	"github.com/ai-dynamo/grove/operator/internal/utils"
-
 	groveschedulerv1alpha1 "github.com/ai-dynamo/grove/scheduler/api/core/v1alpha1"
 	"github.com/go-logr/logr"
 	"github.com/samber/lo"
@@ -149,7 +148,7 @@ func (r _resource) syncCoherentUpdateEntries(ctx context.Context, sc *syncContex
 				fmt.Sprintf("Error computing entries for PodGangMap %s: %v", pgmName, client.ObjectKeyFromObject(sc.pcs)),
 			)
 		}
-		if err := r.createOrPatchPodGangMap(ctx, sc.pcs, pgmName, int(pcsReplicaIndex), entries); err != nil {
+		if err = r.createOrPatchPodGangMap(ctx, sc.pcs, pgmName, int(pcsReplicaIndex), entries); err != nil {
 			return err
 		}
 	}
@@ -185,6 +184,24 @@ func (r _resource) computeCoherentUpdateEntries(ctx context.Context, pcs *grovec
 		return nil, err
 	}
 
+	// Gate the next iteration on the previously-minted new-hash entry being Available. Without
+	// this, every PCS reconcile would advance the MVU iteration regardless of whether the prior
+	// MPG/Tail-PG has stabilised, leading to multiple new-hash MPGs in flight at once and the
+	// associated unbounded simultaneous pod churn. Only mint the next iteration's entry once
+	// the most-recently-minted new-hash PodGang reports Available.
+	canAdvance, err := r.canAdvanceMVUIteration(ctx, pcs, existingNewEntries)
+	if err != nil {
+		return nil, err
+	}
+	if !canAdvance {
+		// Return the existing PGM contents unchanged for this reconcile. The orchestrator's
+		// wait-for-Available loop will requeue once the prior PodGang transitions to Available.
+		var allEntries []grovecorev1alpha1.PodGangEntry
+		allEntries = append(allEntries, oldEntries...)
+		allEntries = append(allEntries, existingNewEntries...)
+		return allEntries, nil
+	}
+
 	// Build the entry builder closure for generating new PodGang names. The next mint index is
 	// derived from the names of MPG/Tail-PG entries already in the PGM under the current hash.
 	nextPodGangIndex := nextPodGangNameIndex(existingNewEntries, pcs.Name, replicaIndex, newGenerationHash)
@@ -202,6 +219,28 @@ func (r _resource) computeCoherentUpdateEntries(ctx context.Context, pcs *grovec
 	allEntries = append(allEntries, existingNewEntries...)
 	allEntries = append(allEntries, state.newEntries...)
 	return allEntries, nil
+}
+
+// canAdvanceMVUIteration reports whether the coherent-update flow may emit the next MVU
+// iteration's new-hash entry. The intent is bounded disruption: each prior iteration's
+// PodGangs must reach PodGangConditionTypeAvailable before another iteration is minted.
+// Without this gate, G0 (PodGangMap component) would emit a new iteration on every reconcile
+// while G1 (orchestrator) is still waiting on prior ones, producing multiple in-flight MPGs
+// concurrently and breaking MVU's bounded-disruption guarantee.
+//
+// A single MVU iteration may emit multiple entries at once (computeTailPodGangs drains all
+// remaining PCSG indices into Tail-PGs in one call), so the gate verifies the whole prior
+// batch via componentutils.ArePodGangsAvailable rather than only the highest-indexed entry.
+//
+// During a coherent update only the coherent flow mints PGM entries, so every entry in
+// existingNewEntries is one this update emitted; the steady-state PGM follower does not run
+// while IsCoherentUpdateInProgress is true.
+func (r _resource) canAdvanceMVUIteration(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, existingNewEntries []grovecorev1alpha1.PodGangEntry) (bool, error) {
+	names := make([]string, 0, len(existingNewEntries))
+	for _, e := range existingNewEntries {
+		names = append(names, e.Name)
+	}
+	return componentutils.ArePodGangsAvailable(ctx, r.client, pcs.Namespace, names)
 }
 
 // collectMPGNamesFromEntries returns the names of MVU PodGang entries in the given slice.

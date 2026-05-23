@@ -378,7 +378,21 @@ func TestComputeCoherentUpdateEntries_SubsequentReconcile(t *testing.T) {
 		},
 	}
 
-	cl := testutils.NewTestClientBuilder().WithObjects(pcs, pgm).Build()
+	// Prior iteration's MPG has reached Available — required for canAdvanceMVUIteration to permit
+	// the next iteration to be minted.
+	priorMPG := &groveschedulerv1alpha1.PodGang{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0-newhash12345-0", Namespace: "default"},
+		Status: groveschedulerv1alpha1.PodGangStatus{
+			Conditions: []metav1.Condition{{
+				Type:               string(groveschedulerv1alpha1.PodGangConditionTypeAvailable),
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.Now(),
+				Reason:             groveschedulerv1alpha1.ConditionReasonPodGangAvailable,
+			}},
+		},
+	}
+
+	cl := testutils.NewTestClientBuilder().WithObjects(pcs, pgm, priorMPG).Build()
 	r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
 
 	template, err := computeMVUTemplate(pcs)
@@ -403,6 +417,104 @@ func TestComputeCoherentUpdateEntries_SubsequentReconcile(t *testing.T) {
 	assert.Equal(t, newHash, entries[1].PodCliqueSetGenerationHash)
 	assert.Equal(t, int32(3), entries[1].PodCliques["frontend"])
 	assert.Equal(t, []int32{1}, entries[1].PCSGReplicaIndices["prefill"])
+}
+
+// TestComputeCoherentUpdateEntries_GateBlocksAdvancementWhenPriorMPGNotAvailable verifies that
+// canAdvanceMVUIteration prevents minting another MVU iteration when the prior new-hash MPG's
+// PodGang resource has not yet reached PodGangConditionTypeAvailable. The expected behaviour is
+// that computeCoherentUpdateEntries returns the existing PGM contents (oldEntries +
+// existingNewEntries) unchanged for this reconcile, deferring the next iteration's mint to a
+// later reconcile when the prior PodGang has stabilised.
+//
+// Setup mirrors TestComputeCoherentUpdateEntries_SubsequentReconcile (PGM has one prior new-hash
+// MPG entry plus an old-hash entry to drain) but seeds the prior MPG's PodGang with
+// Available=False instead of True.
+func TestComputeCoherentUpdateEntries_GateBlocksAdvancementWhenPriorMPGNotAvailable(t *testing.T) {
+	oldHash := "oldhash12345"
+	newHash := "newhash12345"
+
+	pcs := newTestPCS("my-pcs", newHash,
+		[]grovecorev1alpha1.PodCliqueTemplateSpec{
+			{Name: "frontend", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 5, MinAvailable: ptr.To[int32](2)}},
+			{Name: "pleader", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 1, MinAvailable: ptr.To[int32](1)}},
+			{Name: "pworker", Spec: grovecorev1alpha1.PodCliqueSpec{Replicas: 3, MinAvailable: ptr.To[int32](2)}},
+		},
+		[]grovecorev1alpha1.PodCliqueScalingGroupConfig{
+			{Name: "prefill", CliqueNames: []string{"pleader", "pworker"}, MinAvailable: ptr.To[int32](1)},
+		},
+	)
+	pcs.Spec.UpdateStrategy = &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.CoherentStrategy}
+	pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+		UpdateStartedAt:               metav1.Now(),
+		UpdatedStandalonePodCliques:   []string{"frontend"},
+		UpdatedPodCliqueScalingGroups: []string{"prefill"},
+	}
+
+	pgm := &grovecorev1alpha1.PodGangMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "my-pcs-0", Namespace: "default",
+			Labels: getLabels("my-pcs", 0),
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: grovecorev1alpha1.SchemeGroupVersion.String(), Kind: "PodCliqueSet", Name: "my-pcs", UID: pcs.UID, Controller: ptr.To(true)},
+			},
+		},
+		Spec: grovecorev1alpha1.PodGangMapSpec{
+			PodCliqueSetReplicaIndex: 0,
+			Entries: []grovecorev1alpha1.PodGangEntry{
+				{Name: "bpg-0", PodCliqueSetGenerationHash: oldHash, PodCliques: map[string]int32{"frontend": 3}, PCSGReplicaIndices: map[string][]int32{"prefill": {1}}},
+				{Name: "my-pcs-0-newhash12345-0", PodCliqueSetGenerationHash: newHash, PodCliques: map[string]int32{"frontend": 2}, PCSGReplicaIndices: map[string][]int32{"prefill": {0}}},
+			},
+		},
+	}
+
+	// Prior MPG's PodGang exists but has NOT reached Available — gate must refuse to advance.
+	priorMPG := &groveschedulerv1alpha1.PodGang{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0-newhash12345-0", Namespace: "default"},
+		Status: groveschedulerv1alpha1.PodGangStatus{
+			Conditions: []metav1.Condition{{
+				Type:               string(groveschedulerv1alpha1.PodGangConditionTypeAvailable),
+				Status:             metav1.ConditionFalse,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "PodGangNotAvailable",
+			}},
+		},
+	}
+
+	pclqs := []grovecorev1alpha1.PodClique{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "my-pcs-0-frontend", Namespace: "default",
+				Labels:          map[string]string{"app.kubernetes.io/managed-by": "grove-operator", "app.kubernetes.io/part-of": "my-pcs", "grove.io/podcliqueset-replica-index": "0"},
+				OwnerReferences: []metav1.OwnerReference{{Kind: "PodCliqueSet", Name: "my-pcs"}},
+			},
+			Spec:   grovecorev1alpha1.PodCliqueSpec{Replicas: 5, MinAvailable: ptr.To[int32](2)},
+			Status: grovecorev1alpha1.PodCliqueStatus{CurrentPodCliqueSetGenerationHash: &oldHash, CurrentPodTemplateHash: ptr.To("old-fe-hash")},
+		},
+	}
+
+	cl := testutils.NewTestClientBuilder().WithObjects(pcs, pgm, priorMPG).Build()
+	r := &_resource{client: cl, scheme: groveclientscheme.Scheme}
+
+	template, err := computeMVUTemplate(pcs)
+	require.NoError(t, err)
+	entries, err := r.computeCoherentUpdateEntries(context.Background(), pcs, 0, "my-pcs-0", pclqs, template)
+	require.NoError(t, err)
+
+	// Gate blocked the advance: returned entries are exactly the existing PGM contents
+	// (one old-hash entry + one new-hash entry). No new iteration was minted.
+	require.Len(t, entries, 2)
+	entryByName := map[string]grovecorev1alpha1.PodGangEntry{}
+	for _, e := range entries {
+		entryByName[e.Name] = e
+	}
+	require.Contains(t, entryByName, "bpg-0")
+	require.Contains(t, entryByName, "my-pcs-0-newhash12345-0")
+	// Old-hash entry preserved unchanged.
+	assert.Equal(t, oldHash, entryByName["bpg-0"].PodCliqueSetGenerationHash)
+	assert.Equal(t, int32(3), entryByName["bpg-0"].PodCliques["frontend"])
+	// Existing new-hash entry preserved unchanged.
+	assert.Equal(t, newHash, entryByName["my-pcs-0-newhash12345-0"].PodCliqueSetGenerationHash)
+	assert.Equal(t, int32(2), entryByName["my-pcs-0-newhash12345-0"].PodCliques["frontend"])
 }
 
 // TestBuildResource_EntriesAreSorted verifies that buildResource sorts PodGangMap entries
