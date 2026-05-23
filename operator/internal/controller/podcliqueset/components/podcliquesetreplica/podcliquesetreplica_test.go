@@ -447,12 +447,13 @@ func TestCheckAndAdvanceCoherentUpdate(t *testing.T) {
 			expectReplicaDone:     true,
 		},
 		{
-			name:             "all Available but replica not done clears InFlightPodGangs",
+			name:             "all Available but replica not done clears InFlightPodGangs and requeues",
 			inFlightPodGangs: []string{"pg-0"},
 			podGangs: []*groveschedulerv1alpha1.PodGang{
 				makePodGang("pg-0", "default", true),
 			},
 			replicaDone:                   false,
+			expectRequeue:                 true,
 			expectInFlightPodGangsCleared: true,
 		},
 	}
@@ -502,16 +503,16 @@ func TestCheckAndAdvanceCoherentUpdate(t *testing.T) {
 				require.Error(t, err)
 				testutils.CheckGroveError(t, &groveerr.GroveError{Code: groveerr.ErrCodeContinueReconcileAndRequeue, Operation: component.OperationSync}, err)
 				assert.False(t, replicaDone)
+				if tc.expectInFlightPodGangsCleared {
+					// "iteration complete, seeking next" path: side-effect plus requeue.
+					assert.Nil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].InFlightPodGangs)
+					assert.Nil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].UpdateEndedAt)
+				}
 			} else if tc.expectReplicaDone {
 				require.NoError(t, err)
 				assert.True(t, replicaDone)
 				assert.NotNil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].UpdateEndedAt)
 				assert.Nil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].InFlightPodGangs)
-			} else if tc.expectInFlightPodGangsCleared {
-				require.NoError(t, err)
-				assert.False(t, replicaDone)
-				assert.Nil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].InFlightPodGangs)
-				assert.Nil(t, pcs.Status.UpdateProgress.CurrentlyUpdating[0].UpdateEndedAt)
 			} else if tc.expectInFlightPodGangsSet != nil {
 				require.NoError(t, err)
 				assert.False(t, replicaDone)

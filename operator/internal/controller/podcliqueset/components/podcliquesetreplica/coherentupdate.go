@@ -142,11 +142,20 @@ func (r _resource) checkAndAdvanceCoherentUpdate(ctx context.Context, logger log
 
 	// All in-flight PodGangs are Available but the replica is not yet fully updated. Clear
 	// InFlightPodGangs and requeue so the PodGangMap component computes the next iteration's
-	// entries on the next reconcile.
+	// entries on the next reconcile. The requeue is required because patchUpdateProgressStatus
+	// only mutates status, and the PCS controller's For-watch uses GenerationChangedPredicate —
+	// without an explicit requeue here no further reconcile would fire to advance the update.
 	logger.Info("Current iteration complete, seeking next update target", "replicaIndex", replicaIndex)
 	original := pcs.DeepCopy()
 	pcs.Status.UpdateProgress.CurrentlyUpdating[0].InFlightPodGangs = nil
-	return false, r.patchUpdateProgressStatus(ctx, logger, pcs, original)
+	if err := r.patchUpdateProgressStatus(ctx, logger, pcs, original); err != nil {
+		return false, err
+	}
+	return false, groveerr.New(
+		groveerr.ErrCodeContinueReconcileAndRequeue,
+		component.OperationSync,
+		fmt.Sprintf("coherent update of PodCliqueSet replica %d cleared InFlightPodGangs; requeuing for next iteration", replicaIndex),
+	)
 }
 
 // computeCoherentPendingWork identifies which replicas still need updating vs. which are done.
