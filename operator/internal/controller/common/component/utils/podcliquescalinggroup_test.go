@@ -371,3 +371,105 @@ func TestGetPCSGsByPCSReplicaIndex(t *testing.T) {
 		assert.Empty(t, result)
 	})
 }
+
+// TestGetPCLQTemplateHashes covers the per-clique-once optimization. The hash depends only on
+// the clique template + PCS priority class, so every PCSG-replica entry for a given clique must
+// carry the same value, and missing-template cliques must be omitted from the result.
+func TestGetPCLQTemplateHashes(t *testing.T) {
+	pcs := &grovecorev1alpha1.PodCliqueSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-pcs", Namespace: "default"},
+		Spec: grovecorev1alpha1.PodCliqueSetSpec{
+			Template: grovecorev1alpha1.PodCliqueSetTemplateSpec{
+				PriorityClassName: "high",
+				Cliques: []*grovecorev1alpha1.PodCliqueTemplateSpec{
+					{
+						Name:   "leader",
+						Labels: map[string]string{"role": "leader"},
+						Spec:   grovecorev1alpha1.PodCliqueSpec{Replicas: 1, MinAvailable: ptr.To[int32](1)},
+					},
+					{
+						Name:   "worker",
+						Labels: map[string]string{"role": "worker"},
+						Spec:   grovecorev1alpha1.PodCliqueSpec{Replicas: 3, MinAvailable: ptr.To[int32](2)},
+					},
+					// "stranger" is not in any PCSG; should never appear in output.
+					{
+						Name:   "stranger",
+						Labels: map[string]string{"role": "stranger"},
+						Spec:   grovecorev1alpha1.PodCliqueSpec{Replicas: 1, MinAvailable: ptr.To[int32](1)},
+					},
+				},
+			},
+		},
+	}
+	leaderHash := ComputePCLQPodTemplateHash(pcs.Spec.Template.Cliques[0], pcs.Spec.Template.PriorityClassName)
+	workerHash := ComputePCLQPodTemplateHash(pcs.Spec.Template.Cliques[1], pcs.Spec.Template.PriorityClassName)
+	require.NotEqual(t, leaderHash, workerHash, "test fixture must produce distinct hashes per clique")
+
+	t.Run("populates one entry per (PCSG replica, clique) with the per-clique hash", func(t *testing.T) {
+		pcsg := &grovecorev1alpha1.PodCliqueScalingGroup{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0-sg", Namespace: "default"},
+			Spec: grovecorev1alpha1.PodCliqueScalingGroupSpec{
+				Replicas:    3,
+				CliqueNames: []string{"leader", "worker"},
+			},
+		}
+
+		got := GetPCLQTemplateHashes(pcs, pcsg)
+
+		require.Len(t, got, 6) // 3 replicas × 2 cliques
+		for replica := 0; replica < 3; replica++ {
+			leaderFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcsg.Name, Replica: replica}, "leader")
+			workerFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcsg.Name, Replica: replica}, "worker")
+			assert.Equal(t, leaderHash, got[leaderFQN], "leader hash on replica %d", replica)
+			assert.Equal(t, workerHash, got[workerFQN], "worker hash on replica %d", replica)
+		}
+	})
+
+	t.Run("clique not present in PCS template is silently skipped", func(t *testing.T) {
+		pcsg := &grovecorev1alpha1.PodCliqueScalingGroup{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0-sg", Namespace: "default"},
+			Spec: grovecorev1alpha1.PodCliqueScalingGroupSpec{
+				Replicas:    2,
+				CliqueNames: []string{"leader", "missing"}, // "missing" is not in pcs.Spec.Template.Cliques
+			},
+		}
+
+		got := GetPCLQTemplateHashes(pcs, pcsg)
+
+		require.Len(t, got, 2, "only leader entries should be present, missing is skipped")
+		for replica := 0; replica < 2; replica++ {
+			leaderFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcsg.Name, Replica: replica}, "leader")
+			missingFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcsg.Name, Replica: replica}, "missing")
+			assert.Equal(t, leaderHash, got[leaderFQN])
+			_, exists := got[missingFQN]
+			assert.False(t, exists, "missing-clique FQN must not appear")
+		}
+	})
+
+	t.Run("zero replicas returns empty map", func(t *testing.T) {
+		pcsg := &grovecorev1alpha1.PodCliqueScalingGroup{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0-sg", Namespace: "default"},
+			Spec: grovecorev1alpha1.PodCliqueScalingGroupSpec{
+				Replicas:    0,
+				CliqueNames: []string{"leader", "worker"},
+			},
+		}
+
+		got := GetPCLQTemplateHashes(pcs, pcsg)
+		assert.Empty(t, got)
+	})
+
+	t.Run("empty CliqueNames returns empty map", func(t *testing.T) {
+		pcsg := &grovecorev1alpha1.PodCliqueScalingGroup{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-pcs-0-sg", Namespace: "default"},
+			Spec: grovecorev1alpha1.PodCliqueScalingGroupSpec{
+				Replicas:    3,
+				CliqueNames: nil,
+			},
+		}
+
+		got := GetPCLQTemplateHashes(pcs, pcsg)
+		assert.Empty(t, got)
+	})
+}

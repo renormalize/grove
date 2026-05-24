@@ -124,24 +124,23 @@ func GetPCSGsByPCSReplicaIndex(ctx context.Context, cl client.Client, pcsObjKey 
 	return GroupPCSGsByPCSReplicaIndex(pcsgs)
 }
 
-// GetPCLQTemplateHashes generates the Pod template hash for all PCLQs in a PCSG. Returns a map of [PCLQ Name : PodTemplateHas]
+// GetPCLQTemplateHashes generates the Pod template hash for all PCLQs in a PCSG. Returns a map
+// of PCLQ FQN → pod-template-hash. The hash is invariant per clique, so it is computed once per
+// clique name and reused across every PCSG replica that materializes that clique.
 func GetPCLQTemplateHashes(pcs *grovecorev1alpha1.PodCliqueSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup) map[string]string {
-	pclqTemplateSpecs := make([]*grovecorev1alpha1.PodCliqueTemplateSpec, 0, len(pcsg.Spec.CliqueNames))
+	out := make(map[string]string, int(pcsg.Spec.Replicas)*len(pcsg.Spec.CliqueNames))
 	for _, cliqueName := range pcsg.Spec.CliqueNames {
 		pclqTemplateSpec := FindPodCliqueTemplateSpecByName(pcs, cliqueName)
 		if pclqTemplateSpec == nil {
 			continue
 		}
-		pclqTemplateSpecs = append(pclqTemplateSpecs, pclqTemplateSpec)
-	}
-	cliqueTemplateSpecHashes := make(map[string]string, len(pclqTemplateSpecs))
-	for pcsgReplicaIndex := range int(pcsg.Spec.Replicas) {
-		for _, pclqTemplateSpec := range pclqTemplateSpecs {
-			pclqFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcsg.Name, Replica: pcsgReplicaIndex}, pclqTemplateSpec.Name)
-			cliqueTemplateSpecHashes[pclqFQN] = ComputePCLQPodTemplateHash(pclqTemplateSpec, pcs.Spec.Template.PriorityClassName)
+		hash := ComputePCLQPodTemplateHash(pclqTemplateSpec, pcs.Spec.Template.PriorityClassName)
+		for pcsgReplicaIndex := range int(pcsg.Spec.Replicas) {
+			pclqFQN := apicommon.GeneratePodCliqueName(apicommon.ResourceNameReplica{Name: pcsg.Name, Replica: pcsgReplicaIndex}, cliqueName)
+			out[pclqFQN] = hash
 		}
 	}
-	return cliqueTemplateSpecHashes
+	return out
 }
 
 // GetPCLQsInPCSGPendingUpdate collects the PodClique FQNs that are pending updates.
