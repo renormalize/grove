@@ -269,8 +269,18 @@ func nonTerminatingPods(pods []*corev1.Pod) []*corev1.Pod {
 
 // patchPodGangMapping persists the desired mapping to pclq.Status.PodGangMapping if it differs
 // from the current value. The check avoids waking other reconcilers via a no-op watch event.
-// Empty maps are normalized to nil for status hygiene.
+// Zero-count entries are pruned before comparison and persistence so the stored mapping carries
+// only PodGangs that actually own at least one pod of this PCLQ. Without this prune, a scale-in
+// that decremented an entry to zero would leave a phantom name in the mapping; subsequent
+// scale-outs would see it as a candidate (e.g. via highestIndexPodGangName) and route new pods
+// into a PodGang that no longer exists in the PodGangMap. Empty maps are normalized to nil for
+// status hygiene.
 func (r _resource) patchPodGangMapping(sc *syncContext, desired map[string]int32) error {
+	for name, count := range desired {
+		if count == 0 {
+			delete(desired, name)
+		}
+	}
 	if maps.Equal(sc.pclq.Status.PodGangMapping, desired) {
 		return nil
 	}

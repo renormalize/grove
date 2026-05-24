@@ -608,6 +608,50 @@ func TestPatchPodGangMapping(t *testing.T) {
 		err := r.patchPodGangMapping(sc, map[string]int32{"pg-0": 2})
 		require.NoError(t, err)
 	})
+
+	t.Run("zero-count entry pruned before persistence", func(t *testing.T) {
+		// Scale-in scenario: decrementMappingForScaleIn took a count to 0. The pruning at the
+		// persistence layer must drop the dead entry so subsequent scale-out logic
+		// (highestIndexPodGangName) does not target a phantom PodGang.
+		pclq := mkPCLQ(map[string]int32{"pg-0": 1})
+		cl := fake.NewClientBuilder().WithScheme(buildTestScheme(t)).WithObjects(pclq).WithStatusSubresource(pclq).Build()
+		r := &_resource{client: cl}
+		sc := &syncContext{ctx: context.Background(), pclq: pclq}
+
+		err := r.patchPodGangMapping(sc, map[string]int32{"pg-0": 1, "pg-1": 0})
+		require.NoError(t, err)
+		fresh := &grovecorev1alpha1.PodClique{}
+		require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(pclq), fresh))
+		assert.Equal(t, map[string]int32{"pg-0": 1}, fresh.Status.PodGangMapping, "zero-count entry must be pruned")
+	})
+
+	t.Run("only-zero-count entries normalize to nil", func(t *testing.T) {
+		pclq := mkPCLQ(map[string]int32{"pg-0": 1})
+		cl := fake.NewClientBuilder().WithScheme(buildTestScheme(t)).WithObjects(pclq).WithStatusSubresource(pclq).Build()
+		r := &_resource{client: cl}
+		sc := &syncContext{ctx: context.Background(), pclq: pclq}
+
+		err := r.patchPodGangMapping(sc, map[string]int32{"pg-0": 0, "pg-1": 0})
+		require.NoError(t, err)
+		fresh := &grovecorev1alpha1.PodClique{}
+		require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(pclq), fresh))
+		assert.Nil(t, fresh.Status.PodGangMapping, "all-zero map must collapse to nil")
+	})
+
+	t.Run("equal-after-prune triggers no patch", func(t *testing.T) {
+		// Stored mapping is already pruned. Caller passes the same shape with a stale zero entry
+		// from in-memory math. Prune must equalize to existing and skip the patch.
+		pclq := mkPCLQ(map[string]int32{"pg-0": 2})
+		cl := fake.NewClientBuilder().WithScheme(buildTestScheme(t)).WithObjects(pclq).WithStatusSubresource(pclq).Build()
+		r := &_resource{client: cl}
+		sc := &syncContext{ctx: context.Background(), pclq: pclq}
+
+		err := r.patchPodGangMapping(sc, map[string]int32{"pg-0": 2, "pg-stale": 0})
+		require.NoError(t, err)
+		fresh := &grovecorev1alpha1.PodClique{}
+		require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(pclq), fresh))
+		assert.Equal(t, "1", fresh.ResourceVersion, "no patch issued when pruned-desired equals current")
+	})
 }
 
 // -----------------------------------------------------------------------------
