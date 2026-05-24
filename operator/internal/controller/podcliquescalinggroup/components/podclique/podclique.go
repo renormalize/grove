@@ -259,30 +259,6 @@ func (r _resource) doCreate(ctx context.Context, logger logr.Logger, pcs *grovec
 	return nil
 }
 
-// doCreateOrUpdate creates or updates a PodClique resource using CreateOrPatch.
-// This preserves the existing replicas value to avoid overwriting HPA-managed scaling.
-func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pcsgReplicaIndex int, pclqObjectKey client.ObjectKey, pclqExists bool, podGangName string) error {
-	logger.Info("Running CreateOrUpdate PodClique", "pclqObjectKey", pclqObjectKey)
-	pclq := emptyPodClique(pclqObjectKey)
-	pcsgObjKey := client.ObjectKeyFromObject(pcsg)
-
-	opResult, err := controllerutil.CreateOrPatch(ctx, r.client, pclq, func() error {
-		return r.buildResource(logger, pcs, pcsg, pcsgReplicaIndex, pclq, pclqExists, podGangName)
-	})
-	if err != nil {
-		r.eventRecorder.Eventf(pcsg, corev1.EventTypeWarning, constants.ReasonPodCliqueCreateOrUpdateFailed, "PodClique %v creation or update failed: %v", pclqObjectKey, err)
-		return groveerr.WrapError(err,
-			errCodeCreateOrUpdatePodCliques,
-			component.OperationSync,
-			fmt.Sprintf("Error creating or updating PodClique: %v for PodCliqueScalingGroup: %v", pclqObjectKey, pcsgObjKey),
-		)
-	}
-
-	r.eventRecorder.Eventf(pcsg, corev1.EventTypeNormal, constants.ReasonPodCliqueCreateOrUpdateSuccessful, "PodClique %v created or updated successfully", pclqObjectKey)
-	logger.Info("Triggered create or update of PodClique for PodCliqueScalingGroup", "pcsgObjKey", pcsgObjKey, "pclqObjectKey", pclqObjectKey, "result", opResult)
-	return nil
-}
-
 // buildResource constructs a PodClique resource from templates, setting up metadata, labels, dependencies and environment variables.
 // When pclqExists is true, the current replicas value is preserved to avoid overwriting HPA-managed scaling.
 // podGangName is the resolved PodGang name for this PCLQ (looked up from the PodGangMap by the caller).
