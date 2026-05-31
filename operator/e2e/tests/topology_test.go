@@ -33,8 +33,8 @@ import (
 	"github.com/ai-dynamo/grove/operator/e2e/grove/topology"
 	"github.com/ai-dynamo/grove/operator/e2e/setup"
 	"github.com/ai-dynamo/grove/operator/e2e/testctx"
-	testutils "github.com/ai-dynamo/grove/operator/test/utils"
 	"github.com/ai-dynamo/grove/operator/e2e/waiter"
+	testutils "github.com/ai-dynamo/grove/operator/test/utils"
 	groveschedulerv1alpha1 "github.com/ai-dynamo/grove/scheduler/api/core/v1alpha1"
 	kaischedulingv2alpha2 "github.com/kai-scheduler/KAI-scheduler/pkg/apis/scheduling/v2alpha2"
 	"github.com/samber/lo"
@@ -218,7 +218,7 @@ func Test_TAS2_MultipleCliquesWithDifferentConstraints(t *testing.T) {
 }
 
 // Test_TAS3_PCSOnlyConstraint tests constraint only at PCS level with no PCSG/PCLQ constraints
-// 1. Deploy workload with PCS-only constraint (packDomain: rack)
+// 1. Deploy workload with PCS-only constraint (pack.required: rack)
 //   - PCSG: NO explicit constraint (nil)
 //   - PCLQs: NO explicit constraints
 //
@@ -276,7 +276,7 @@ func Test_TAS3_PCSOnlyConstraint(t *testing.T) {
 }
 
 // Test_TAS4_PCSGOnlyConstraint tests constraint only at PCSG level with no PCS/PCLQ constraints
-// 1. Deploy workload with constraint only at PCSG level (packDomain: rack)
+// 1. Deploy workload with constraint only at PCSG level (pack.required: rack)
 // 2. PCS and PCLQs have NO explicit constraints
 // 3. Verify PCSG worker pods (2 total) respect rack constraint
 // 4. Router pods (2 standalone) are unconstrained
@@ -342,7 +342,7 @@ func Test_TAS4_PCSGOnlyConstraint(t *testing.T) {
 }
 
 // Test_TAS5_HostLevelConstraint tests PCLQ-only constraint with host-level packing
-// 1. Deploy workload with constraint only at PCLQ level (packDomain: host)
+// 1. Deploy workload with constraint only at PCLQ level (pack.required: host)
 // 2. PCS has NO explicit constraint
 // 3. Verify all 2 pods on same host (strictest constraint)
 func Test_TAS5_HostLevelConstraint(t *testing.T) {
@@ -1639,9 +1639,9 @@ func Test_TAS20_PCSTopologyLevelsUnavailableCondition(t *testing.T) {
 }
 
 // Test_TAS21_TopologyValidationWebhooks verifies validation behavior for topology-related resources:
-// 1. The ClusterTopologyBinding validating webhook rejects invalid topology definitions and scheduler references.
-// 2. The PodCliqueSet validating webhook allows a child topologyConstraint without topologyName when it
-//    can inherit from the PCS topologyConstraint and the referenced ClusterTopologyBinding exists.
+//  1. The ClusterTopologyBinding validating webhook rejects invalid topology definitions and scheduler references.
+//  2. The PodCliqueSet validating webhook allows a child topologyConstraint without topologyName when it
+//     can inherit from the PCS topologyConstraint and the referenced ClusterTopologyBinding exists.
 func Test_TAS21_TopologyValidationWebhooks(t *testing.T) {
 	ctx := context.Background()
 
@@ -1736,7 +1736,9 @@ func Test_TAS21_TopologyValidationWebhooks(t *testing.T) {
 		WithReplicas(1).
 		WithTopologyConstraint(&corev1alpha1.TopologyConstraint{
 			TopologyName: "grove-topology",
-			PackDomain:   corev1alpha1.TopologyDomainZone,
+			Pack: &corev1alpha1.TopologyPackConstraint{
+				RequiredDomain: corev1alpha1.TopologyDomainZone,
+			},
 		}).
 		WithPodCliqueTemplateSpec(
 			testutils.NewPodCliqueTemplateSpecBuilder("worker").
@@ -1744,7 +1746,9 @@ func Test_TAS21_TopologyValidationWebhooks(t *testing.T) {
 				WithRoleName("worker-role").
 				WithMinAvailable(1).
 				WithTopologyConstraint(&corev1alpha1.TopologyConstraint{
-					PackDomain: corev1alpha1.TopologyDomainHost,
+					Pack: &corev1alpha1.TopologyPackConstraint{
+						RequiredDomain: corev1alpha1.TopologyDomainHost,
+					},
 				}).
 				Build(),
 		).
@@ -1755,4 +1759,143 @@ func Test_TAS21_TopologyValidationWebhooks(t *testing.T) {
 	}
 
 	Logger.Info("TAS21: Topology validation webhook test completed successfully!")
+}
+
+// Test_TAS22_PodCliqueSetTopologyCELValidation verifies schema-level CEL validation for
+// static PodCliqueSet topologyConstraint shapes.
+func Test_TAS22_PodCliqueSetTopologyCELValidation(t *testing.T) {
+	ctx := context.Background()
+
+	Logger.Info("1. Initialize a Grove cluster for topology CEL validation testing")
+	tc, cleanup := testctx.PrepareTest(ctx, t, 0)
+	defer cleanup()
+
+	topologyVerifier := topology.NewTopologyVerifier(tc.Client, Logger)
+
+	Logger.Info("2. Ensure grove-topology ClusterTopologyBinding exists for PodCliqueSet CEL validation")
+	ensureGroveTopology(ctx, t, topologyVerifier)
+
+	newPCS := func(name string, topologyConstraint *corev1alpha1.TopologyConstraint) *corev1alpha1.PodCliqueSet {
+		return testutils.NewPodCliqueSetBuilder(name, "default", uuid.NewUUID()).
+			WithReplicas(0).
+			WithTopologyConstraint(topologyConstraint).
+			WithPodCliqueTemplateSpec(
+				testutils.NewPodCliqueTemplateSpecBuilder("worker").
+					WithRoleName("worker-role").
+					WithMinAvailable(1).
+					Build(),
+			).
+			Build()
+	}
+
+	tests := []struct {
+		name        string
+		pcs         *corev1alpha1.PodCliqueSet
+		errContains []string
+	}{
+		{
+			name: "deprecated packDomain on PCS create",
+			pcs: newPCS("tas22-legacy-pcs", &corev1alpha1.TopologyConstraint{
+				TopologyName: "grove-topology",
+				PackDomain:   corev1alpha1.TopologyDomainHost,
+			}),
+			errContains: []string{"packDomain is deprecated and cannot be used on new workloads; use pack.required"},
+		},
+		{
+			name: "topologyConstraint without pack",
+			pcs: newPCS("tas22-missing-pack", &corev1alpha1.TopologyConstraint{
+				TopologyName: "grove-topology",
+			}),
+			errContains: []string{"topologyConstraint must specify pack or deprecated packDomain"},
+		},
+		{
+			name: "empty pack",
+			pcs: newPCS("tas22-empty-pack", &corev1alpha1.TopologyConstraint{
+				TopologyName: "grove-topology",
+				Pack:         &corev1alpha1.TopologyPackConstraint{},
+			}),
+			errContains: []string{"pack must specify at least one of required or preferred"},
+		},
+		{
+			name: "deprecated packDomain with pack.required",
+			pcs: newPCS("tas22-ambiguous-pack", &corev1alpha1.TopologyConstraint{
+				TopologyName: "grove-topology",
+				PackDomain:   corev1alpha1.TopologyDomainHost,
+				Pack: &corev1alpha1.TopologyPackConstraint{
+					RequiredDomain: corev1alpha1.TopologyDomainHost,
+				},
+			}),
+			errContains: []string{"must not set both pack.required and deprecated packDomain"},
+		},
+		{
+			name: "deprecated packDomain on PodClique create",
+			pcs: func() *corev1alpha1.PodCliqueSet {
+				pcs := newPCS("tas22-legacy-pclq", &corev1alpha1.TopologyConstraint{
+					TopologyName: "grove-topology",
+					Pack: &corev1alpha1.TopologyPackConstraint{
+						RequiredDomain: corev1alpha1.TopologyDomainRack,
+					},
+				})
+				pcs.Spec.Template.Cliques[0].TopologyConstraint = &corev1alpha1.TopologyConstraint{
+					PackDomain: corev1alpha1.TopologyDomainHost,
+				}
+				return pcs
+			}(),
+			errContains: []string{"packDomain is deprecated and cannot be used on new workloads; use pack.required"},
+		},
+		{
+			name: "deprecated packDomain on PodCliqueScalingGroup create",
+			pcs: func() *corev1alpha1.PodCliqueSet {
+				pcs := newPCS("tas22-legacy-pcsg", &corev1alpha1.TopologyConstraint{
+					TopologyName: "grove-topology",
+					Pack: &corev1alpha1.TopologyPackConstraint{
+						RequiredDomain: corev1alpha1.TopologyDomainRack,
+					},
+				})
+				replicas := int32(1)
+				minAvailable := int32(1)
+				pcs.Spec.Template.PodCliqueScalingGroupConfigs = []corev1alpha1.PodCliqueScalingGroupConfig{
+					{
+						Name:         "workers",
+						CliqueNames:  []string{"worker"},
+						Replicas:     &replicas,
+						MinAvailable: &minAvailable,
+						TopologyConstraint: &corev1alpha1.TopologyConstraint{
+							PackDomain: corev1alpha1.TopologyDomainHost,
+						},
+					},
+				}
+				return pcs
+			}(),
+			errContains: []string{"packDomain is deprecated and cannot be used on new workloads; use pack.required"},
+		},
+	}
+
+	Logger.Info("3. Verify invalid PodCliqueSet topologyConstraint shapes are rejected by CEL")
+	for _, tcData := range tests {
+		t.Run(tcData.name, func(t *testing.T) {
+			err := tc.Client.Create(ctx, tcData.pcs)
+			if err == nil {
+				t.Fatalf("Expected PodCliqueSet CEL validation rejection for %s, but create succeeded", tcData.name)
+			}
+			for _, want := range tcData.errContains {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("Expected validation error containing %q, got: %v", want, err)
+				}
+			}
+		})
+	}
+
+	Logger.Info("4. Verify preferred-only pack passes CEL validation")
+	validPreferredOnlyPCS := newPCS("tas22-valid-preferred-only", &corev1alpha1.TopologyConstraint{
+		TopologyName: "grove-topology",
+		Pack: &corev1alpha1.TopologyPackConstraint{
+			PreferredDomain: corev1alpha1.TopologyDomainHost,
+		},
+	})
+	if err := tc.Client.Create(ctx, validPreferredOnlyPCS); err != nil {
+		t.Fatalf("Expected preferred-only pack PodCliqueSet create to pass CEL validation, got: %v", err)
+	}
+
+	Logger.Info("TAS22: PodCliqueSet topology CEL validation test completed successfully!")
 }
