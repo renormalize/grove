@@ -139,7 +139,7 @@ e2e-cluster-up: $(UV)
 
 # Delete the k3d e2e test cluster
 .PHONY: e2e-cluster-down
-e2e-cluster-down:
+e2e-cluster-down: $(UV)
 	@$(MODULE_HACK_DIR)/infra-manager.py delete k3d-cluster
 
 # Full e2e test run: create k3d cluster, run tests, then cleanup
@@ -205,12 +205,12 @@ run-e2e-real-full: e2e-cluster-up-real
 # Uses the scale.yaml preset with 100 KWOK virtual nodes.
 # Override defaults: make scale-cluster-up E2E_CREATE_FLAGS="--set kwok.nodes=200"
 .PHONY: scale-cluster-up
-scale-cluster-up:
+scale-cluster-up: $(UV)
 	@$(MODULE_HACK_DIR)/infra-manager.py setup --config $(MODULE_HACK_DIR)/scale.yaml $(E2E_CREATE_FLAGS)
 
 # Delete the scale test cluster
 .PHONY: scale-cluster-down
-scale-cluster-down:
+scale-cluster-down: $(UV)
 	@$(MODULE_HACK_DIR)/infra-manager.py delete k3d-cluster
 
 # Run scale tests against an existing cluster
