@@ -17,7 +17,7 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.replicas
+    - jsonPath: .spec.replicas
       name: Replicas
       type: integer
     - jsonPath: .status.availableReplicas
@@ -38,6 +38,9 @@ spec:
     - jsonPath: .status.updateProgress.totalPodCliqueScalingGroupsCount
       name: PCSGs-Total
       type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
