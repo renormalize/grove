@@ -17,7 +17,7 @@
 [project]
 name = "grove"
 version = "0.1.0-dev"
-description = "Kubernetes operator for AI inference workloads"
+description = "Kubernetes operator for AI workloads"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
