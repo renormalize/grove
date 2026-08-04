@@ -224,6 +224,19 @@ run-e2e-real-full: e2e-cluster-up-real
 scale-cluster-up: $(UV)
 	@$(MODULE_HACK_DIR)/infra-manager.py setup --config $(MODULE_HACK_DIR)/scale.yaml $(E2E_CREATE_FLAGS)
 
+# 10x scale cluster: 1000 KWOK virtual nodes (pairs with SCALE_PCS_REPLICAS=5000 -> 10,000 pods).
+.PHONY: scale-cluster-up-10x
+scale-cluster-up-10x: $(UV)
+	@$(MODULE_HACK_DIR)/infra-manager.py setup --config $(MODULE_HACK_DIR)/scale-10x.yaml $(E2E_CREATE_FLAGS)
+
+# 100x scale cluster: 10,000 KWOK virtual nodes (pairs with SCALE_PCS_REPLICAS=50000 -> 100,000 pods).
+# This is the edge of what a single k3d server with embedded etcd can sustain; expect high
+# etcd memory/disk. For arbitrary sizes up to ~65,000 nodes (10.0.x.x IP-space cap), override:
+#   make scale-cluster-up E2E_CREATE_FLAGS="--set kwok.nodes=30000"
+.PHONY: scale-cluster-up-100x
+scale-cluster-up-100x: $(UV)
+	@$(MODULE_HACK_DIR)/infra-manager.py setup --config $(MODULE_HACK_DIR)/scale-100x.yaml $(E2E_CREATE_FLAGS)
+
 # Delete the scale test cluster
 .PHONY: scale-cluster-down
 scale-cluster-down: $(UV)
@@ -243,6 +256,18 @@ run-scale-test: export GROVE_E2E_DIAG_MODE = $(DIAG_MODE)
 run-scale-test:
 	@echo "> Running scale tests..."
 	@cd e2e && go test -count=1 -tags=e2e ./tests/scale/... -v -timeout 40m $(if $(TEST_PATTERN),-run '$(TEST_PATTERN)')
+
+# Continuously sample CPU/memory usage of every relevant pod, the nodes, and the k3d
+# server container (bundled k3s control plane: apiserver + KCM + scheduler + etcd) during
+# a scale run. Requires metrics-server for `kubectl top` (deployed here idempotently) and
+# Docker access for `docker stats`. Run this in a second terminal alongside run-scale-test;
+# stop with Ctrl-C to print a per-namespace max/mean summary. grove-operator pprof continues
+# to flow separately through the Pyroscope hook.
+# Usage: make profile-usage [DIAG_DIR=<path>] [PROFILE_INTERVAL=<seconds>]
+.PHONY: profile-usage
+profile-usage: $(UV)
+	@$(MODULE_HACK_DIR)/deploy-addons.sh --metrics-server
+	@$(MODULE_HACK_DIR)/profile-usage.py --out $(if $(DIAG_DIR),$(DIAG_DIR),./diag) --interval $(if $(PROFILE_INTERVAL),$(PROFILE_INTERVAL),5)
 
 # Run the soak / churn benchmark against an existing cluster.
 # Gated behind the `soak` build tag so it does NOT run as part of
