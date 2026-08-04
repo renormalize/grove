@@ -1,0 +1,69 @@
+# Helm values override for the Kai Scheduler chart used by the scale tests.
+#
+# The chart wires each component's `resources` block into the kai-config Config
+# CR (see templates/kai-config.yaml). The Kai operator then runs a defaulter
+# (pkg/apis/kai/v1/.../SetDefaultsWhereNeeded, v0.15.2) that ALWAYS ensures both
+# a cpu and a memory limit exist on every component — there is no config path to
+# zero limits. Its defaults (e.g. scheduler 700m/512Mi, others 100m/512Mi) are
+# too tight for the scale-test load and cause CPU throttling / OOMKills.
+#
+# Since the limits cannot be removed, we set them high enough to be effectively
+# non-binding. The operator's per-key defaulter leaves any limit key we specify
+# untouched, so these values win.
+#
+# Component keys and the `<component>.resources` path match the chart's
+# values.yaml (kai-scheduler v0.15.2).
+
+scheduler:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "8"
+      memory: 8Gi
+
+binder:
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "8"
+      memory: 8Gi
+
+podgrouper:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+
+podgroupcontroller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+
+queuecontroller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+
+admission:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "4"
+      memory: 4Gi

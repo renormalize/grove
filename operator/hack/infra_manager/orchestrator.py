@@ -32,6 +32,12 @@ from infra_manager.cluster import (
     prepull_image_groups,
     wait_for_nodes,
 )
+from infra_manager.cluster_kwokctl import (
+    _configure_registry_mirror,
+    _ensure_kind_registry,
+    create_cluster_kwokctl,
+    uncordon_kind_node,
+)
 from infra_manager.grove import deploy_grove_operator
 from infra_manager.kai import apply_kai_queues, install_kai_scheduler
 from infra_manager.pyroscope import install_pyroscope
@@ -40,6 +46,7 @@ from infra_manager.config import (
     SetupConfig,
 )
 from infra_manager.constants import (
+    CLUSTER_BACKEND_KWOKCTL_KIND,
     DEFAULT_KWOK_VERSION,
     DEPENDENCIES,
     NS_KAI_SCHEDULER,
@@ -81,14 +88,24 @@ def _check_prerequisites(install_kai: bool, install_grove: bool, grove_mode: str
 
 
 def _run_cluster_creation(cfg: ClusterConfig) -> None:
-    """Create k3d cluster and wait for nodes.
+    """Create the cluster (k3d or kwokctl-kind) and wait for nodes to be ready.
+
+    For kwokctl-kind: create the cluster, stand up the local kind-registry and configure
+    the node's containerd mirror (for grove's own images), then uncordon the kind node so
+    real components can schedule.
 
     Args:
-        cfg: Cluster configuration including retry count.
+        cfg: Cluster configuration including backend and retry count.
 
     Raises:
         RetryError: If the cluster cannot be created after all retries.
     """
+    if cfg.backend == CLUSTER_BACKEND_KWOKCTL_KIND:
+        create_cluster_kwokctl(cfg)
+        _ensure_kind_registry(cfg)
+        _configure_registry_mirror(cfg)
+        uncordon_kind_node(cfg)
+        return
     create_cluster(cfg)
     wait_for_nodes(cfg)
 
@@ -159,17 +176,24 @@ def _run_kai_post_install(operator_dir: Path) -> None:
         raise RuntimeError("Failed to create Kai queues after retries") from err
 
 
-def _run_kubeconfig_merge(cluster_name: str) -> None:
-    """Merge k3d kubeconfig into the default kubeconfig file.
+def _run_kubeconfig_merge(cfg: ClusterConfig) -> None:
+    """Merge the cluster's kubeconfig into the default kubeconfig file.
+
+    For kwokctl-kind this is a no-op: kwokctl already writes a usable context
+    (``kwok-<cluster>``, set as current-context) into the default kubeconfig on create, so
+    tests find it via KUBECONFIG / ~/.kube/config unchanged.
 
     Args:
-        cluster_name: Name of the k3d cluster to merge kubeconfig for.
+        cfg: Cluster configuration with the backend and cluster name.
     """
+    if cfg.backend == CLUSTER_BACKEND_KWOKCTL_KIND:
+        console.print("[green]  \u2713 kubeconfig managed by kwokctl (context kwok-" + cfg.name + ")[/green]")
+        return
     console.print(Panel.fit("Configuring kubeconfig", style="bold blue"))
     default_kubeconfig_dir = Path.home() / ".kube"
     default_kubeconfig_dir.mkdir(parents=True, exist_ok=True)
     default_kubeconfig_path = default_kubeconfig_dir / "config"
-    sh.k3d("kubeconfig", "merge", cluster_name, "-o", str(default_kubeconfig_path))
+    sh.k3d("kubeconfig", "merge", cfg.name, "-o", str(default_kubeconfig_path))
     default_kubeconfig_path.chmod(0o600)
     console.print(f"[green]  \u2713 Merged to {default_kubeconfig_path}[/green]")
 
@@ -192,10 +216,18 @@ def run_setup(cfg: SetupConfig) -> None:
         RuntimeError: If any required step fails.
     """
     use_kwok = cfg.kwok.nodes > 0
-    do_prepull = cfg.cluster.create and cfg.cluster.prepull_images and cfg.cluster.registry is None
+    is_kwokctl_kind = cfg.cluster.backend == CLUSTER_BACKEND_KWOKCTL_KIND
+    # The k3d local-registry prepull does not apply to kwokctl-kind: grove's own images are
+    # served via skaffold + the containerd mirror, and fake-pod images are never pulled.
+    do_prepull = (
+        cfg.cluster.create
+        and cfg.cluster.prepull_images
+        and cfg.cluster.registry is None
+        and not is_kwokctl_kind
+    )
 
     if cfg.cluster.prepull_images and not do_prepull:
-        console.print("[yellow]⚠  prepull_images=true but skipping prepull (cluster not being created or external registry set)[/yellow]")
+        console.print("[yellow]⚠  prepull_images=true but skipping prepull (cluster not being created, external registry set, or kwokctl-kind backend)[/yellow]")
 
     operator_dir = OPERATOR_DIR
 
@@ -211,7 +243,7 @@ def run_setup(cfg: SetupConfig) -> None:
     if do_prepull:
         parallel_tasks["prepull"] = lambda: _run_prepull(cfg.cluster.registry_port)
     if cfg.scheduler.kai.enabled:
-        parallel_tasks["kai"] = lambda: install_kai_scheduler(cfg.scheduler.kai)
+        parallel_tasks["kai"] = lambda: install_kai_scheduler(cfg.scheduler.kai, cfg.cluster.backend)
     if cfg.grove.enabled:
         parallel_tasks["grove"] = lambda: deploy_grove_operator(cfg.grove, cfg.cluster, operator_dir)
     if cfg.pyroscope.enabled:
@@ -223,7 +255,9 @@ def run_setup(cfg: SetupConfig) -> None:
         parallel_tasks["pyroscope"] = lambda: install_pyroscope(
             pyroscope_ns, values_file, version=pyroscope_version
         )
-    if use_kwok:
+    # kwokctl-kind ships a built-in kwok-controller that fakes nodes and pods; installing
+    # the external kwok.yaml would create a conflicting second controller.
+    if use_kwok and not is_kwokctl_kind:
         kwok_version = dep_value("kwok_controller", "version", default=DEFAULT_KWOK_VERSION)
         parallel_tasks["kwok"] = lambda: install_kwok_controller(kwok_version)
     _run_parallel(parallel_tasks)
@@ -234,4 +268,4 @@ def run_setup(cfg: SetupConfig) -> None:
     if use_kwok:
         create_nodes(cfg.kwok)
     if cfg.cluster.create:
-        _run_kubeconfig_merge(cfg.cluster.name)
+        _run_kubeconfig_merge(cfg.cluster)

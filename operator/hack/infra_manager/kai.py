@@ -25,6 +25,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 from infra_manager import console
 from infra_manager.config import KaiConfig
 from infra_manager.constants import (
+    CLUSTER_BACKEND_KWOKCTL_KIND,
     E2E_NODE_ROLE_KEY,
     HELM_RELEASE_KAI,
     KAI_QUEUE_MAX_RETRIES,
@@ -32,14 +33,21 @@ from infra_manager.constants import (
     KAI_SCHEDULER_OCI,
     LABEL_CONTROL_PLANE,
     NS_KAI_SCHEDULER,
+    SCRIPT_DIR,
 )
 
+KAI_VALUES_FILE = SCRIPT_DIR / "infra_manager" / "kai-values.yaml"
 
-def install_kai_scheduler(cfg: KaiConfig) -> None:
+
+def install_kai_scheduler(cfg: KaiConfig, backend: str = "k3d") -> None:
     """Install Kai Scheduler using Helm.
 
     Args:
         cfg: Kai Scheduler configuration with the version.
+        backend: Cluster backend ("k3d" or "kwokctl-kind"). Under kwokctl-kind, KAI is
+            given ONLY the control-plane toleration \u2014 NOT the agent toleration \u2014 so its
+            real pods stay on the real kind node instead of landing on (and being phantom-
+            "run" by) a fake KWOK node.
     """
     console.print(Panel.fit("Installing Kai Scheduler", style="bold blue"))
     console.print(f"[yellow]Version: {cfg.version}[/yellow]")
@@ -48,6 +56,29 @@ def install_kai_scheduler(cfg: KaiConfig) -> None:
         console.print("[yellow]   Removed existing Kai Scheduler release[/yellow]")
     except sh.ErrorReturnCode_1:
         console.print("[yellow]   No existing Kai Scheduler release found[/yellow]")
+
+    toleration_args = [
+        "--set",
+        f"global.tolerations[0].key={LABEL_CONTROL_PLANE}",
+        "--set",
+        "global.tolerations[0].operator=Exists",
+        "--set",
+        "global.tolerations[0].effect=NoSchedule",
+    ]
+    if backend != CLUSTER_BACKEND_KWOKCTL_KIND:
+        toleration_args += [
+            "--set",
+            f"global.tolerations[1].key={E2E_NODE_ROLE_KEY}",
+            "--set",
+            "global.tolerations[1].operator=Equal",
+            "--set",
+            "global.tolerations[1].value=agent",
+            "--set",
+            "global.tolerations[1].effect=NoSchedule",
+        ]
+
+    values_args = ["-f", str(KAI_VALUES_FILE)] if KAI_VALUES_FILE.exists() else []
+
     sh.helm(
         "install",
         HELM_RELEASE_KAI,
@@ -57,20 +88,8 @@ def install_kai_scheduler(cfg: KaiConfig) -> None:
         "--namespace",
         NS_KAI_SCHEDULER,
         "--create-namespace",
-        "--set",
-        f"global.tolerations[0].key={LABEL_CONTROL_PLANE}",
-        "--set",
-        "global.tolerations[0].operator=Exists",
-        "--set",
-        "global.tolerations[0].effect=NoSchedule",
-        "--set",
-        f"global.tolerations[1].key={E2E_NODE_ROLE_KEY}",
-        "--set",
-        "global.tolerations[1].operator=Equal",
-        "--set",
-        "global.tolerations[1].value=agent",
-        "--set",
-        "global.tolerations[1].effect=NoSchedule",
+        *toleration_args,
+        *values_args,
     )
     console.print("[green]\u2705 Kai Scheduler installed[/green]")
 

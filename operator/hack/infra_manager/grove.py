@@ -238,7 +238,7 @@ def deploy_grove_operator(
     if cluster_cfg.registry:
         push_repo = pull_repo = cluster_cfg.registry
     else:
-        push_repo, pull_repo = resolve_registry_repos(cluster_cfg.registry_port)
+        push_repo, pull_repo = resolve_registry_repos(cluster_cfg.registry_port, cluster_cfg.backend)
 
     raw_images = _build_grove_images(grove_cfg.local.skaffold_profile, operator_dir, push_repo)
     images = {name: tag.replace(push_repo, pull_repo) for name, tag in raw_images.items()}

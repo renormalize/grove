@@ -30,6 +30,7 @@ from infra_manager.constants import (
     DEFAULT_CLUSTER_NAME,
     DEFAULT_GROVE_NAMESPACE,
     DEFAULT_K3S_IMAGE,
+    DEFAULT_KIND_NODE_IMAGE,
     DEFAULT_KWOK_BATCH_SIZE,
     DEFAULT_KWOK_MAX_PODS,
     DEFAULT_KWOK_NODE_CPU,
@@ -47,26 +48,33 @@ logger = logging.getLogger(__name__)
 
 
 class ClusterConfig(BaseModel):
-    """k3d cluster lifecycle: creation, registry, sizing, and retry config.
+    """Cluster lifecycle: backend, creation, registry, sizing, and retry config.
 
     Attributes:
-        create: Whether to create the k3d cluster.
+        backend: Cluster backend — "k3d" (default) or "kwokctl-kind". The kwokctl-kind
+            backend runs a single real kindest/node container (grove+KAI+kube-system as
+            in-cluster pods) plus KWOK fake nodes; k3d-only fields below are ignored.
+        create: Whether to create the cluster.
         prepull_images: Pre-pull images to the local k3d registry. Mutex with registry.
         registry: External container registry URL. Mutex with prepull_images.
-        name: Name of the k3d cluster.
-        registry_port: Port for the local container registry.
-        api_port: Kubernetes API server port.
-        lb_port: Load balancer port mapping (host:container).
-        k3s_image: K3s Docker image to use.
+        name: Name of the cluster.
+        registry_port: Host port for the local container registry (k3d registry, or the
+            kind-registry used to serve grove's own images under the kwokctl-kind backend).
+        api_port: Kubernetes API server port (k3d only).
+        lb_port: Load balancer port mapping (host:container) (k3d only).
+        k3s_image: K3s Docker image to use (k3d only).
+        kind_node_image: kindest/node image for the kwokctl-kind backend.
         max_retries: Maximum cluster creation retry attempts.
-        worker_nodes: Number of worker nodes to create.
-        worker_memory: Memory limit per worker node.
+        worker_nodes: Number of worker nodes to create (k3d only).
+        worker_memory: Memory limit per worker node (k3d only).
         dind_memory_mode: Use kubelet system-reserved instead of --agents-memory (for DinD
-            environments where --agents-memory is broken due to /proc/meminfo bind-mount).
+            environments where --agents-memory is broken due to /proc/meminfo bind-mount)
+            (k3d only).
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    backend: Literal["k3d", "kwokctl-kind"] = "k3d"
     create: bool = True
     prepull_images: bool = True
     registry: str | None = None
@@ -75,6 +83,7 @@ class ClusterConfig(BaseModel):
     api_port: int = Field(default=DEFAULT_API_PORT, ge=1, le=65535)
     lb_port: str = DEFAULT_LB_PORT
     k3s_image: str = DEFAULT_K3S_IMAGE
+    kind_node_image: str = DEFAULT_KIND_NODE_IMAGE
     max_retries: int = Field(default=DEFAULT_CLUSTER_CREATE_MAX_RETRIES, ge=1, le=10)
     worker_nodes: int = Field(default=DEFAULT_WORKER_NODES, ge=0, le=100)
     worker_memory: str = Field(default=DEFAULT_WORKER_MEMORY, pattern=r"^\d+[mMgG]?$")

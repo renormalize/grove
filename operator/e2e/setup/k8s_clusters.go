@@ -51,6 +51,12 @@ const (
 	defaultPollTimeout = 5 * time.Minute
 	// defaultPollInterval is the interval for most polling conditions
 	defaultPollInterval = 5 * time.Second
+	// kwokNodeLabelKey/Value identify fake KWOK nodes. They have no backing Docker
+	// container, so the node monitor must not try to restart them by name.
+	kwokNodeLabelKey   = "type"
+	kwokNodeLabelValue = "kwok"
+	// kwokNodeAnnotation is set by the kwok controller on the fake nodes it manages.
+	kwokNodeAnnotation = "kwok.x-k8s.io/node"
 )
 
 // getRestConfig returns a REST config for connecting to a Kubernetes cluster.
@@ -147,6 +153,15 @@ func checkAndReplaceNotReadyNodes(ctx context.Context, k8sClient *k8sclient.Clie
 
 	for _, node := range nodeList.Items {
 		if !nodeutils.IsReady(&node) {
+			// Skip fake KWOK nodes: they have no backing Docker container, so attempting
+			// to restart one by name would always error. On the kwokctl-kind backend the
+			// only real node is the control-plane (a server, already skipped); on k3d there
+			// are no kwok-labeled nodes, so this guard is a no-op there.
+			if isKWOKNode(&node) {
+				logger.Debugf("⏭️ Skipping fake KWOK node: %s", node.Name)
+				continue
+			}
+
 			// Skip cordoned nodes because even if they're also not ready, we don't want to replace
 			// them with an uncordoned node as it'll break tests. When/if the node becomes uncordoned,
 			// the node monitoring will automatically replace it then as it's needed.
@@ -167,6 +182,16 @@ func checkAndReplaceNotReadyNodes(ctx context.Context, k8sClient *k8sclient.Clie
 	}
 
 	return nil
+}
+
+// isKWOKNode reports whether a node is a fake KWOK node (label type=kwok or the
+// kwok.x-k8s.io/node annotation) rather than a real Docker-backed cluster node.
+func isKWOKNode(node *v1.Node) bool {
+	if node.Labels[kwokNodeLabelKey] == kwokNodeLabelValue {
+		return true
+	}
+	_, ok := node.Annotations[kwokNodeAnnotation]
+	return ok
 }
 
 // replaceNotReadyNode handles the process of replacing a not ready node

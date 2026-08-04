@@ -211,6 +211,19 @@ scale-cluster-up: $(UV)
 scale-cluster-down: $(UV)
 	@$(MODULE_HACK_DIR)/infra-manager.py delete k3d-cluster
 
+# Bring up the scale test cluster on the kwokctl (--runtime=kind) backend.
+# A single real kindest/node container hosts grove + KAI while KWOK fakes the node/pod
+# fleet -- lighter than the k3d backend. Uses the scale-kwok.yaml preset.
+# Override defaults: make scale-kwok-cluster-up E2E_CREATE_FLAGS="--set kwok.nodes=5"
+.PHONY: scale-kwok-cluster-up
+scale-kwok-cluster-up: $(UV)
+	@$(MODULE_HACK_DIR)/infra-manager.py setup --config $(MODULE_HACK_DIR)/scale-kwok.yaml $(E2E_CREATE_FLAGS)
+
+# Delete the kwokctl scale test cluster and its kind-registry
+.PHONY: scale-kwok-cluster-down
+scale-kwok-cluster-down: $(UV)
+	@$(MODULE_HACK_DIR)/infra-manager.py delete kwokctl-cluster
+
 # Run scale tests against an existing cluster
 # Usage: make run-scale-test [TEST_PATTERN=<pattern>] [DIAG_DIR=<path>] [DIAG_MODE=<mode>]
 # Examples:

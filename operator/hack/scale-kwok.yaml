@@ -1,0 +1,25 @@
+# Scale test setup preset — kwokctl (--runtime=kind) backend + KWOK nodes + Pyroscope.
+# A single real kindest/node container hosts grove-operator + KAI + kube-system, while the
+# built-in kwok-controller fakes the scale node/pod fleet. Lighter than the k3d backend.
+
+cluster:
+  create: true
+  backend: kwokctl-kind
+  worker_nodes: 0
+
+scheduler:
+  kai:
+    enabled: true
+
+grove:
+  enabled: true
+  profiling: true
+  pcs_syncs: 20
+  pcsg_syncs: 20
+  pclq_syncs: 20
+
+kwok:
+  nodes: 100
+
+pyroscope:
+  enabled: true

@@ -12,14 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Delete subcommands (k3d-cluster, kwok-nodes)."""
+"""Delete subcommands (k3d-cluster, kwokctl-cluster, kwok-nodes)."""
 
 from __future__ import annotations
 
 import typer
 
 from infra_manager.cluster import delete_cluster
+from infra_manager.cluster_kwokctl import delete_cluster_kwokctl
 from infra_manager.config import ClusterConfig
+from infra_manager.constants import CLUSTER_BACKEND_KWOKCTL_KIND
 from infra_manager.kwok import delete_kwok_nodes
 
 app = typer.Typer(help="Delete infrastructure resources.")
@@ -34,6 +36,17 @@ def k3d_cluster(
     if cluster_name is not None:
         cfg = cfg.model_copy(update={"name": cluster_name})
     delete_cluster(cfg)
+
+
+@app.command("kwokctl-cluster")
+def kwokctl_cluster(
+    cluster_name: str | None = typer.Option(None, "--cluster-name", help="kwokctl cluster name"),
+) -> None:
+    """Delete the kwokctl (--runtime=kind) cluster and its kind-registry."""
+    cfg = ClusterConfig(backend=CLUSTER_BACKEND_KWOKCTL_KIND)
+    if cluster_name is not None:
+        cfg = cfg.model_copy(update={"name": cluster_name})
+    delete_cluster_kwokctl(cfg)
 
 
 @app.command("kwok-nodes")

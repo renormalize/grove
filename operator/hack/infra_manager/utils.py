@@ -49,18 +49,25 @@ def kwok_release_url(version: str) -> str:
     return f"https://github.com/{KWOK_GITHUB_REPO}/releases/download/{version}"
 
 
-def resolve_registry_repos(port: int) -> tuple[str, str]:
-    """Resolve push/pull registry repos for a k3d local registry.
+def resolve_registry_repos(port: int, backend: str = "k3d") -> tuple[str, str]:
+    """Resolve push/pull registry repos for the local registry.
 
     k3d uses separate names for push (localhost:<port>) and pull (registry:<port>)
     because the push happens from the host while the pull happens inside the cluster.
 
+    The kwokctl-kind backend uses localhost:<port> for BOTH: the host pushes to
+    localhost:<port> and the kind node's containerd is configured to mirror
+    localhost:<port> to the kind-registry, so the same reference works on the node.
+
     Args:
-        port: k3d local registry port number.
+        port: Local registry port number.
+        backend: Cluster backend ("k3d" or "kwokctl-kind").
 
     Returns:
         Tuple of (push_repo, pull_repo) registry URLs.
     """
+    if backend == "kwokctl-kind":
+        return f"localhost:{port}", f"localhost:{port}"
     return f"localhost:{port}", f"registry:{port}"
 
 

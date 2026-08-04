@@ -183,6 +183,31 @@ def parse_memory_mb(mem_str: str) -> int:
 DEFAULT_K3S_IMAGE = "rancher/k3s:v1.35.5-k3s1"
 DEFAULT_CLUSTER_CREATE_MAX_RETRIES = 3
 
+# -- Cluster backends --
+CLUSTER_BACKEND_K3D = "k3d"
+CLUSTER_BACKEND_KWOKCTL_KIND = "kwokctl-kind"
+
+# -- kwokctl --runtime=kind backend --
+# kwokctl runs a single real kindest/node container; grove+KAI+kube-system run there
+# as normal in-cluster pods, while KWOK fakes the scale node/pod fleet.
+# Digest-pinned to the official kind v0.32.0 release build so the node image is
+# reproducible and matches the kind binary this backend targets.
+DEFAULT_KIND_NODE_IMAGE = (
+    "docker.io/kindest/node:v1.36.1"
+    "@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5"
+)
+# Seconds to wait after `kwokctl delete cluster` before recreating. Delete returns before
+# the kind node's docker/containerd resources are fully released; recreating immediately
+# races that teardown and makes `kind load docker-image` fail with a transient
+# "unknown containerd config version: 4". A short settle avoids the race.
+KWOKCTL_DELETE_SETTLE_SECONDS = 3
+# Local registry used only for grove's OWN images (operator/initc/install-crds are real
+# pods). KAI images come from public ghcr and need no local registry. The kind node's
+# containerd is configured to mirror localhost:<registry_port> -> kind-registry:5000.
+KIND_REGISTRY_CONTAINER = "kind-registry"
+KIND_DOCKER_NETWORK = "kind"
+KIND_REGISTRY_INTERNAL_PORT = 5000
+
 # -- Component defaults --
 DEFAULT_SKAFFOLD_PROFILE = "topology-test"
 DEFAULT_GROVE_NAMESPACE = "grove-system"
