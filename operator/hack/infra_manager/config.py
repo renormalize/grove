@@ -40,6 +40,7 @@ from infra_manager.constants import (
     DEFAULT_SKAFFOLD_PROFILE,
     DEFAULT_WORKER_MEMORY,
     DEFAULT_WORKER_NODES,
+    KWOK_MAX_NODES,
     dep_value,
 )
 
@@ -168,7 +169,8 @@ class KwokConfig(BaseModel):
     """KWOK simulated nodes configuration.
 
     Attributes:
-        nodes: Number of KWOK nodes to create; 0 disables KWOK.
+        nodes: Number of KWOK nodes to create; 0 disables KWOK. Capped at
+            KWOK_MAX_NODES by the 10.0.x.x IP space.
         batch_size: Number of nodes to create per kubectl apply batch.
         node_cpu: CPU capacity to advertise per KWOK node.
         node_memory: Memory capacity to advertise per KWOK node.
@@ -177,7 +179,7 @@ class KwokConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    nodes: int = Field(default=0, ge=0)
+    nodes: int = Field(default=0, ge=0, le=KWOK_MAX_NODES)
     batch_size: int = Field(default=DEFAULT_KWOK_BATCH_SIZE, ge=1)
     node_cpu: str = DEFAULT_KWOK_NODE_CPU
     node_memory: str = DEFAULT_KWOK_NODE_MEMORY

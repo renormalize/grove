@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -69,7 +70,67 @@ const (
 	// steadyStateWindow keeps the pprof/measurement window open after a no-op reconcile
 	// trigger so the full ~500-PodClique spec-hash-short-circuit burst has time to run.
 	steadyStateWindow = 30 * time.Second
+
+	// scaleReplicasEnvVar overrides the PCS replica count for Test_ScaleTest, letting the
+	// same test run at 10x/100x scale without editing the YAML. Pods = replicas * 2 (the
+	// workload has a single clique with 2 pods per replica).
+	scaleReplicasEnvVar  = "SCALE_PCS_REPLICAS"
+	defaultScaleReplicas = 500
+	scalePodsPerReplica  = 2
+	scaleWorkloadName    = "scale-test"
+
+	// scaleBaseTimeout is the floor for the deploy→delete run; extra time is added
+	// proportional to pod count so large runs don't time out mid-deploy.
+	scaleBaseTimeout       = 10 * time.Minute
+	scaleTimeoutPerKiloPod = 5 * time.Minute
 )
+
+// scaleWorkloadTemplate renders a single-clique PodCliqueSet at the requested replica
+// count. Mirrors e2e/yaml/scale-test-1000.yaml (2 expert-worker pods per replica) so the
+// scheduling/affinity/toleration surface is identical across scales.
+const scaleWorkloadTemplate = `apiVersion: grove.io/v1alpha1
+kind: PodCliqueSet
+metadata:
+  name: %[1]s
+  labels:
+    app: %[1]s
+spec:
+  replicas: %[2]d
+  template:
+    cliques:
+      - name: expert-worker
+        spec:
+          roleName: expert
+          replicas: 2
+          minAvailable: 2
+          podSpec:
+            schedulerName: default-scheduler
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: type
+                          operator: In
+                          values:
+                            - kwok
+            tolerations:
+              - key: node_role.e2e.grove.nvidia.com
+                operator: Equal
+                value: agent
+                effect: NoSchedule
+            containers:
+              - name: expert-worker
+                image: registry:5001/nginx:alpine-slim
+                resources:
+                  requests:
+                    memory: 1Mi
+`
+
+// scaleWorkloadTimeout returns a run timeout that grows with pod count.
+func scaleWorkloadTimeout(pods int) time.Duration {
+	return scaleBaseTimeout + time.Duration(pods/1000)*scaleTimeoutPerKiloPod
+}
 
 // scaleTestConfig parameterizes a single scale test run.
 type scaleTestConfig struct {
@@ -160,27 +221,32 @@ func runScaleTest(t *testing.T, cfg scaleTestConfig, addPhases scaleTestPhases) 
 	Logger.Infof("scale test completed successfully in %.1fs", result.TestDurationSeconds)
 }
 
-// Test_ScaleTest_1000 validates deploy, steady-state reconcile, and the
-// user-facing delete request latency of a 1000-pod PodCliqueSet. It intentionally
-// excludes Kubernetes cascade-cleanup latency after the delete request returns.
-func Test_ScaleTest_1000(t *testing.T) {
-	const expectedPods = 1000
+// Test_ScaleTest validates deploy, steady-state reconcile, and the user-facing delete
+// request latency of a PodCliqueSet. The replica count (and thus pod count) is controlled
+// by the SCALE_PCS_REPLICAS env var (default 500 replicas = 1000 pods), so the same test
+// drives 1x/10x/100x runs. It intentionally excludes Kubernetes cascade-cleanup latency
+// after the delete request returns.
+func Test_ScaleTest(t *testing.T) {
 	const expectedReplicas = 1
 
+	replicas := envInt(scaleReplicasEnvVar, defaultScaleReplicas)
+	expectedPods := replicas * scalePodsPerReplica
+	workloadYAML := []byte(fmt.Sprintf(scaleWorkloadTemplate, scaleWorkloadName, replicas))
+
 	runScaleTest(t, scaleTestConfig{
-		name:         "ScaleTest_1000",
-		workload:     "scale-test-1000",
-		yamlPath:     "../../yaml/scale-test-1000.yaml",
+		name:         "ScaleTest",
+		workload:     scaleWorkloadName,
+		yamlPath:     "", // templated in-line; see deploy ActionFn below
 		expectedPods: expectedPods,
 		pcsCount:     defaultScalePCSCount,
 		workerNodes:  defaultScaleWorkerNodes,
-		timeout:      10 * time.Minute,
+		timeout:      scaleWorkloadTimeout(expectedPods),
 		pollInterval: defaultScalePollInterval,
 	}, func(tracker *measurement.TimelineTracker, tc *testctx.TestContext, runID string) {
 		tracker.AddPhase(measurement.PhaseDefinition{
 			Name: "deploy",
 			ActionFn: func(ctx context.Context) error {
-				_, err := resources.NewResourceManager(tc.Client, Logger).ApplyYAMLFile(ctx, tc.Workload.YAMLPath, tc.Namespace)
+				_, err := resources.NewResourceManager(tc.Client, Logger).ApplyYAMLData(ctx, workloadYAML, tc.Namespace)
 				return err
 			},
 			Milestones: []measurement.MilestoneDefinition{
@@ -279,4 +345,18 @@ func exportResult(t *testing.T, result *measurement.TrackerResult, outputDir str
 	if err := multi.Export(result); err != nil {
 		t.Fatalf("Failed to export results: %v", err)
 	}
+}
+
+// envInt reads a positive integer from an env var, falling back to def when unset,
+// unparseable, or non-positive.
+func envInt(key string, def int) int {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
 }

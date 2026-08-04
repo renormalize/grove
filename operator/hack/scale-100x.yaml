@@ -1,0 +1,31 @@
+# Scale test preset — 100x (10,000 KWOK nodes).
+# Overlay of scale.yaml; only kwok.nodes differs. Pair with a 100x workload:
+#   SCALE_PCS_REPLICAS=50000 make run-scale-test TEST_PATTERN=Test_ScaleTest  (100,000 pods)
+#
+# WARNING: 10,000 nodes + 100k pods on a single k3d server with embedded etcd is at the
+# edge of what this backend can sustain. Expect high etcd memory/disk and slower list/watch.
+# For sizes beyond this, override at invocation, e.g.:
+#   make scale-cluster-up E2E_CREATE_FLAGS="--set kwok.nodes=30000"
+# Node count is hard-capped at ~65,000 by the 10.0.x.x KWOK IP space (see kwok.py).
+
+cluster:
+  create: true
+  worker_nodes: 0
+  worker_memory: "300m"
+
+scheduler:
+  kai:
+    enabled: true
+
+grove:
+  enabled: true
+  profiling: true
+  pcs_syncs: 20
+  pcsg_syncs: 20
+  pclq_syncs: 20
+
+kwok:
+  nodes: 10000
+
+pyroscope:
+  enabled: true

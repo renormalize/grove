@@ -145,6 +145,10 @@ KWOK_MANIFESTS = ("kwok.yaml", "stage-fast.yaml")
 KWOK_CONTROLLER_DEPLOYMENT = "kwok-controller"
 KWOK_IP_PREFIX = "10.0"
 KWOK_IP_OCTET_SIZE = 256
+# Node IPs are 10.0.(id//256).(id%256), so the 10.0.x.x space addresses at most
+# 256*256 = 65536 distinct nodes. Cap below that to leave headroom and fail loudly
+# rather than silently colliding IPs.
+KWOK_MAX_NODES = 65000
 
 # -- Helm override keys --
 HELM_KEY_PROFILING = "config.debugging.enableProfiling"
@@ -190,6 +194,10 @@ DEFAULT_GROVE_NAMESPACE = "grove-system"
 # -- KWOK defaults --
 DEFAULT_KWOK_VERSION = "v0.7.0"
 DEFAULT_KWOK_BATCH_SIZE = 150
+# Upper bound on concurrent `kubectl apply` batches. At small node counts the pool
+# is sized to the number of batches; this caps parallelism for large fleets so we
+# don't spawn hundreds of concurrent kubectl processes against a single apiserver.
+KWOK_NODE_CREATE_MAX_WORKERS = 20
 DEFAULT_KWOK_NODE_CPU = "64"
 DEFAULT_KWOK_NODE_MEMORY = "512Gi"
 DEFAULT_KWOK_MAX_PODS = 110

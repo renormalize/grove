@@ -35,6 +35,7 @@ from infra_manager.constants import (
     KWOK_IP_OCTET_SIZE,
     KWOK_IP_PREFIX,
     KWOK_MANIFESTS,
+    KWOK_NODE_CREATE_MAX_WORKERS,
     LABEL_BLOCK,
     LABEL_HOSTNAME,
     LABEL_RACK,
@@ -294,7 +295,7 @@ def create_nodes(cfg: KwokConfig) -> None:
         batch_end = min(batch_start + cfg.batch_size, total)
         batches.append(list(range(batch_start, batch_end)))
 
-    max_workers = min(len(batches), 5)
+    max_workers = min(len(batches), KWOK_NODE_CREATE_MAX_WORKERS)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(create_node_batch, node_ids, cfg): node_ids for node_ids in batches}
         for future in as_completed(futures):
