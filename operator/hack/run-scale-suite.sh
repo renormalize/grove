@@ -37,7 +37,7 @@ set -o pipefail
 # Overrides (env vars):
 #   REPLICAS=<n>       PCS replicas (pods = replicas * 2). Overrides the SCALE default.
 #   NODES=<n>          KWOK node count. Overrides the SCALE preset (uses scale.yaml + --set).
-#   TEST_PATTERN=<re>  go test -run pattern (default: Test_ScaleTest).
+#   TEST_PATTERN=<re>  go test -run pattern (default: empty = run all scale tests).
 #   DIAG_DIR=<path>    Output dir for CSVs + pprof (default: ./diag/scale-<scale>-<ts>).
 #   PROFILE_INTERVAL=<s>  Profiler sample interval seconds (default: 5).
 #   KEEP_CLUSTER=1     Do NOT tear the cluster down at the end (default: tear down).
@@ -79,7 +79,9 @@ case "${SCALE}" in
 esac
 
 REPLICAS="${REPLICAS:-${DEFAULT_REPLICAS}}"
-TEST_PATTERN="${TEST_PATTERN:-Test_ScaleTest}"
+# Empty by default so `go test` runs every scale test in the package (the soak test is
+# behind the `soak` build tag and is not compiled here). Set TEST_PATTERN to narrow.
+TEST_PATTERN="${TEST_PATTERN:-}"
 PROFILE_INTERVAL="${PROFILE_INTERVAL:-5}"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 DIAG_DIR="${DIAG_DIR:-${OPERATOR_DIR}/diag/scale-${SCALE}-${TIMESTAMP}}"
@@ -124,7 +126,7 @@ mkdir -p "${DIAG_DIR}"
 log "Scale suite: ${SCALE}"
 log "  cluster target : ${CLUSTER_TARGET}${CREATE_FLAGS:+ (${CREATE_FLAGS})}"
 log "  replicas       : ${REPLICAS}  (=> ${PODS} pods)"
-log "  test pattern   : ${TEST_PATTERN}"
+log "  test pattern   : ${TEST_PATTERN:-<all>}"
 log "  diag dir       : ${DIAG_DIR}"
 
 # 1. Bring up the cluster.
