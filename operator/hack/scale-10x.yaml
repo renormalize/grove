@@ -1,0 +1,25 @@
+# Scale test preset — 10x (1000 KWOK nodes).
+# Overlay of scale.yaml; only kwok.nodes differs. Pair with a 10x workload:
+#   SCALE_PCS_REPLICAS=5000 make run-scale-test TEST_PATTERN=Test_ScaleTest  (10,000 pods)
+
+cluster:
+  create: true
+  worker_nodes: 0
+  worker_memory: "300m"
+
+scheduler:
+  kai:
+    enabled: true
+
+grove:
+  enabled: true
+  profiling: true
+  pcs_syncs: 20
+  pcsg_syncs: 20
+  pclq_syncs: 20
+
+kwok:
+  nodes: 1000
+
+pyroscope:
+  enabled: true

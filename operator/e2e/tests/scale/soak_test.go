@@ -19,8 +19,6 @@ package scale
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"testing"
 	"time"
 
@@ -60,18 +58,6 @@ func loadSoakConfig() soakConfig {
 		peak:   envInt("SOAK_PEAK", soakDefaultPeak),
 		cycles: envInt("SOAK_CYCLES", soakDefaultCycles),
 	}
-}
-
-func envInt(key string, def int) int {
-	raw := os.Getenv(key)
-	if raw == "" {
-		return def
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		return def
-	}
-	return n
 }
 
 func (c soakConfig) basePods() int { return c.base * soakPodsPerCLQ }
