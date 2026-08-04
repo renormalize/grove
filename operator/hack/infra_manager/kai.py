@@ -71,6 +71,12 @@ def install_kai_scheduler(cfg: KaiConfig) -> None:
         "global.tolerations[1].value=agent",
         "--set",
         "global.tolerations[1].effect=NoSchedule",
+        # Set only requests (no limits) so the operator-generated scheduler Deployment
+        # runs without a memory cap; the default 512Mi limit OOMKills it at scale.
+        "--set",
+        "scheduler.resources.requests.cpu=250m",
+        "--set",
+        "scheduler.resources.requests.memory=512Mi",
     )
     console.print("[green]\u2705 Kai Scheduler installed[/green]")
 
