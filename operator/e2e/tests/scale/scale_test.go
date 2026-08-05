@@ -347,6 +347,16 @@ func exportResult(t *testing.T, result *measurement.TrackerResult, outputDir str
 	}
 }
 
+// scaleMultiplier returns SCALE_PCS_REPLICAS/defaultScaleReplicas (min 1) so the whole
+// suite scales off the same knob as Test_ScaleTest: 500->1, 5000->10, 50000->100.
+func scaleMultiplier() int {
+	m := envInt(scaleReplicasEnvVar, defaultScaleReplicas) / defaultScaleReplicas
+	if m < 1 {
+		m = 1
+	}
+	return m
+}
+
 // envInt reads a positive integer from an env var, falling back to def when unset,
 // unparseable, or non-positive.
 func envInt(key string, def int) int {

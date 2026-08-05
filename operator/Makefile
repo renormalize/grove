@@ -250,12 +250,13 @@ scale-cluster-down: $(UV)
 #   make run-scale-test TEST_PATTERN=Test_ScaleDown           # Run all scale-down variants
 #   make run-scale-test TEST_PATTERN='Test_Scale(Up|Down)'    # Run both directions
 #   make run-scale-test TEST_PATTERN=Test_ScaleUp_Tiny        # Run the sanity test only
+#   make run-scale-test GO_TEST_TIMEOUT=180m                  # Override the go test -timeout (default 40m)
 .PHONY: run-scale-test
 run-scale-test: export GROVE_E2E_DIAG_DIR = $(DIAG_DIR)
 run-scale-test: export GROVE_E2E_DIAG_MODE = $(DIAG_MODE)
 run-scale-test:
 	@echo "> Running scale tests..."
-	@cd e2e && go test -count=1 -tags=e2e ./tests/scale/... -v -timeout 40m $(if $(TEST_PATTERN),-run '$(TEST_PATTERN)')
+	@cd e2e && go test -count=1 -tags=e2e ./tests/scale/... -v -timeout $(if $(GO_TEST_TIMEOUT),$(GO_TEST_TIMEOUT),40m) $(if $(TEST_PATTERN),-run '$(TEST_PATTERN)')
 
 # Continuously sample CPU/memory usage of every relevant pod, the nodes, and the k3d
 # server container (bundled k3s control plane: apiserver + KCM + scheduler + etcd) during

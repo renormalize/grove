@@ -40,6 +40,8 @@ set -o pipefail
 #   TEST_PATTERN=<re>  go test -run pattern (default: empty = run all scale tests).
 #   DIAG_DIR=<path>    Output dir for CSVs + pprof (default: ./diag/scale-<scale>-<ts>).
 #   PROFILE_INTERVAL=<s>  Profiler sample interval seconds (default: 5).
+#   GO_TEST_TIMEOUT=<d>   go test -timeout value (default scales with SCALE:
+#                         1x->45m, 10x->180m, 100x->600m). Go duration string.
 #   KEEP_CLUSTER=1     Do NOT tear the cluster down at the end (default: tear down).
 #   SKIP_TEARDOWN=1    Alias for KEEP_CLUSTER=1.
 #
@@ -67,11 +69,13 @@ fi
 
 SCALE="${1:-1x}"
 
-# Map SCALE -> make target for cluster bring-up + default replica count.
+# Map SCALE -> make target for cluster bring-up, default replica count, and the default
+# go-test timeout (the whole suite runs sequentially in one `go test` invocation, so the
+# timeout must cover every scale test; cushioned for the slow single-etcd k3s control plane).
 case "${SCALE}" in
-  1x)   CLUSTER_TARGET="scale-cluster-up"      DEFAULT_REPLICAS=500   ;;
-  10x)  CLUSTER_TARGET="scale-cluster-up-10x"  DEFAULT_REPLICAS=5000  ;;
-  100x) CLUSTER_TARGET="scale-cluster-up-100x" DEFAULT_REPLICAS=50000 ;;
+  1x)   CLUSTER_TARGET="scale-cluster-up"      DEFAULT_REPLICAS=500   DEFAULT_TIMEOUT="45m"  ;;
+  10x)  CLUSTER_TARGET="scale-cluster-up-10x"  DEFAULT_REPLICAS=5000  DEFAULT_TIMEOUT="180m" ;;
+  100x) CLUSTER_TARGET="scale-cluster-up-100x" DEFAULT_REPLICAS=50000 DEFAULT_TIMEOUT="600m" ;;
   *)
     echo "ERROR: unknown SCALE '${SCALE}' (expected 1x, 10x, or 100x)" >&2
     exit 1
@@ -79,6 +83,7 @@ case "${SCALE}" in
 esac
 
 REPLICAS="${REPLICAS:-${DEFAULT_REPLICAS}}"
+GO_TEST_TIMEOUT="${GO_TEST_TIMEOUT:-${DEFAULT_TIMEOUT}}"
 # Empty by default so `go test` runs every scale test in the package (the soak test is
 # behind the `soak` build tag and is not compiled here). Set TEST_PATTERN to narrow.
 TEST_PATTERN="${TEST_PATTERN:-}"
@@ -127,6 +132,7 @@ log "Scale suite: ${SCALE}"
 log "  cluster target : ${CLUSTER_TARGET}${CREATE_FLAGS:+ (${CREATE_FLAGS})}"
 log "  replicas       : ${REPLICAS}  (=> ${PODS} pods)"
 log "  test pattern   : ${TEST_PATTERN:-<all>}"
+log "  go test timeout: ${GO_TEST_TIMEOUT}"
 log "  diag dir       : ${DIAG_DIR}"
 
 # 1. Bring up the cluster.
@@ -148,6 +154,7 @@ log "Running scale test..."
 SCALE_PCS_REPLICAS="${REPLICAS}" \
   make -C "${OPERATOR_DIR}" run-scale-test \
     TEST_PATTERN="${TEST_PATTERN}" \
+    GO_TEST_TIMEOUT="${GO_TEST_TIMEOUT}" \
     DIAG_DIR="${DIAG_DIR}"
 
 # 4. cleanup() (via trap) stops the profiler and tears down the cluster.
