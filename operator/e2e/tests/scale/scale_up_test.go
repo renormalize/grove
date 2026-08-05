@@ -18,8 +18,8 @@ package scale
 
 import (
 	"context"
+	"fmt"
 	"testing"
-	"time"
 
 	"github.com/ai-dynamo/grove/operator/e2e/grove/workload"
 	"github.com/ai-dynamo/grove/operator/e2e/k8s/resources"
@@ -29,10 +29,11 @@ import (
 )
 
 const (
-	scaleUpTimeout = 15 * time.Minute
-	// scaleUpWorkerNodes is intentionally lower than defaultScaleWorkerNodes (100)
-	// so these tests run on smaller dev clusters. ~1000 kwok pods on 30 nodes
-	// (~33 pods/node) is well under the default 110-pod kubelet limit.
+	// scaleUpWorkerNodes is the 1x base node count for the non-tiny variants. It is
+	// intentionally lower than defaultScaleWorkerNodes (100) so a 1x run fits smaller
+	// dev clusters. ~1000 kwok pods on 30 nodes (~33 pods/node) is well under the
+	// default 110-pod kubelet limit. It is multiplied by scaleMultiplier() so the
+	// schedulable node count tracks the scaled pod count (30->300->3000).
 	scaleUpWorkerNodes = 30
 )
 
@@ -99,12 +100,22 @@ func Test_ScaleUp(t *testing.T) {
 }
 
 // runScaleUpTest builds the deploy → scale-up → delete timeline for a variant.
-// The deploy phase brings the PCS up at the YAML's initial replica count; the
-// scale-up phase is the measurement of interest and milestones-out at all-pods-ready.
+// The deploy phase brings the PCS up at the initial replica count; the scale-up
+// phase is the measurement of interest and milestones-out at all-pods-ready.
+//
+// Non-tiny variants (workerNodes == 0) scale their replica/pod/node counts and
+// timeout by scaleMultiplier() so the whole suite tracks SCALE_PCS_REPLICAS. Tiny
+// variants set workerNodes explicitly and stay at their fixed 1x sizes.
 func runScaleUpTest(t *testing.T, v scaleUpVariant) {
-	workerNodes := scaleUpWorkerNodes
-	if v.workerNodes > 0 {
-		workerNodes = v.workerNodes
+	workerNodes := v.workerNodes
+	mult := 1
+	if workerNodes == 0 {
+		mult = scaleMultiplier()
+		workerNodes = scaleUpWorkerNodes * mult
+		v.initialReplicas *= mult
+		v.initialPods *= mult
+		v.targetReplicas *= mult
+		v.targetPods *= mult
 	}
 	runScaleTest(t, scaleTestConfig{
 		name:         v.name,
@@ -113,7 +124,7 @@ func runScaleUpTest(t *testing.T, v scaleUpVariant) {
 		expectedPods: v.targetPods,
 		pcsCount:     defaultScalePCSCount,
 		workerNodes:  workerNodes,
-		timeout:      scaleUpTimeout,
+		timeout:      scaleWorkloadTimeout(v.targetPods),
 		pollInterval: defaultScalePollInterval,
 	}, func(tracker *measurement.TimelineTracker, tc *testctx.TestContext, _ string) {
 		baseline := &operatorBaseline{}
@@ -143,12 +154,23 @@ func runScaleUpTest(t *testing.T, v scaleUpVariant) {
 			)
 		}
 
-		tracker.AddPhase(measurement.PhaseDefinition{
-			Name: "deploy",
-			ActionFn: func(ctx context.Context) error {
-				_, err := resources.NewResourceManager(tc.Client, Logger).ApplyYAMLFile(ctx, tc.Workload.YAMLPath, tc.Namespace)
+		// Non-tiny variants render the workload from the shared template so the initial
+		// replica count reflects the scaled value; the YAML files hardcode 1x counts.
+		// Tiny variants keep using their YAML file unchanged.
+		deployFn := func(ctx context.Context) error {
+			_, err := resources.NewResourceManager(tc.Client, Logger).ApplyYAMLFile(ctx, tc.Workload.YAMLPath, tc.Namespace)
+			return err
+		}
+		if v.workerNodes == 0 {
+			workloadYAML := []byte(fmt.Sprintf(scaleWorkloadTemplate, tc.Workload.Name, v.initialReplicas))
+			deployFn = func(ctx context.Context) error {
+				_, err := resources.NewResourceManager(tc.Client, Logger).ApplyYAMLData(ctx, workloadYAML, tc.Namespace)
 				return err
-			},
+			}
+		}
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name:       "deploy",
+			ActionFn:   deployFn,
 			Milestones: deployMilestones,
 		})
 
