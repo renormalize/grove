@@ -89,6 +89,11 @@ func SetupHealthAndReadinessEndpoints(mgr ctrl.Manager, webhookCertsReadyCh chan
 // createManagerOptions constructs controller-runtime Manager options from operator configuration.
 func createManagerOptions(operatorCfg *configv1alpha1.OperatorConfiguration) ctrl.Options {
 	opts := ctrl.Options{
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				EnableReadYourWritesConsistency: new(true),
+			},
+		},
 		Scheme:                  groveclientscheme.Scheme,
 		GracefulShutdownTimeout: ptr.To(5 * time.Second),
 		Cache:                   cacheOptions(),
