@@ -105,7 +105,15 @@ func Test_ScaleDown(t *testing.T) {
 // Non-tiny variants (workerNodes == 0) scale their replica/pod/node counts and
 // timeout by scaleMultiplier() so the whole suite tracks SCALE_PCS_REPLICAS. Tiny
 // variants set workerNodes explicitly and stay at their fixed 1x sizes.
+//
+// When SCALE_WORKLOAD=disagg, non-tiny variants run the disaggregated two-phase
+// shrink (narrow the decode PCSG replicas, then remove PCS replicas) instead; see
+// runDisaggScaleDownTest. Tiny variants always use the flat YAML.
 func runScaleDownTest(t *testing.T, v scaleDownVariant) {
+	if v.workerNodes == 0 && isDisaggShape() {
+		runDisaggScaleDownTest(t, v.name, v.workloadName)
+		return
+	}
 	workerNodes := v.workerNodes
 	if workerNodes == 0 {
 		mult := scaleMultiplier()
@@ -195,4 +203,83 @@ func runScaleDownTest(t *testing.T, v scaleDownVariant) {
 			workloadName:   v.workloadName,
 		}, baseline)
 	})
+}
+
+// runDisaggScaleDownTest runs the two-phase disaggregated scale-down: deploy at the full
+// tier shape, then narrow the decode PCSG replicas across every PCS replica, then remove
+// PCS replicas. Each shrink is its own measured phase. The final pod count is the plan's
+// initial (half-tier) total — the mirror image of runDisaggScaleUpTest.
+func runDisaggScaleDownTest(t *testing.T, name, workloadName string) {
+	plan := resolveDisaggScalePlan()
+	workerNodes := scaleDownWorkerNodes * scaleMultiplier()
+
+	// Deploy at the full tier; the fixtures are sized for the largest (initial) pod count.
+	fullTier := resolveDisaggTier(scaleMultiplier())
+	deployYAML := []byte(fmt.Sprintf(disaggWorkloadTemplate, workloadName, fullTier.pcsReplicas, fullTier.prefillPCSGReps, fullTier.decodePCSGReps))
+
+	runScaleTest(t, scaleTestConfig{
+		name:         name,
+		workload:     workloadName,
+		yamlPath:     "", // templated in-line
+		expectedPods: fullTier.totalPods(),
+		pcsCount:     defaultScalePCSCount,
+		workerNodes:  workerNodes,
+		timeout:      scaleWorkloadTimeout(fullTier.totalPods()),
+		pollInterval: defaultScalePollInterval,
+	}, func(tracker *measurement.TimelineTracker, tc *testctx.TestContext, _ string) {
+		baseline := &operatorBaseline{}
+		addOperatorBaselinePhase(tracker, tc, baseline)
+
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name: "deploy",
+			ActionFn: func(ctx context.Context) error {
+				_, err := resources.NewResourceManager(tc.Client, Logger).ApplyYAMLData(ctx, deployYAML, tc.Namespace)
+				return err
+			},
+			Milestones: podsReadyMilestones(tc, fullTier.totalPods()),
+		})
+
+		// Phase 1: narrow the decode pool (decode PCSG replicas) in every PCS replica.
+		// Pod count drops from the full tier total to afterPCSPods() (full PCS, initial decode).
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name: "scale-down-pcsg",
+			ActionFn: func(ctx context.Context) error {
+				Logger.Infof("scaling %s decode PCSG replicas %d -> %d across %d PCS replicas (target %d pods)",
+					tc.Workload.Name, plan.targetDecode, plan.initialDecode, plan.targetPCS, plan.afterPCSPods())
+				return workload.NewWorkloadManager(tc.Client, Logger).ScalePCSGAcrossReplicas(
+					ctx, tc.Namespace, tc.Workload.Name, "decode", plan.targetPCS, plan.initialDecode,
+					scaleWorkloadTimeout(fullTier.totalPods()), defaultScalePollInterval)
+			},
+			Milestones: podsScaledDownMilestones(tc, plan.afterPCSPods()),
+		})
+
+		// Phase 2: remove deployments (PCS replicas). Pod count drops to the initial total.
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name: "scale-down-pcs",
+			ActionFn: func(ctx context.Context) error {
+				Logger.Infof("scaling %s PCS replicas %d -> %d (target %d pods)",
+					tc.Workload.Name, plan.targetPCS, plan.initialPCS, plan.initialPods())
+				return workload.NewWorkloadManager(tc.Client, Logger).ScalePCS(ctx, tc.Namespace, tc.Workload.Name, plan.initialPCS)
+			},
+			Milestones: podsScaledDownMilestones(tc, plan.initialPods()),
+		})
+
+		addDisaggFinalCheckAndDeletePhases(tracker, tc, plan.initialPods(), baseline)
+	})
+}
+
+// podsScaledDownMilestones returns the shrink milestone for an expected post-scale-down
+// pod count, used by the disagg scale-down phases.
+func podsScaledDownMilestones(tc *testctx.TestContext, expectedPods int) []measurement.MilestoneDefinition {
+	return []measurement.MilestoneDefinition{
+		{
+			Name: "pods-at-target",
+			Condition: &condition.PodsScaledDownToCountCondition{
+				Client:        tc.Client.Client,
+				Namespace:     tc.Namespace,
+				LabelSelector: tc.GetLabelSelector(),
+				ExpectedCount: expectedPods,
+			},
+		},
+	}
 }

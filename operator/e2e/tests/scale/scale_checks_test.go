@@ -103,6 +103,44 @@ func addFinalCheckAndDeletePhases(tracker *measurement.TimelineTracker, tc *test
 	})
 }
 
+// addDisaggFinalCheckAndDeletePhases is the disagg-shape counterpart to
+// addFinalCheckAndDeletePhases. The shared runScaleFinalChecks encodes the flat
+// topology's 1-PodClique-per-PCS-replica object graph (PodClique count == PCS
+// replicas, PodGang count == PCS replicas), which does not hold for the multi-PCSG
+// disagg workload. This runs the topology-agnostic checks instead: the final pod
+// count matches, and grove-operator did not crash or restart during the run.
+func addDisaggFinalCheckAndDeletePhases(tracker *measurement.TimelineTracker, tc *testctx.TestContext, expectedPods int, baseline *operatorBaseline) {
+	tracker.AddPhase(measurement.PhaseDefinition{
+		Name: "final-check",
+		ActionFn: func(ctx context.Context) error {
+			pods, err := tc.ListPods()
+			if err != nil {
+				return fmt.Errorf("list pods: %w", err)
+			}
+			if got := len(pods.Items); got != expectedPods {
+				return fmt.Errorf("pod count = %d, want %d", got, expectedPods)
+			}
+			return checkOperatorHealth(ctx, tc, baseline)
+		},
+	})
+	tracker.AddPhase(measurement.PhaseDefinition{
+		Name: "delete",
+		ActionFn: func(ctx context.Context) error {
+			return workload.NewWorkloadManager(tc.Client, Logger).DeletePCS(ctx, tc.Namespace, tc.Workload.Name)
+		},
+		Milestones: []measurement.MilestoneDefinition{
+			{
+				Name: "pcs-deleted",
+				Condition: &condition.PCSDeletedCondition{
+					Client:    tc.Client.Client,
+					Name:      tc.Workload.Name,
+					Namespace: tc.Namespace,
+				},
+			},
+		},
+	})
+}
+
 // runScaleFinalChecks asserts post-scale end-state invariants. Each helper
 // targets a distinct bug class: leak, stuck deletion, stale scheduling artifact,
 // status drift, and operator crash. Returns an error to fail the calling phase.

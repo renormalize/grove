@@ -251,6 +251,17 @@ scale-cluster-down: $(UV)
 #   make run-scale-test TEST_PATTERN='Test_Scale(Up|Down)'    # Run both directions
 #   make run-scale-test TEST_PATTERN=Test_ScaleUp_Tiny        # Run the sanity test only
 #   make run-scale-test GO_TEST_TIMEOUT=180m                  # Override the go test -timeout (default 40m)
+#
+# The workload shape is selected by the SCALE_WORKLOAD env var (applies to the whole
+# suite: Test_ScaleTest, Test_ScaleUp*, Test_ScaleDown*):
+#   SCALE_WORKLOAD=flat    (default) One standalone PodClique per PCS replica; 2 pods each.
+#                          Total pods = SCALE_PCS_REPLICAS x 2. Scale-up/down move PCS replicas.
+#   SCALE_WORKLOAD=disagg  Disaggregated LLM shape: prefill + decode PodCliqueScalingGroups
+#                          (decode-heavy, ~1:2), each group tensor-parallel (prefill TP=4,
+#                          decode TP=8). Sized to the same 1000*multiplier total as flat so the
+#                          two are comparable. Scale-up/down run two measured phases: grow/shrink
+#                          PCS replicas, then grow/shrink decode PCSG replicas across every PCS.
+#   SCALE_WORKLOAD=disagg make run-scale-test                 # Run the disagg suite
 .PHONY: run-scale-test
 run-scale-test: export GROVE_E2E_DIAG_DIR = $(DIAG_DIR)
 run-scale-test: export GROVE_E2E_DIAG_MODE = $(DIAG_MODE)
