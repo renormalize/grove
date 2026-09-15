@@ -106,7 +106,15 @@ func Test_ScaleUp(t *testing.T) {
 // Non-tiny variants (workerNodes == 0) scale their replica/pod/node counts and
 // timeout by scaleMultiplier() so the whole suite tracks SCALE_PCS_REPLICAS. Tiny
 // variants set workerNodes explicitly and stay at their fixed 1x sizes.
+//
+// When SCALE_WORKLOAD=disagg, non-tiny variants run the disaggregated two-phase
+// plan (grow PCS replicas, then grow decode PCSG replicas) instead; see
+// runDisaggScaleUpTest. Tiny variants always use the flat YAML.
 func runScaleUpTest(t *testing.T, v scaleUpVariant) {
+	if v.workerNodes == 0 && isDisaggShape() {
+		runDisaggScaleUpTest(t, v.name, v.workloadName)
+		return
+	}
 	workerNodes := v.workerNodes
 	mult := 1
 	if workerNodes == 0 {
@@ -209,4 +217,90 @@ func runScaleUpTest(t *testing.T, v scaleUpVariant) {
 			workloadName:   v.workloadName,
 		}, baseline)
 	})
+}
+
+// runDisaggScaleUpTest runs the two-phase disaggregated scale-up: deploy at the plan's
+// initial (half-tier) shape, then grow the PCS replica count, then grow the decode PCSG
+// replicas across every PCS replica. Each scale is its own measured phase so the
+// "add deployments" and "widen decode pool" costs are timed separately. The final pod
+// count is the tier total (1000*scaleMultiplier()).
+func runDisaggScaleUpTest(t *testing.T, name, workloadName string) {
+	plan := resolveDisaggScalePlan()
+	workerNodes := scaleUpWorkerNodes * scaleMultiplier()
+
+	runScaleTest(t, scaleTestConfig{
+		name:         name,
+		workload:     workloadName,
+		yamlPath:     "", // templated in-line
+		expectedPods: plan.finalPods(),
+		pcsCount:     defaultScalePCSCount,
+		workerNodes:  workerNodes,
+		timeout:      scaleWorkloadTimeout(plan.finalPods()),
+		pollInterval: defaultScalePollInterval,
+	}, func(tracker *measurement.TimelineTracker, tc *testctx.TestContext, _ string) {
+		baseline := &operatorBaseline{}
+		addOperatorBaselinePhase(tracker, tc, baseline)
+
+		deployYAML := plan.yaml(tc.Workload.Name)
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name: "deploy",
+			ActionFn: func(ctx context.Context) error {
+				_, err := resources.NewResourceManager(tc.Client, Logger).ApplyYAMLData(ctx, deployYAML, tc.Namespace)
+				return err
+			},
+			Milestones: podsReadyMilestones(tc, plan.initialPods()),
+		})
+
+		// Phase 1: grow the deployment count (PCS replicas). Adds whole prefill+decode
+		// deployments; the decode PCSG count per replica is unchanged.
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name: "scale-up-pcs",
+			ActionFn: func(ctx context.Context) error {
+				Logger.Infof("scaling %s PCS replicas %d -> %d (target %d pods)",
+					tc.Workload.Name, plan.initialPCS, plan.targetPCS, plan.afterPCSPods())
+				return workload.NewWorkloadManager(tc.Client, Logger).ScalePCS(ctx, tc.Namespace, tc.Workload.Name, plan.targetPCS)
+			},
+			Milestones: podsReadyMilestones(tc, plan.afterPCSPods()),
+		})
+
+		// Phase 2: widen the decode pool (decode PCSG replicas) in every PCS replica.
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name: "scale-up-pcsg",
+			ActionFn: func(ctx context.Context) error {
+				Logger.Infof("scaling %s decode PCSG replicas %d -> %d across %d PCS replicas (target %d pods)",
+					tc.Workload.Name, plan.initialDecode, plan.targetDecode, plan.targetPCS, plan.finalPods())
+				return workload.NewWorkloadManager(tc.Client, Logger).ScalePCSGAcrossReplicas(
+					ctx, tc.Namespace, tc.Workload.Name, "decode", plan.targetPCS, plan.targetDecode,
+					scaleWorkloadTimeout(plan.finalPods()), defaultScalePollInterval)
+			},
+			Milestones: podsReadyMilestones(tc, plan.finalPods()),
+		})
+
+		addDisaggFinalCheckAndDeletePhases(tracker, tc, plan.finalPods(), baseline)
+	})
+}
+
+// podsReadyMilestones returns the standard created+ready milestone pair for an expected
+// pod count, used by the disagg scale phases.
+func podsReadyMilestones(tc *testctx.TestContext, expectedPods int) []measurement.MilestoneDefinition {
+	return []measurement.MilestoneDefinition{
+		{
+			Name: "all-pods-created",
+			Condition: &condition.PodsCreatedCondition{
+				Client:        tc.Client.Client,
+				Namespace:     tc.Namespace,
+				LabelSelector: tc.GetLabelSelector(),
+				ExpectedCount: expectedPods,
+			},
+		},
+		{
+			Name: "all-pods-ready",
+			Condition: &condition.PodsReadyCondition{
+				Client:        tc.Client.Client,
+				Namespace:     tc.Namespace,
+				LabelSelector: tc.GetLabelSelector(),
+				ExpectedCount: expectedPods,
+			},
+		},
+	}
 }
