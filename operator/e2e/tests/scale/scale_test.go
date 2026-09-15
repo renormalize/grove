@@ -79,6 +79,15 @@ const (
 	scalePodsPerReplica  = 2
 	scaleWorkloadName    = "scale-test"
 
+	// scaleWorkloadEnvVar selects the workload topology. "flat" (default) keeps the
+	// historical single standalone clique so results stay comparable to prior runs;
+	// "disagg" renders a realistic disaggregated inference deployment (prefill + decode
+	// PodCliqueScalingGroups, decode-heavy 1:2, tensor-parallel-sized cliques). Both
+	// shapes total 1000*scaleMultiplier() pods so they are comparable to each other.
+	scaleWorkloadEnvVar = "SCALE_WORKLOAD"
+	scaleShapeFlat      = "flat"
+	scaleShapeDisagg    = "disagg"
+
 	// scaleBaseTimeout is the floor for the deploy→delete run; extra time is added
 	// proportional to pod count so large runs don't time out mid-deploy.
 	scaleBaseTimeout       = 10 * time.Minute
@@ -130,6 +139,240 @@ spec:
 // scaleWorkloadTimeout returns a run timeout that grows with pod count.
 func scaleWorkloadTimeout(pods int) time.Duration {
 	return scaleBaseTimeout + time.Duration(pods/1000)*scaleTimeoutPerKiloPod
+}
+
+// disaggWorkloadTemplate renders a realistic disaggregated inference deployment: each PCS
+// replica is one model-serving instance split into a prefill and a decode
+// PodCliqueScalingGroup. Decode is the heavier pool (1:2 prefill:decode groups), and each
+// group is tensor-parallel-sized (prefill TP=4 pods, decode TP=8 pods) — mirroring how
+// NVIDIA Dynamo / vLLM disaggregated serving scale prefill and decode independently.
+//
+// Format args: %[1]s workload name, %[2]d PCS replicas, %[3]d prefill PCSG replicas,
+// %[4]d decode PCSG replicas.
+const disaggWorkloadTemplate = `apiVersion: grove.io/v1alpha1
+kind: PodCliqueSet
+metadata:
+  name: %[1]s
+  labels:
+    app: %[1]s
+spec:
+  replicas: %[2]d
+  template:
+    podCliqueScalingGroups:
+      - name: prefill
+        replicas: %[3]d
+        minAvailable: 1
+        cliqueNames:
+          - prefill-worker
+      - name: decode
+        replicas: %[4]d
+        minAvailable: 1
+        cliqueNames:
+          - decode-worker
+    cliques:
+      - name: prefill-worker
+        spec:
+          roleName: prefill
+          replicas: 4
+          minAvailable: 4
+          podSpec:
+            schedulerName: default-scheduler
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: type
+                          operator: In
+                          values:
+                            - kwok
+            tolerations:
+              - key: node_role.e2e.grove.nvidia.com
+                operator: Equal
+                value: agent
+                effect: NoSchedule
+            containers:
+              - name: prefill-worker
+                image: registry:5001/nginx:alpine-slim
+                resources:
+                  requests:
+                    memory: 1Mi
+      - name: decode-worker
+        spec:
+          roleName: decode
+          replicas: 8
+          minAvailable: 8
+          podSpec:
+            schedulerName: default-scheduler
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: type
+                          operator: In
+                          values:
+                            - kwok
+            tolerations:
+              - key: node_role.e2e.grove.nvidia.com
+                operator: Equal
+                value: agent
+                effect: NoSchedule
+            containers:
+              - name: decode-worker
+                image: registry:5001/nginx:alpine-slim
+                resources:
+                  requests:
+                    memory: 1Mi
+`
+
+const (
+	// disaggPrefillTP / disaggDecodeTP are the tensor-parallel pod counts per worker group
+	// (the PodClique replicas). Fixed across scales — TP size is a model property, not a
+	// scaling knob; scale grows the number of deployments (PCS) and groups (PCSG) instead.
+	disaggPrefillTP = 4
+	disaggDecodeTP  = 8
+)
+
+// disaggTier is the (PCS, prefill-PCSG, decode-PCSG) shape for one canonical scale tier.
+// Both PCS and PCSG counts grow across tiers while the 1:2 prefill:decode ratio and the
+// TP sizes stay fixed. Each tier's total pod count is exactly 1000 * mult:
+//
+//	pods = PCS * (prefillPCSG*disaggPrefillTP + decodePCSG*disaggDecodeTP)
+//	1x  : 50  * (1*4  + 2*8)  = 50  * 20  = 1,000
+//	10x : 100 * (5*4  + 10*8) = 100 * 100 = 10,000
+//	100x: 500 * (10*4 + 20*8) = 500 * 200 = 100,000
+type disaggTier struct {
+	pcsReplicas     int
+	prefillPCSGReps int
+	decodePCSGReps  int
+}
+
+// disaggTiers maps scaleMultiplier() (1/10/100) to its shape. Non-canonical multipliers
+// (arbitrary SCALE_PCS_REPLICAS overrides) fall back to scaling PCS from the 1x base so
+// any input still yields an exact 1000*mult total; see resolveDisaggTier.
+var disaggTiers = map[int]disaggTier{
+	1:   {pcsReplicas: 50, prefillPCSGReps: 1, decodePCSGReps: 2},
+	10:  {pcsReplicas: 100, prefillPCSGReps: 5, decodePCSGReps: 10},
+	100: {pcsReplicas: 500, prefillPCSGReps: 10, decodePCSGReps: 20},
+}
+
+// resolveDisaggTier returns the disagg shape for the given multiplier. Canonical tiers
+// (1/10/100) use the hand-tuned table that grows both PCS and PCSG; any other multiplier
+// keeps the 1x PCSG ratio and carries all growth on PCS replicas, preserving the
+// 1000*mult total.
+func resolveDisaggTier(mult int) disaggTier {
+	if t, ok := disaggTiers[mult]; ok {
+		return t
+	}
+	base := disaggTiers[1]
+	return disaggTier{
+		pcsReplicas:     base.pcsReplicas * mult,
+		prefillPCSGReps: base.prefillPCSGReps,
+		decodePCSGReps:  base.decodePCSGReps,
+	}
+}
+
+// podsPerPCSReplica returns the pod count contributed by a single PCS replica for this tier.
+func (t disaggTier) podsPerPCSReplica() int {
+	return t.prefillPCSGReps*disaggPrefillTP + t.decodePCSGReps*disaggDecodeTP
+}
+
+// totalPods returns the total pod count across all PCS replicas for this tier.
+func (t disaggTier) totalPods() int {
+	return t.pcsReplicas * t.podsPerPCSReplica()
+}
+
+// scaleShape is the resolved workload for a run: the rendered PodCliqueSet YAML plus the
+// derived counts the harness needs (total pods, PCS replicas, and the PCSG replica count
+// used as the scale-up/down target for the disagg shape).
+type scaleShape struct {
+	name          string // "flat" or "disagg"
+	yaml          []byte
+	totalPods     int
+	pcsReplicas   int
+	scaleGroup    string // PCSG name the scale action targets (disagg only; "" for flat)
+	scaleGroupCap int    // decode PCSG replicas (disagg scale-up target); 0 for flat
+}
+
+// scaleWorkloadShape reads SCALE_WORKLOAD and renders the selected topology at the current
+// scaleMultiplier(). flat keeps the single standalone clique (pods = replicas*2); disagg
+// renders the prefill/decode deployment from the tier table. Both total 1000*mult pods.
+func scaleWorkloadShape(workloadName string) scaleShape {
+	if os.Getenv(scaleWorkloadEnvVar) == scaleShapeDisagg {
+		tier := resolveDisaggTier(scaleMultiplier())
+		return scaleShape{
+			name:          scaleShapeDisagg,
+			yaml:          []byte(fmt.Sprintf(disaggWorkloadTemplate, workloadName, tier.pcsReplicas, tier.prefillPCSGReps, tier.decodePCSGReps)),
+			totalPods:     tier.totalPods(),
+			pcsReplicas:   tier.pcsReplicas,
+			scaleGroup:    "decode",
+			scaleGroupCap: tier.decodePCSGReps,
+		}
+	}
+	replicas := envInt(scaleReplicasEnvVar, defaultScaleReplicas)
+	return scaleShape{
+		name:        scaleShapeFlat,
+		yaml:        []byte(fmt.Sprintf(scaleWorkloadTemplate, workloadName, replicas)),
+		totalPods:   replicas * scalePodsPerReplica,
+		pcsReplicas: replicas,
+	}
+}
+
+// isDisaggShape reports whether SCALE_WORKLOAD selects the disaggregated topology.
+func isDisaggShape() bool { return os.Getenv(scaleWorkloadEnvVar) == scaleShapeDisagg }
+
+// disaggScalePlan is the two-phase scale-up/down plan for the disagg shape. Scaling grows
+// (or shrinks) both dimensions ~2x: first the PCS replica count (add/remove whole model
+// deployments), then the decode PCSG replicas within every PCS replica (widen/narrow the
+// decode pool). The initial state is half the tier on each dimension; the final state is
+// the full tier, so the final pod count equals the tier total (1000*mult).
+//
+// The prefill PCSG count is fixed across the plan (prefill is the lighter, less elastic
+// pool). Pod counts at each step (1x tier example, 50 PCS / prefill 1 / decode 2):
+//
+//	initial : 25 PCS, decode 1 -> 25*(1*4 + 1*8) = 300
+//	afterPCS: 50 PCS, decode 1 -> 50*(1*4 + 1*8) = 600
+//	final   : 50 PCS, decode 2 -> 50*(1*4 + 2*8) = 1000
+type disaggScalePlan struct {
+	prefillPCSGReps int
+	initialPCS      int
+	targetPCS       int
+	initialDecode   int
+	targetDecode    int
+}
+
+// disaggWorkloadName is the PCS name used by the disagg scale-up/down variants (and the
+// prefix for their per-replica PCSG names).
+const disaggWorkloadName = "scale-disagg"
+
+// resolveDisaggScalePlan derives the two-phase plan from the current tier. The tier's PCS
+// and decode counts are the targets; initial values are half (both must be even, which the
+// canonical tiers and the PCS-only fallback guarantee).
+func resolveDisaggScalePlan() disaggScalePlan {
+	tier := resolveDisaggTier(scaleMultiplier())
+	return disaggScalePlan{
+		prefillPCSGReps: tier.prefillPCSGReps,
+		initialPCS:      tier.pcsReplicas / 2,
+		targetPCS:       tier.pcsReplicas,
+		initialDecode:   tier.decodePCSGReps / 2,
+		targetDecode:    tier.decodePCSGReps,
+	}
+}
+
+// pods returns the total pod count for a given PCS replica and decode-PCSG count under this
+// plan (prefill PCSG count is fixed).
+func (p disaggScalePlan) pods(pcs, decode int) int {
+	return pcs * (p.prefillPCSGReps*disaggPrefillTP + decode*disaggDecodeTP)
+}
+
+func (p disaggScalePlan) initialPods() int  { return p.pods(p.initialPCS, p.initialDecode) }
+func (p disaggScalePlan) afterPCSPods() int { return p.pods(p.targetPCS, p.initialDecode) }
+func (p disaggScalePlan) finalPods() int    { return p.pods(p.targetPCS, p.targetDecode) }
+
+// yaml renders the disagg PodCliqueSet at the plan's initial PCS/decode counts.
+func (p disaggScalePlan) yaml(workloadName string) []byte {
+	return []byte(fmt.Sprintf(disaggWorkloadTemplate, workloadName, p.initialPCS, p.prefillPCSGReps, p.initialDecode))
 }
 
 // scaleTestConfig parameterizes a single scale test run.
@@ -229,9 +472,10 @@ func runScaleTest(t *testing.T, cfg scaleTestConfig, addPhases scaleTestPhases) 
 func Test_ScaleTest(t *testing.T) {
 	const expectedReplicas = 1
 
-	replicas := envInt(scaleReplicasEnvVar, defaultScaleReplicas)
-	expectedPods := replicas * scalePodsPerReplica
-	workloadYAML := []byte(fmt.Sprintf(scaleWorkloadTemplate, scaleWorkloadName, replicas))
+	shape := scaleWorkloadShape(scaleWorkloadName)
+	expectedPods := shape.totalPods
+	workloadYAML := shape.yaml
+	Logger.Infof("scale test workload shape=%s: %d PCS replicas, %d pods", shape.name, shape.pcsReplicas, expectedPods)
 
 	runScaleTest(t, scaleTestConfig{
 		name:         "ScaleTest",

@@ -72,6 +72,21 @@ func (wm *WorkloadManager) ScalePCSG(ctx context.Context, namespace, name string
 	return wm.resources.ScaleResource(ctx, gvk.PodCliqueScalingGroup, namespace, name, replicas)
 }
 
+// ScalePCSGAcrossReplicas scales the named PodCliqueScalingGroup to replicas in every
+// PodCliqueSet replica. A PCSG resource exists once per PCS replica, named
+// "<pcsName>-<replicaIndex>-<groupName>", so scaling "the decode group" across a
+// pcsReplicas-wide PodCliqueSet means scaling each replica's PCSG. Used by the disagg
+// scale tests to grow the decode pool at the PCSG level.
+func (wm *WorkloadManager) ScalePCSGAcrossReplicas(ctx context.Context, namespace, pcsName, groupName string, pcsReplicas, replicas int, timeout, interval time.Duration) error {
+	for i := 0; i < pcsReplicas; i++ {
+		pcsgName := fmt.Sprintf("%s-%d-%s", pcsName, i, groupName)
+		if err := wm.ScalePCSG(ctx, namespace, pcsgName, replicas, timeout, interval); err != nil {
+			return fmt.Errorf("scaling PCSG %s: %w", pcsgName, err)
+		}
+	}
+	return nil
+}
+
 // TriggerPCSReconcile bumps a benchmark annotation on a PodCliqueSet without touching its
 // spec. This forces the operator to run one reconcile cycle so we can measure the CPU cost
 // of a no-op pass. triggerID is embedded in the annotation value so repeated calls always
