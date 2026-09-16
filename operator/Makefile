@@ -262,6 +262,13 @@ scale-cluster-down: $(UV)
 #                          two are comparable. Scale-up/down run two measured phases: grow/shrink
 #                          PCS replicas, then grow/shrink decode PCSG replicas across every PCS.
 #   SCALE_WORKLOAD=disagg make run-scale-test                 # Run the disagg suite
+#
+# SCALE_PCS_COUNT (default 1) spreads the workload across N separate PodCliqueSet objects
+# instead of one, keeping the same total pod count so runs stay comparable; N>1 stresses
+# per-PCS operator overhead. Applies to the whole suite: Test_ScaleTest deploys N PCS,
+# scale-up/down then add/remove whole PCS objects (a third scaling axis) rather than moving
+# replicas. Composes with either SCALE_WORKLOAD shape.
+#   SCALE_PCS_COUNT=10 make run-scale-test                    # 10 PCS objects, same total pods
 .PHONY: run-scale-test
 run-scale-test: export GROVE_E2E_DIAG_DIR = $(DIAG_DIR)
 run-scale-test: export GROVE_E2E_DIAG_MODE = $(DIAG_MODE)

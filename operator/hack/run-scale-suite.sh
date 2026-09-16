@@ -41,6 +41,11 @@ set -o pipefail
 #                         flat  = one standalone PodClique per PCS replica (pods = replicas*2).
 #                         disagg = disaggregated LLM shape (prefill+decode PCSGs, decode-heavy,
 #                                  tensor-parallel groups) sized to the same total pod count.
+#   PCS_COUNT=<n>      Spread the workload across N separate PodCliqueSet objects instead of
+#                         one (default 1). Same total pod count regardless of N, so runs stay
+#                         comparable; N>1 stresses per-PCS operator overhead. Composes with
+#                         either SCALE_WORKLOAD shape and with scale up/down (which then
+#                         add/remove whole PCS objects rather than replicas).
 #   TEST_PATTERN=<re>  go test -run pattern (default: empty = run all scale tests).
 #   DIAG_DIR=<path>    Output dir for CSVs + pprof (default: ./diag/scale-<scale>-<ts>).
 #   PROFILE_INTERVAL=<s>  Profiler sample interval seconds (default: 5).
@@ -55,6 +60,7 @@ set -o pipefail
 #   NODES=2000 REPLICAS=8000 hack/run-scale-suite.sh
 #   KEEP_CLUSTER=1 hack/run-scale-suite.sh 1x
 #   SCALE_WORKLOAD=disagg hack/run-scale-suite.sh 1x
+#   PCS_COUNT=10 hack/run-scale-suite.sh 10x
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPERATOR_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -94,6 +100,7 @@ GO_TEST_TIMEOUT="${GO_TEST_TIMEOUT:-${DEFAULT_TIMEOUT}}"
 TEST_PATTERN="${TEST_PATTERN:-}"
 PROFILE_INTERVAL="${PROFILE_INTERVAL:-5}"
 SCALE_WORKLOAD="${SCALE_WORKLOAD:-flat}"
+PCS_COUNT="${PCS_COUNT:-1}"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 DIAG_DIR="${DIAG_DIR:-${OPERATOR_DIR}/diag/scale-${SCALE}-${TIMESTAMP}}"
 
@@ -138,6 +145,7 @@ log "Scale suite: ${SCALE}"
 log "  cluster target : ${CLUSTER_TARGET}${CREATE_FLAGS:+ (${CREATE_FLAGS})}"
 log "  replicas       : ${REPLICAS}  (=> ${PODS} pods)"
 log "  workload shape : ${SCALE_WORKLOAD}"
+log "  pcs count      : ${PCS_COUNT}"
 log "  test pattern   : ${TEST_PATTERN:-<all>}"
 log "  go test timeout: ${GO_TEST_TIMEOUT}"
 log "  diag dir       : ${DIAG_DIR}"
@@ -160,6 +168,7 @@ log "Profiler running (pid ${PROFILER_PID}), logging to ${DIAG_DIR}/profiler.log
 log "Running scale test..."
 SCALE_PCS_REPLICAS="${REPLICAS}" \
 SCALE_WORKLOAD="${SCALE_WORKLOAD}" \
+SCALE_PCS_COUNT="${PCS_COUNT}" \
   make -C "${OPERATOR_DIR}" run-scale-test \
     TEST_PATTERN="${TEST_PATTERN}" \
     GO_TEST_TIMEOUT="${GO_TEST_TIMEOUT}" \

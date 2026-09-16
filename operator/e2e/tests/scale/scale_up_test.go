@@ -110,7 +110,15 @@ func Test_ScaleUp(t *testing.T) {
 // When SCALE_WORKLOAD=disagg, non-tiny variants run the disaggregated two-phase
 // plan (grow PCS replicas, then grow decode PCSG replicas) instead; see
 // runDisaggScaleUpTest. Tiny variants always use the flat YAML.
+//
+// When SCALE_PCS_COUNT>1, non-tiny variants instead reach the target by growing the
+// *number* of PodCliqueSet objects (deploy half, then add the rest); see
+// runMultiPCSScaleUpTest. This composes with either flat or disagg per-PCS shape.
 func runScaleUpTest(t *testing.T, v scaleUpVariant) {
+	if v.workerNodes == 0 && isMultiPCS() {
+		runMultiPCSScaleUpTest(t, v)
+		return
+	}
 	if v.workerNodes == 0 && isDisaggShape() {
 		runDisaggScaleUpTest(t, v.name, v.workloadName)
 		return
@@ -277,6 +285,66 @@ func runDisaggScaleUpTest(t *testing.T, name, workloadName string) {
 		})
 
 		addDisaggFinalCheckAndDeletePhases(tracker, tc, plan.finalPods(), baseline)
+	})
+}
+
+// runMultiPCSScaleUpTest reaches the variant's target pod count by growing the number of
+// PodCliqueSet objects rather than any object's replicas. It deploys ~half the objects,
+// then adds the rest as the single measured scale-up phase (the mirror of
+// runMultiPCSScaleDownTest). Composes with either flat or disagg per-PCS shape. Pods are
+// counted across all objects via the managed-by selector.
+func runMultiPCSScaleUpTest(t *testing.T, v scaleUpVariant) {
+	mult := scaleMultiplier()
+	workerNodes := scaleUpWorkerNodes * mult
+	plan := planMultiPCSScale(v.workloadName, v.targetPods*mult)
+
+	runScaleTest(t, scaleTestConfig{
+		name:                  v.name,
+		workload:              v.workloadName,
+		yamlPath:              "", // templated in-line
+		expectedPods:          plan.finalPods,
+		pcsCount:              len(plan.names()),
+		workerNodes:           workerNodes,
+		timeout:               scaleWorkloadTimeout(plan.finalPods),
+		pollInterval:          defaultScalePollInterval,
+		labelSelectorOverride: managedByLabelSelector(),
+	}, func(tracker *measurement.TimelineTracker, tc *testctx.TestContext, _ string) {
+		baseline := &operatorBaseline{}
+		addOperatorBaselinePhase(tracker, tc, baseline)
+
+		rm := resources.NewResourceManager(tc.Client, Logger)
+
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name: "deploy",
+			ActionFn: func(ctx context.Context) error {
+				for _, doc := range plan.initialDocs {
+					if _, err := rm.ApplyYAMLData(ctx, doc.yaml, tc.Namespace); err != nil {
+						return fmt.Errorf("applying PCS %s: %w", doc.name, err)
+					}
+				}
+				return nil
+			},
+			Milestones: podsReadyMilestones(tc, plan.initialPods),
+		})
+
+		// scale-up-pcs-count: add the remaining PodCliqueSet objects. This is the measured
+		// phase — the cost of the operator taking on new whole PCS deployments at once.
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name: "scale-up-pcs-count",
+			ActionFn: func(ctx context.Context) error {
+				Logger.Infof("scaling PCS count %d -> %d (target %d pods)",
+					len(plan.initialDocs), len(plan.allDocs()), plan.finalPods)
+				for _, doc := range plan.scaleDocs {
+					if _, err := rm.ApplyYAMLData(ctx, doc.yaml, tc.Namespace); err != nil {
+						return fmt.Errorf("applying PCS %s: %w", doc.name, err)
+					}
+				}
+				return nil
+			},
+			Milestones: podsReadyMilestones(tc, plan.finalPods),
+		})
+
+		addMultiPCSFinalCheckAndDeletePhases(tracker, tc, plan.names(), plan.finalPods, baseline)
 	})
 }
 
