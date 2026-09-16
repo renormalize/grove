@@ -229,6 +229,11 @@ scale-cluster-up: $(UV)
 scale-cluster-up-10x: $(UV)
 	@$(MODULE_HACK_DIR)/infra-manager.py setup --config $(MODULE_HACK_DIR)/scale-10x.yaml $(E2E_CREATE_FLAGS)
 
+# 50x scale cluster: 5,000 KWOK virtual nodes (pairs with SCALE_PCS_REPLICAS=25000 -> 50,000 pods).
+.PHONY: scale-cluster-up-50x
+scale-cluster-up-50x: $(UV)
+	@$(MODULE_HACK_DIR)/infra-manager.py setup --config $(MODULE_HACK_DIR)/scale-50x.yaml $(E2E_CREATE_FLAGS)
+
 # 100x scale cluster: 10,000 KWOK virtual nodes (pairs with SCALE_PCS_REPLICAS=50000 -> 100,000 pods).
 # This is the edge of what a single k3d server with embedded etcd can sustain; expect high
 # etcd memory/disk. For arbitrary sizes up to ~65,000 nodes (10.0.x.x IP-space cap), override:

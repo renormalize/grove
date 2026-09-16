@@ -38,9 +38,10 @@ set -o pipefail
 #            groups) sized to the same total pod count.
 #
 # The swept axes (fixed lists, overridable via env for narrower sweeps):
-#   SCALES="1x 10x 100x"    Scale tiers. Each selects a cluster preset + replica count:
+#   SCALES="1x 10x 50x 100x"  Scale tiers. Each selects a cluster preset + replica count:
 #                             1x   ->   100 nodes,    500 replicas  (1,000 pods)
 #                             10x  ->  1000 nodes,   5000 replicas  (10,000 pods)
+#                             50x  ->  5000 nodes,  25000 replicas  (50,000 pods)
 #                             100x -> 10000 nodes,  50000 replicas  (100,000 pods)
 #   PCS_COUNTS="1 10 50 100"  PCS-spread points: how many separate PodCliqueSet objects the
 #                             same total pod count is split across. 1 = one wide PCS; N>1 =
@@ -55,10 +56,10 @@ set -o pipefail
 #   REPLICAS=<n>       PCS replicas. Overrides the per-scale default (applied to every scale).
 #   TEST_PATTERN=<re>  go test -run pattern (default: empty = run all scale tests).
 #   PROFILE_INTERVAL=<s>  Profiler sample interval seconds. Default scales with each tier
-#                         (1x->5s, 10x->30s, 100x->60s) so long runs produce smaller usage
-#                         CSVs; set this to force one interval across every combo.
+#                         (1x->5s, 10x->30s, 50x->60s, 100x->60s) so long runs produce
+#                         smaller usage CSVs; set this to force one interval across every combo.
 #   GO_TEST_TIMEOUT=<d>   go test -timeout value (default scales with each scale tier:
-#                         1x->45m, 10x->180m, 100x->600m). Go duration string.
+#                         1x->45m, 10x->180m, 50x->600m, 100x->600m). Go duration string.
 #   DIAG_ROOT=<path>   Parent dir for per-combo diag dirs (default: <operator>/diag).
 #   KEEP_CLUSTER=1     Do NOT tear clusters down (leaves only the LAST combo's cluster up).
 #   SKIP_TEARDOWN=1    Alias for KEEP_CLUSTER=1.
@@ -66,10 +67,11 @@ set -o pipefail
 #                      Docker/cluster work. Use to validate the matrix and skip logic.
 #
 # Examples:
-#   hack/run-scale-suite.sh flat            # full 3x4 matrix, flat shape
+#   hack/run-scale-suite.sh flat            # full 4x4 matrix, flat shape
 #   hack/run-scale-suite.sh disagg          # full matrix, disagg shape (disagg/1x/100 skipped)
 #   DRY_RUN=1 hack/run-scale-suite.sh flat  # preview the matrix without touching Docker
 #   SCALES=1x PCS_COUNTS=1 hack/run-scale-suite.sh flat   # single smallest combo
+#   SCALES="1x 10x 50x" hack/run-scale-suite.sh flat      # skip the 100x tier
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPERATOR_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -97,7 +99,7 @@ case "${SHAPE}" in
 esac
 
 # Swept axes. Space-separated so they can be overridden from the env for narrower sweeps.
-SCALES="${SCALES:-1x 10x 100x}"
+SCALES="${SCALES:-1x 10x 50x 100x}"
 PCS_COUNTS="${PCS_COUNTS:-1 10 50 100}"
 
 # Shared per-combo overrides.
@@ -120,6 +122,7 @@ scale_preset() {
   case "$1" in
     1x)   echo "scale-cluster-up 500 45m 5" ;;
     10x)  echo "scale-cluster-up-10x 5000 180m 30" ;;
+    50x)  echo "scale-cluster-up-50x 25000 600m 60" ;;
     100x) echo "scale-cluster-up-100x 50000 600m 60" ;;
     *)    return 1 ;;
   esac
@@ -127,11 +130,12 @@ scale_preset() {
 
 # pods_per_pcs_replica SCALE -> pods contributed by one disagg PCS replica for that tier.
 # Mirrors disaggTiers/podsPerPCSReplica in e2e/tests/scale/scale_test.go
-# (1x:20, 10x:100, 100x:200). Flat has no PCS-replica notion; it uses 2 pods/replica.
+# (1x:20, 10x:100, 50x:200, 100x:200). Flat has no PCS-replica notion; it uses 2 pods/replica.
 pods_per_pcs_replica() {
   case "$1" in
     1x)   echo 20 ;;
     10x)  echo 100 ;;
+    50x)  echo 200 ;;
     100x) echo 200 ;;
   esac
 }
