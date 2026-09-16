@@ -54,7 +54,9 @@ set -o pipefail
 #   NODES=<n>          KWOK node count. Overrides the scale preset (uses scale.yaml + --set).
 #   REPLICAS=<n>       PCS replicas. Overrides the per-scale default (applied to every scale).
 #   TEST_PATTERN=<re>  go test -run pattern (default: empty = run all scale tests).
-#   PROFILE_INTERVAL=<s>  Profiler sample interval seconds (default: 5).
+#   PROFILE_INTERVAL=<s>  Profiler sample interval seconds. Default scales with each tier
+#                         (1x->5s, 10x->30s, 100x->60s) so long runs produce smaller usage
+#                         CSVs; set this to force one interval across every combo.
 #   GO_TEST_TIMEOUT=<d>   go test -timeout value (default scales with each scale tier:
 #                         1x->45m, 10x->180m, 100x->600m). Go duration string.
 #   DIAG_ROOT=<path>   Parent dir for per-combo diag dirs (default: <operator>/diag).
@@ -100,21 +102,25 @@ PCS_COUNTS="${PCS_COUNTS:-1 10 50 100}"
 
 # Shared per-combo overrides.
 TEST_PATTERN="${TEST_PATTERN:-}"
-PROFILE_INTERVAL="${PROFILE_INTERVAL:-5}"
+# Empty means "use the per-scale default" (see scale_preset); set it to force one interval
+# across every combo.
+PROFILE_INTERVAL="${PROFILE_INTERVAL:-}"
 DIAG_ROOT="${DIAG_ROOT:-${OPERATOR_DIR}/diag}"
 
 if [[ -n "${SKIP_TEARDOWN:-}" ]]; then
   KEEP_CLUSTER=1
 fi
 
-# scale_preset SCALE -> "<cluster-target> <default-replicas> <default-timeout>".
+# scale_preset SCALE -> "<cluster-target> <default-replicas> <default-timeout> <profile-interval>".
 # The whole suite runs sequentially in one `go test` invocation, so the timeout must cover
-# every scale test; cushioned for the slow single-etcd k3s control plane.
+# every scale test; cushioned for the slow single-etcd k3s control plane. The profile
+# interval grows with the tier (longer runs sample less often, keeping the usage CSVs a
+# manageable size to fetch); an explicit PROFILE_INTERVAL env var overrides it.
 scale_preset() {
   case "$1" in
-    1x)   echo "scale-cluster-up 500 45m" ;;
-    10x)  echo "scale-cluster-up-10x 5000 180m" ;;
-    100x) echo "scale-cluster-up-100x 50000 600m" ;;
+    1x)   echo "scale-cluster-up 500 45m 5" ;;
+    10x)  echo "scale-cluster-up-10x 5000 180m 30" ;;
+    100x) echo "scale-cluster-up-100x 50000 600m 60" ;;
     *)    return 1 ;;
   esac
 }
@@ -182,13 +188,14 @@ trap on_interrupt EXIT INT TERM
 run_one() {
   local shape="$1" scale="$2" pcs_count="$3"
 
-  local preset cluster_target default_replicas default_timeout
+  local preset cluster_target default_replicas default_timeout default_interval
   preset="$(scale_preset "${scale}")"
-  read -r cluster_target default_replicas default_timeout <<<"${preset}"
+  read -r cluster_target default_replicas default_timeout default_interval <<<"${preset}"
 
-  local replicas go_timeout create_flags=""
+  local replicas go_timeout profile_interval create_flags=""
   replicas="${REPLICAS:-${default_replicas}}"
   go_timeout="${GO_TEST_TIMEOUT:-${default_timeout}}"
+  profile_interval="${PROFILE_INTERVAL:-${default_interval}}"
   # NODES override forces the generic scale.yaml preset with an explicit node count.
   if [[ -n "${NODES:-}" ]]; then
     cluster_target="scale-cluster-up"
@@ -204,6 +211,7 @@ run_one() {
   log "  cluster target : ${cluster_target}${create_flags:+ (${create_flags})}"
   log "  replicas       : ${replicas}  (=> ${pods} pods across ${pcs_count} PCS)"
   log "  go test timeout: ${go_timeout}"
+  log "  profile interval: ${profile_interval}s"
   log "  diag dir       : ${diag_dir}"
 
   if [[ -n "${DRY_RUN:-}" ]]; then
@@ -222,10 +230,10 @@ run_one() {
 
   # 2. Start the profiler in the background (deploys metrics-server, then samples every N s).
   #    It writes usage-pods.csv + usage-server.csv under diag_dir and prints a summary on SIGINT.
-  log "Starting profiler (interval ${PROFILE_INTERVAL}s)..."
+  log "Starting profiler (interval ${profile_interval}s)..."
   "${SCRIPT_DIR}/deploy-addons.sh" --metrics-server
   ( cd "${OPERATOR_DIR}" && "${UV}" run "${SCRIPT_DIR}/profile-usage.py" \
-      --out "${diag_dir}" --interval "${PROFILE_INTERVAL}" ) \
+      --out "${diag_dir}" --interval "${profile_interval}" ) \
     >"${diag_dir}/profiler.log" 2>&1 &
   PROFILER_PID=$!
   log "Profiler running (pid ${PROFILER_PID}), logging to ${diag_dir}/profiler.log"
