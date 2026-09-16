@@ -73,7 +73,7 @@ const (
 	steadyStateWindow = 30 * time.Second
 
 	// scaleReplicasEnvVar overrides the PCS replica count for Test_ScaleTest, letting the
-	// same test run at 10x/100x scale without editing the YAML. Pods = replicas * 2 (the
+	// same test run at 10x/50x/100x scale without editing the YAML. Pods = replicas * 2 (the
 	// workload has a single clique with 2 pods per replica).
 	scaleReplicasEnvVar  = "SCALE_PCS_REPLICAS"
 	defaultScaleReplicas = 500
@@ -250,6 +250,7 @@ const (
 //	pods = PCS * (prefillPCSG*disaggPrefillTP + decodePCSG*disaggDecodeTP)
 //	1x  : 50  * (1*4  + 2*8)  = 50  * 20  = 1,000
 //	10x : 100 * (5*4  + 10*8) = 100 * 100 = 10,000
+//	50x : 250 * (10*4 + 20*8) = 250 * 200 = 50,000
 //	100x: 500 * (10*4 + 20*8) = 500 * 200 = 100,000
 type disaggTier struct {
 	pcsReplicas     int
@@ -257,17 +258,18 @@ type disaggTier struct {
 	decodePCSGReps  int
 }
 
-// disaggTiers maps scaleMultiplier() (1/10/100) to its shape. Non-canonical multipliers
+// disaggTiers maps scaleMultiplier() (1/10/50/100) to its shape. Non-canonical multipliers
 // (arbitrary SCALE_PCS_REPLICAS overrides) fall back to scaling PCS from the 1x base so
 // any input still yields an exact 1000*mult total; see resolveDisaggTier.
 var disaggTiers = map[int]disaggTier{
 	1:   {pcsReplicas: 50, prefillPCSGReps: 1, decodePCSGReps: 2},
 	10:  {pcsReplicas: 100, prefillPCSGReps: 5, decodePCSGReps: 10},
+	50:  {pcsReplicas: 250, prefillPCSGReps: 10, decodePCSGReps: 20},
 	100: {pcsReplicas: 500, prefillPCSGReps: 10, decodePCSGReps: 20},
 }
 
 // resolveDisaggTier returns the disagg shape for the given multiplier. Canonical tiers
-// (1/10/100) use the hand-tuned table that grows both PCS and PCSG; any other multiplier
+// (1/10/50/100) use the hand-tuned table that grows both PCS and PCSG; any other multiplier
 // keeps the 1x PCSG ratio and carries all growth on PCS replicas, preserving the
 // 1000*mult total.
 func resolveDisaggTier(mult int) disaggTier {
@@ -583,7 +585,7 @@ func runScaleTest(t *testing.T, cfg scaleTestConfig, addPhases scaleTestPhases) 
 // Test_ScaleTest validates deploy, steady-state reconcile, and the user-facing delete
 // request latency of a PodCliqueSet. The replica count (and thus pod count) is controlled
 // by the SCALE_PCS_REPLICAS env var (default 500 replicas = 1000 pods), so the same test
-// drives 1x/10x/100x runs. SCALE_PCS_COUNT>1 spreads the same total pod count across N
+// drives 1x/10x/50x/100x runs. SCALE_PCS_COUNT>1 spreads the same total pod count across N
 // separate PodCliqueSet objects instead of one, stressing per-PCS overhead; see
 // runMultiPCSScaleTest. It intentionally excludes Kubernetes cascade-cleanup latency after
 // the delete request returns.

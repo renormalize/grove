@@ -20,7 +20,7 @@ Three independent knobs shape a run:
 
 | Axis | Knob | Values | Effect |
 |---|---|---|---|
-| **Scale** | `SCALE` / `SCALE_PCS_REPLICAS` | `1x` / `10x` / `100x` | 1k / 10k / 100k total pods |
+| **Scale** | `SCALE` / `SCALE_PCS_REPLICAS` | `1x` / `10x` / `50x` / `100x` | 1k / 10k / 50k / 100k total pods |
 | **Shape** | `SCALE_WORKLOAD` | `flat` / `disagg` | standalone cliques vs. disaggregated prefill+decode LLM topology |
 | **Spread** | `SCALE_PCS_COUNT` | `1` / `N` | one wide PodCliqueSet vs. N smaller ones (same total pods) |
 
@@ -64,11 +64,11 @@ cluster per combo, continue-on-failure, with a pass/fail/skip summary at the end
 ./hack/run-scale-suite.sh disagg
 ```
 
-Each invocation runs, per default lists `SCALES="1x 10x 100x"` and
+Each invocation runs, per default lists `SCALES="1x 10x 50x 100x"` and
 `PCS_COUNTS="1 10 50 100"`:
 
-- **flat** → 12 combos (all valid).
-- **disagg** → 11 combos; `disagg / 1x / count=100` is auto-skipped (too few replicas to
+- **flat** → 16 combos (all valid).
+- **disagg** → 15 combos; `disagg / 1x / count=100` is auto-skipped (too few replicas to
   spread across 100 PCS without a zero-replica object) and reported as `SKIP`.
 
 ### Preview before committing hours of runtime
@@ -87,7 +87,7 @@ Override the swept lists to run a subset — useful for a quick smoke or re-runn
 
 ```bash
 SCALES=1x PCS_COUNTS=1 ./hack/run-scale-suite.sh flat        # single smallest combo
-SCALES="1x 10x" ./hack/run-scale-suite.sh disagg             # skip 100x
+SCALES="1x 10x 50x" ./hack/run-scale-suite.sh disagg         # skip 100x
 PCS_COUNTS="1 10" ./hack/run-scale-suite.sh flat             # wide + one multi-PCS point
 ```
 
@@ -95,7 +95,7 @@ PCS_COUNTS="1 10" ./hack/run-scale-suite.sh flat             # wide + one multi-
 
 | Env | Default | Purpose |
 |---|---|---|
-| `PROFILE_INTERVAL` | per-scale: 1x=5s, 10x=30s, 100x=60s | usage-CSV sample interval. Longer tiers sample less often → smaller CSVs to fetch. Set to force one interval everywhere. |
+| `PROFILE_INTERVAL` | per-scale: 1x=5s, 10x=30s, 50x=60s, 100x=60s | usage-CSV sample interval. Longer tiers sample less often → smaller CSVs to fetch. Set to force one interval everywhere. |
 | `GO_TEST_TIMEOUT` | per-scale: 45m / 180m / 600m | `go test -timeout`. |
 | `TEST_PATTERN` | empty (all tests) | `go test -run` regex, e.g. `Test_ScaleTest`. |
 | `REPLICAS` | per-scale default | override PCS replicas for every scale. |
@@ -118,6 +118,7 @@ Use this to debug one point or iterate without the sweep's per-combo teardown.
 # 1. Bring up a cluster at the scale you want (pick one target):
 make scale-cluster-up            # 1x  — 100 KWOK nodes
 make scale-cluster-up-10x        # 10x — 1000 nodes
+make scale-cluster-up-50x        # 50x — 5000 nodes
 make scale-cluster-up-100x       # 100x — 10000 nodes
 #    Arbitrary size (≤ ~65,000 nodes, the 10.0.x.x IP-space cap):
 #    make scale-cluster-up E2E_CREATE_FLAGS="--set kwok.nodes=30000"
@@ -134,7 +135,7 @@ SCALE_PCS_REPLICAS=5000 SCALE_WORKLOAD=disagg SCALE_PCS_COUNT=10 \
 make scale-cluster-down
 ```
 
-`SCALE_PCS_REPLICAS` drives the scale multiplier: 500→1x, 5000→10x, 50000→100x.
+`SCALE_PCS_REPLICAS` drives the scale multiplier: 500→1x, 5000→10x, 25000→50x, 50000→100x.
 
 ---
 
