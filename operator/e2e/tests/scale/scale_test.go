@@ -27,6 +27,7 @@ import (
 
 	"k8s.io/utils/ptr"
 
+	"github.com/ai-dynamo/grove/operator/api/common"
 	"github.com/ai-dynamo/grove/operator/e2e/diagnostics"
 	"github.com/ai-dynamo/grove/operator/e2e/grove/config"
 	"github.com/ai-dynamo/grove/operator/e2e/grove/workload"
@@ -87,6 +88,14 @@ const (
 	scaleWorkloadEnvVar = "SCALE_WORKLOAD"
 	scaleShapeFlat      = "flat"
 	scaleShapeDisagg    = "disagg"
+
+	// scalePCSCountEnvVar sets how many separate PodCliqueSet objects the workload is
+	// spread across (default 1). It is orthogonal to SCALE_WORKLOAD: the total pod count
+	// stays 1000*scaleMultiplier() regardless of N, so "one wide PCS" and "N smaller PCS"
+	// are directly comparable. N>1 stresses the operator's per-PCS overhead (informer
+	// keys, owner-reference trees, status subresources) rather than replica width.
+	scalePCSCountEnvVar = "SCALE_PCS_COUNT"
+	defaultScalePCSes   = 1
 
 	// scaleBaseTimeout is the floor for the deploy→delete run; extra time is added
 	// proportional to pod count so large runs don't time out mid-deploy.
@@ -283,39 +292,142 @@ func (t disaggTier) totalPods() int {
 	return t.pcsReplicas * t.podsPerPCSReplica()
 }
 
-// scaleShape is the resolved workload for a run: the rendered PodCliqueSet YAML plus the
-// derived counts the harness needs (total pods, PCS replicas, and the PCSG replica count
-// used as the scale-up/down target for the disagg shape).
+// renderedPCS is one PodCliqueSet object to deploy: its name, rendered YAML, and the
+// number of pods it contributes when fully scheduled.
+type renderedPCS struct {
+	name string
+	yaml []byte
+	pods int
+}
+
+// scaleShape is the resolved workload for a run: the rendered PodCliqueSet objects plus
+// the derived counts the harness needs. A single-PCS run (SCALE_PCS_COUNT=1) has one
+// entry in pcsDocs; a multi-PCS run has scalePCSCount() entries whose per-PCS sizes sum to
+// totalPods. totalPods and the flat/disagg shape are unchanged by the PCS count.
 type scaleShape struct {
-	name          string // "flat" or "disagg"
-	yaml          []byte
+	name          string        // "flat" or "disagg"
+	pcsDocs       []renderedPCS // one per PodCliqueSet object (len == scalePCSCount())
 	totalPods     int
-	pcsReplicas   int
 	scaleGroup    string // PCSG name the scale action targets (disagg only; "" for flat)
 	scaleGroupCap int    // decode PCSG replicas (disagg scale-up target); 0 for flat
 }
 
-// scaleWorkloadShape reads SCALE_WORKLOAD and renders the selected topology at the current
-// scaleMultiplier(). flat keeps the single standalone clique (pods = replicas*2); disagg
-// renders the prefill/decode deployment from the tier table. Both total 1000*mult pods.
+// pcsNames returns the names of every PodCliqueSet in the shape, in deploy order.
+func (s scaleShape) pcsNames() []string {
+	names := make([]string, len(s.pcsDocs))
+	for i, d := range s.pcsDocs {
+		names[i] = d.name
+	}
+	return names
+}
+
+// renderPCSDocs renders count PodCliqueSet objects for the current SCALE_WORKLOAD shape
+// whose per-PCS sizes divide totalPods as evenly as possible (remainder on the last), so
+// the objects together total totalPods. Each object's name is workloadName for count==1,
+// else "<workloadName>-<i>". Shared by the deploy-N-PCS path (Test_ScaleTest) and the
+// grow/shrink-PCS-count path (scale up/down): growing the PCS count means deploying more
+// of these objects, not scaling any object's spec.replicas.
+func renderPCSDocs(workloadName string, count, totalPods int) []renderedPCS {
+	docs := make([]renderedPCS, count)
+	name := func(i int) string {
+		if count == 1 {
+			return workloadName
+		}
+		return pcsSetName(workloadName, i)
+	}
+	if os.Getenv(scaleWorkloadEnvVar) == scaleShapeDisagg {
+		// Split by PCS replicas so every object is a full prefill/decode deployment at the
+		// tier's PCSG/TP shape; podsPerPCSReplica maps a replica count back to a pod budget.
+		tier := resolveDisaggTier(scaleMultiplier())
+		for i, reps := range splitAcross(totalPods/tier.podsPerPCSReplica(), count) {
+			docs[i] = renderedPCS{
+				name: name(i),
+				yaml: []byte(fmt.Sprintf(disaggWorkloadTemplate, name(i), reps, tier.prefillPCSGReps, tier.decodePCSGReps)),
+				pods: reps * tier.podsPerPCSReplica(),
+			}
+		}
+		return docs
+	}
+	for i, reps := range splitAcross(totalPods/scalePodsPerReplica, count) {
+		docs[i] = renderedPCS{
+			name: name(i),
+			yaml: []byte(fmt.Sprintf(scaleWorkloadTemplate, name(i), reps)),
+			pods: reps * scalePodsPerReplica,
+		}
+	}
+	return docs
+}
+
+// multiPCSScalePlan splits a workload's N PodCliqueSet objects into an initially-deployed
+// prefix and a remainder added (scale-up) or removed (scale-down) during the measured
+// phase. The scale action grows/shrinks the *number* of PCS objects, not any object's
+// replicas. initialPods/finalPods are exact sums of the split (which puts any remainder on
+// the last object), so milestones assert the true count regardless of divisibility.
+type multiPCSScalePlan struct {
+	initialDocs []renderedPCS // deployed up front
+	scaleDocs   []renderedPCS // added on scale-up / removed on scale-down
+	initialPods int           // pods from initialDocs
+	finalPods   int           // pods from all docs
+}
+
+// planMultiPCSScale renders totalPods worth of PodCliqueSets across scalePCSCount() objects
+// and splits them so ~half the objects deploy first and the rest are the scale delta. At
+// least one object is always in each partition (guaranteed since this runs only for
+// count>1).
+func planMultiPCSScale(workloadName string, totalPods int) multiPCSScalePlan {
+	docs := renderPCSDocs(workloadName, scalePCSCount(), totalPods)
+	initial := len(docs) / 2
+	if initial < 1 {
+		initial = 1
+	}
+	plan := multiPCSScalePlan{initialDocs: docs[:initial], scaleDocs: docs[initial:]}
+	for _, d := range docs {
+		plan.finalPods += d.pods
+	}
+	for _, d := range plan.initialDocs {
+		plan.initialPods += d.pods
+	}
+	return plan
+}
+
+// allDocs returns every PodCliqueSet in the plan (initial + scale), in deploy order.
+func (p multiPCSScalePlan) allDocs() []renderedPCS {
+	return append(append([]renderedPCS{}, p.initialDocs...), p.scaleDocs...)
+}
+
+// names returns the names of every PodCliqueSet in the plan.
+func (p multiPCSScalePlan) names() []string {
+	all := p.allDocs()
+	names := make([]string, len(all))
+	for i, d := range all {
+		names[i] = d.name
+	}
+	return names
+}
+
+// scaleWorkloadShape reads SCALE_WORKLOAD and SCALE_PCS_COUNT and renders the selected
+// topology at the current scaleMultiplier(), spread across scalePCSCount() PodCliqueSet
+// objects. flat keeps the single standalone clique (pods = replicas*2); disagg renders the
+// prefill/decode deployment from the tier table. The total is 1000*mult pods regardless of
+// how many PCS objects it is split across, so all runs stay comparable. A count of 1 yields
+// a single PCS named workloadName, identical to prior behavior.
 func scaleWorkloadShape(workloadName string) scaleShape {
+	count := scalePCSCount()
 	if os.Getenv(scaleWorkloadEnvVar) == scaleShapeDisagg {
 		tier := resolveDisaggTier(scaleMultiplier())
 		return scaleShape{
 			name:          scaleShapeDisagg,
-			yaml:          []byte(fmt.Sprintf(disaggWorkloadTemplate, workloadName, tier.pcsReplicas, tier.prefillPCSGReps, tier.decodePCSGReps)),
+			pcsDocs:       renderPCSDocs(workloadName, count, tier.totalPods()),
 			totalPods:     tier.totalPods(),
-			pcsReplicas:   tier.pcsReplicas,
 			scaleGroup:    "decode",
 			scaleGroupCap: tier.decodePCSGReps,
 		}
 	}
-	replicas := envInt(scaleReplicasEnvVar, defaultScaleReplicas)
+	totalPods := envInt(scaleReplicasEnvVar, defaultScaleReplicas) * scalePodsPerReplica
 	return scaleShape{
-		name:        scaleShapeFlat,
-		yaml:        []byte(fmt.Sprintf(scaleWorkloadTemplate, workloadName, replicas)),
-		totalPods:   replicas * scalePodsPerReplica,
-		pcsReplicas: replicas,
+		name:      scaleShapeFlat,
+		pcsDocs:   renderPCSDocs(workloadName, count, totalPods),
+		totalPods: totalPods,
 	}
 }
 
@@ -385,6 +497,9 @@ type scaleTestConfig struct {
 	workerNodes  int
 	timeout      time.Duration
 	pollInterval time.Duration
+	// labelSelectorOverride counts pods across a multi-PCS workload (several PodCliqueSets
+	// with distinct names) via a shared label. Empty keeps the per-name part-of selector.
+	labelSelectorOverride string
 }
 
 // scaleTestPhases registers test-specific phases on the tracker. Implementations
@@ -406,10 +521,11 @@ func runScaleTest(t *testing.T, cfg scaleTestConfig, addPhases scaleTestPhases) 
 		testctx.WithTimeout(cfg.timeout),
 		testctx.WithInterval(cfg.pollInterval),
 		testctx.WithWorkload(&testctx.WorkloadConfig{
-			Name:         cfg.workload,
-			YAMLPath:     cfg.yamlPath,
-			Namespace:    defaultScaleNamespace,
-			ExpectedPods: cfg.expectedPods,
+			Name:                  cfg.workload,
+			YAMLPath:              cfg.yamlPath,
+			Namespace:             defaultScaleNamespace,
+			ExpectedPods:          cfg.expectedPods,
+			LabelSelectorOverride: cfg.labelSelectorOverride,
 		}),
 		testctx.WithSkipCleanupWait(),
 	)
@@ -467,15 +583,22 @@ func runScaleTest(t *testing.T, cfg scaleTestConfig, addPhases scaleTestPhases) 
 // Test_ScaleTest validates deploy, steady-state reconcile, and the user-facing delete
 // request latency of a PodCliqueSet. The replica count (and thus pod count) is controlled
 // by the SCALE_PCS_REPLICAS env var (default 500 replicas = 1000 pods), so the same test
-// drives 1x/10x/100x runs. It intentionally excludes Kubernetes cascade-cleanup latency
-// after the delete request returns.
+// drives 1x/10x/100x runs. SCALE_PCS_COUNT>1 spreads the same total pod count across N
+// separate PodCliqueSet objects instead of one, stressing per-PCS overhead; see
+// runMultiPCSScaleTest. It intentionally excludes Kubernetes cascade-cleanup latency after
+// the delete request returns.
 func Test_ScaleTest(t *testing.T) {
-	const expectedReplicas = 1
-
 	shape := scaleWorkloadShape(scaleWorkloadName)
+	Logger.Infof("scale test workload shape=%s: %d PCS object(s), %d pods total", shape.name, len(shape.pcsDocs), shape.totalPods)
+
+	if isMultiPCS() {
+		runMultiPCSScaleTest(t, shape)
+		return
+	}
+
+	const expectedReplicas = 1
 	expectedPods := shape.totalPods
-	workloadYAML := shape.yaml
-	Logger.Infof("scale test workload shape=%s: %d PCS replicas, %d pods", shape.name, shape.pcsReplicas, expectedPods)
+	workloadYAML := shape.pcsDocs[0].yaml
 
 	runScaleTest(t, scaleTestConfig{
 		name:         "ScaleTest",
@@ -571,6 +694,90 @@ func Test_ScaleTest(t *testing.T) {
 	})
 }
 
+// runMultiPCSScaleTest is the SCALE_PCS_COUNT>1 counterpart to Test_ScaleTest. It reaches
+// the same total pod count by deploying N separate PodCliqueSet objects, then runs the
+// same three phases — deploy, steady-state reconcile, delete — fanned out across all N.
+// Pods are counted via the managed-by selector (the scale namespace is single-tenant, so
+// this spans exactly the N PCS under test); PCS-level per-name conditions are replaced by
+// topology-agnostic pod-count milestones since no single PCS name covers the workload.
+func runMultiPCSScaleTest(t *testing.T, shape scaleShape) {
+	expectedPods := shape.totalPods
+	names := shape.pcsNames()
+
+	runScaleTest(t, scaleTestConfig{
+		name:                  "ScaleTest",
+		workload:              scaleWorkloadName,
+		yamlPath:              "", // templated in-line
+		expectedPods:          expectedPods,
+		pcsCount:              len(names),
+		workerNodes:           defaultScaleWorkerNodes,
+		timeout:               scaleWorkloadTimeout(expectedPods),
+		pollInterval:          defaultScalePollInterval,
+		labelSelectorOverride: managedByLabelSelector(),
+	}, func(tracker *measurement.TimelineTracker, tc *testctx.TestContext, runID string) {
+		rm := resources.NewResourceManager(tc.Client, Logger)
+		wm := workload.NewWorkloadManager(tc.Client, Logger)
+
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name: "deploy",
+			ActionFn: func(ctx context.Context) error {
+				for _, doc := range shape.pcsDocs {
+					if _, err := rm.ApplyYAMLData(ctx, doc.yaml, tc.Namespace); err != nil {
+						return fmt.Errorf("applying PCS %s: %w", doc.name, err)
+					}
+				}
+				return nil
+			},
+			Milestones: podsReadyMilestones(tc, expectedPods),
+		})
+
+		// steady-state-reconcile: bump the reconcile-trigger annotation on every PCS so all N
+		// run one no-op reconcile cycle; the window keeps pprof open to capture their cost.
+		steadyStateTriggerID := fmt.Sprintf("steady-%s", runID)
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name: "steady-state-reconcile",
+			ActionFn: func(ctx context.Context) error {
+				Logger.Infof("triggering no-op reconcile on %d PCS objects", len(names))
+				for _, name := range names {
+					if err := wm.TriggerPCSReconcile(ctx, tc.Namespace, name, steadyStateTriggerID); err != nil {
+						return fmt.Errorf("triggering reconcile on PCS %s: %w", name, err)
+					}
+				}
+				return nil
+			},
+			Milestones: []measurement.MilestoneDefinition{
+				{
+					Name:      "steady-state-window",
+					Condition: &condition.TimerCondition{Duration: steadyStateWindow},
+				},
+			},
+		})
+
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name: "delete",
+			ActionFn: func(ctx context.Context) error {
+				for _, name := range names {
+					if err := wm.DeletePCS(ctx, tc.Namespace, name); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+			Milestones: []measurement.MilestoneDefinition{
+				{
+					Name: "pods-deleted",
+					Condition: &condition.PodsScaledDownToCountCondition{
+						Client:        tc.Client.Client,
+						Namespace:     tc.Namespace,
+						LabelSelector: tc.GetLabelSelector(),
+						ExpectedCount: 0,
+					},
+				},
+			},
+		})
+	})
+}
+
 func exportResult(t *testing.T, result *measurement.TrackerResult, outputDir string) {
 	t.Helper()
 
@@ -613,4 +820,38 @@ func envInt(key string, def int) int {
 		return def
 	}
 	return n
+}
+
+// scalePCSCount returns SCALE_PCS_COUNT (min 1): the number of separate PodCliqueSet
+// objects the workload is spread across. 1 preserves the historical single-PCS behavior.
+func scalePCSCount() int {
+	return envInt(scalePCSCountEnvVar, defaultScalePCSes)
+}
+
+// isMultiPCS reports whether the workload spans more than one PodCliqueSet object.
+func isMultiPCS() bool { return scalePCSCount() > 1 }
+
+// pcsSetName returns the name of the i-th PodCliqueSet in a multi-PCS set: "<base>-<i>".
+// The suffix keeps each PCS (and its part-of label) distinct while sharing the base.
+func pcsSetName(base string, i int) string { return fmt.Sprintf("%s-%d", base, i) }
+
+// managedByLabelSelector selects every grove-managed pod in the namespace, spanning all
+// PodCliqueSets in a multi-PCS run. The scale namespace holds only the workload under
+// test (single-tenant), so this is an exact per-run pod count across N PCS objects.
+func managedByLabelSelector() string {
+	return fmt.Sprintf("%s=%s", common.LabelManagedByKey, common.LabelManagedByValue)
+}
+
+// splitAcross partitions total into n parts as evenly as possible, giving the remainder
+// to the last part so the parts always sum to total. Used to divide a workload's replicas
+// (flat) or PCS replicas (disagg) across n PodCliqueSet objects while keeping the total
+// pod count exact. Panics on n<1 (callers guarantee n>=1 via scalePCSCount).
+func splitAcross(total, n int) []int {
+	parts := make([]int, n)
+	base := total / n
+	for i := range parts {
+		parts[i] = base
+	}
+	parts[n-1] += total - base*n
+	return parts
 }

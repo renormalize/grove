@@ -141,6 +141,49 @@ func addDisaggFinalCheckAndDeletePhases(tracker *measurement.TimelineTracker, tc
 	})
 }
 
+// addMultiPCSFinalCheckAndDeletePhases is the multi-PCS counterpart to
+// addDisaggFinalCheckAndDeletePhases. A multi-PCS run has no single PCS name that covers
+// the workload, so the final check counts pods via the workload's (managed-by) selector
+// and the delete fans out across every PCS name, milestoning on the pod count reaching 0.
+func addMultiPCSFinalCheckAndDeletePhases(tracker *measurement.TimelineTracker, tc *testctx.TestContext, names []string, expectedPods int, baseline *operatorBaseline) {
+	tracker.AddPhase(measurement.PhaseDefinition{
+		Name: "final-check",
+		ActionFn: func(ctx context.Context) error {
+			pods, err := tc.ListPods()
+			if err != nil {
+				return fmt.Errorf("list pods: %w", err)
+			}
+			if got := len(pods.Items); got != expectedPods {
+				return fmt.Errorf("pod count = %d, want %d", got, expectedPods)
+			}
+			return checkOperatorHealth(ctx, tc, baseline)
+		},
+	})
+	tracker.AddPhase(measurement.PhaseDefinition{
+		Name: "delete",
+		ActionFn: func(ctx context.Context) error {
+			wm := workload.NewWorkloadManager(tc.Client, Logger)
+			for _, name := range names {
+				if err := wm.DeletePCS(ctx, tc.Namespace, name); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		Milestones: []measurement.MilestoneDefinition{
+			{
+				Name: "pods-deleted",
+				Condition: &condition.PodsScaledDownToCountCondition{
+					Client:        tc.Client.Client,
+					Namespace:     tc.Namespace,
+					LabelSelector: tc.GetLabelSelector(),
+					ExpectedCount: 0,
+				},
+			},
+		},
+	})
+}
+
 // runScaleFinalChecks asserts post-scale end-state invariants. Each helper
 // targets a distinct bug class: leak, stuck deletion, stale scheduling artifact,
 // status drift, and operator crash. Returns an error to fail the calling phase.

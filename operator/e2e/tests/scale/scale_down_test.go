@@ -109,7 +109,15 @@ func Test_ScaleDown(t *testing.T) {
 // When SCALE_WORKLOAD=disagg, non-tiny variants run the disaggregated two-phase
 // shrink (narrow the decode PCSG replicas, then remove PCS replicas) instead; see
 // runDisaggScaleDownTest. Tiny variants always use the flat YAML.
+//
+// When SCALE_PCS_COUNT>1, non-tiny variants instead shrink by removing whole
+// PodCliqueSet objects (deploy all, then delete half); see runMultiPCSScaleDownTest.
+// This composes with either flat or disagg per-PCS shape.
 func runScaleDownTest(t *testing.T, v scaleDownVariant) {
+	if v.workerNodes == 0 && isMultiPCS() {
+		runMultiPCSScaleDownTest(t, v)
+		return
+	}
 	if v.workerNodes == 0 && isDisaggShape() {
 		runDisaggScaleDownTest(t, v.name, v.workloadName)
 		return
@@ -265,6 +273,75 @@ func runDisaggScaleDownTest(t *testing.T, name, workloadName string) {
 		})
 
 		addDisaggFinalCheckAndDeletePhases(tracker, tc, plan.initialPods(), baseline)
+	})
+}
+
+// runMultiPCSScaleDownTest shrinks the workload by removing whole PodCliqueSet objects
+// rather than any object's replicas. It deploys the full set of objects, then deletes the
+// scale-suffix objects as the single measured scale-down phase (the mirror of
+// runMultiPCSScaleUpTest), ending at the initial (half) pod count. Composes with either
+// flat or disagg per-PCS shape. Pods are counted across all objects via the managed-by
+// selector.
+func runMultiPCSScaleDownTest(t *testing.T, v scaleDownVariant) {
+	mult := scaleMultiplier()
+	workerNodes := scaleDownWorkerNodes * mult
+	// The plan's full set is the deployed workload; the scale-suffix objects are removed,
+	// leaving plan.initialPods. Size the plan off the variant's full (initial) pod count.
+	plan := planMultiPCSScale(v.workloadName, v.initialPods*mult)
+
+	runScaleTest(t, scaleTestConfig{
+		name:                  v.name,
+		workload:              v.workloadName,
+		yamlPath:              "",             // templated in-line
+		expectedPods:          plan.finalPods, // upper bound: full set is deployed first
+		pcsCount:              len(plan.names()),
+		workerNodes:           workerNodes,
+		timeout:               scaleWorkloadTimeout(plan.finalPods),
+		pollInterval:          defaultScalePollInterval,
+		labelSelectorOverride: managedByLabelSelector(),
+	}, func(tracker *measurement.TimelineTracker, tc *testctx.TestContext, _ string) {
+		baseline := &operatorBaseline{}
+		addOperatorBaselinePhase(tracker, tc, baseline)
+
+		rm := resources.NewResourceManager(tc.Client, Logger)
+		wm := workload.NewWorkloadManager(tc.Client, Logger)
+
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name: "deploy",
+			ActionFn: func(ctx context.Context) error {
+				for _, doc := range plan.allDocs() {
+					if _, err := rm.ApplyYAMLData(ctx, doc.yaml, tc.Namespace); err != nil {
+						return fmt.Errorf("applying PCS %s: %w", doc.name, err)
+					}
+				}
+				return nil
+			},
+			Milestones: podsReadyMilestones(tc, plan.finalPods),
+		})
+
+		// scale-down-pcs-count: remove the scale-suffix PodCliqueSet objects. This is the
+		// measured phase — the cost of the operator tearing down whole PCS deployments.
+		tracker.AddPhase(measurement.PhaseDefinition{
+			Name: "scale-down-pcs-count",
+			ActionFn: func(ctx context.Context) error {
+				Logger.Infof("scaling PCS count %d -> %d (target %d pods)",
+					len(plan.allDocs()), len(plan.initialDocs), plan.initialPods)
+				for _, doc := range plan.scaleDocs {
+					if err := wm.DeletePCS(ctx, tc.Namespace, doc.name); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+			Milestones: podsScaledDownMilestones(tc, plan.initialPods),
+		})
+
+		// The set that remains is plan.initialDocs; the final check + delete fan out over it.
+		initialNames := make([]string, len(plan.initialDocs))
+		for i, d := range plan.initialDocs {
+			initialNames[i] = d.name
+		}
+		addMultiPCSFinalCheckAndDeletePhases(tracker, tc, initialNames, plan.initialPods, baseline)
 	})
 }
 

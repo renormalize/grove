@@ -51,11 +51,19 @@ type WorkloadConfig struct {
 	YAMLPath     string
 	Namespace    string
 	ExpectedPods int
+	// LabelSelectorOverride, when non-empty, replaces the per-name part-of selector.
+	// Multi-PCS scale runs deploy several PodCliqueSets with distinct names (and thus
+	// distinct part-of values), so pods must be counted across all of them via a shared
+	// label (e.g. managed-by=grove-operator). Empty preserves the single-PCS behavior.
+	LabelSelectorOverride string
 }
 
-// GetLabelSelector returns the label selector calculated from the workload name.
-// The label selector follows the pattern: "app.kubernetes.io/part-of=<name>"
+// GetLabelSelector returns the label selector used to enumerate a workload's pods. It is
+// LabelSelectorOverride when set, otherwise "app.kubernetes.io/part-of=<name>".
 func (w WorkloadConfig) GetLabelSelector() string {
+	if w.LabelSelectorOverride != "" {
+		return w.LabelSelectorOverride
+	}
 	return fmt.Sprintf("%s=%s", common.LabelPartOfKey, w.Name)
 }
 
