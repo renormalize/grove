@@ -1,0 +1,73 @@
+{
+  "testName": "ScaleTest",
+  "runID": "run-20260916-163729",
+  "namespace": "default",
+  "pcsCount": 1,
+  "groveImage": "registry:5001/grove-operator:E2E_TESTS@sha256:f8cc7c13de9313d90831a99ebf6fc6b097b987004fa8e24995497ae029ef0f9e",
+  "phases": [
+    {
+      "name": "deploy",
+      "startTime": "2026-09-16T16:37:29.235290021+02:00",
+      "endTime": "2026-09-16T16:38:24.475088978+02:00",
+      "durationFromTestStartSeconds": 0.000047982,
+      "milestones": [
+        {
+          "name": "pods-created",
+          "timestamp": "2026-09-16T16:38:00.588380607+02:00",
+          "durationFromPhaseStartSeconds": 31.353090616
+        },
+        {
+          "name": "pcs-available",
+          "timestamp": "2026-09-16T16:38:10.592335646+02:00",
+          "durationFromPhaseStartSeconds": 41.357045635
+        },
+        {
+          "name": "pods-ready",
+          "timestamp": "2026-09-16T16:38:24.475015363+02:00",
+          "durationFromPhaseStartSeconds": 55.239725372
+        }
+      ]
+    },
+    {
+      "name": "steady-state-reconcile",
+      "startTime": "2026-09-16T16:38:24.475128831+02:00",
+      "endTime": "2026-09-16T16:38:54.6764934+02:00",
+      "durationFromTestStartSeconds": 55.239886792,
+      "milestones": [
+        {
+          "name": "pcs-still-available",
+          "timestamp": "2026-09-16T16:38:24.591206898+02:00",
+          "durationFromPhaseStartSeconds": 0.116078077
+        },
+        {
+          "name": "steady-state-window",
+          "timestamp": "2026-09-16T16:38:54.676468749+02:00",
+          "durationFromPhaseStartSeconds": 30.201339918
+        }
+      ]
+    },
+    {
+      "name": "delete",
+      "startTime": "2026-09-16T16:38:54.676529853+02:00",
+      "endTime": "2026-09-16T16:38:54.786078609+02:00",
+      "durationFromTestStartSeconds": 85.441287814,
+      "milestones": [
+        {
+          "name": "pcs-deleted",
+          "timestamp": "2026-09-16T16:38:54.786024586+02:00",
+          "durationFromPhaseStartSeconds": 0.109494733
+        }
+      ]
+    }
+  ],
+  "testDurationSeconds": 85.550862022,
+  "k8sClient": {
+    "qps": 100,
+    "burst": 150
+  },
+  "controllerMaxReconcile": {
+    "podCliqueSet": 20,
+    "podCliqueScalingGroup": 20,
+    "podClique": 20
+  }
+}

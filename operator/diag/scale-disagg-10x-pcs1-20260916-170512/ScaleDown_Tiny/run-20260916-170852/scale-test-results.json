@@ -1,0 +1,77 @@
+{
+  "testName": "ScaleDown_Tiny",
+  "runID": "run-20260916-170852",
+  "namespace": "default",
+  "pcsCount": 1,
+  "groveImage": "registry:5001/grove-operator:E2E_TESTS@sha256:8bef97414e6b607a35f7880dd17d92f565b95837a33e541e7bdd0cb33109b960",
+  "phases": [
+    {
+      "name": "operator-baseline",
+      "startTime": "2026-09-16T17:08:52.412220711+02:00",
+      "endTime": "2026-09-16T17:08:52.414989082+02:00",
+      "durationFromTestStartSeconds": 0.000081374,
+      "milestones": []
+    },
+    {
+      "name": "deploy",
+      "startTime": "2026-09-16T17:08:52.415025234+02:00",
+      "endTime": "2026-09-16T17:08:58.078523326+02:00",
+      "durationFromTestStartSeconds": 0.002885897,
+      "milestones": [
+        {
+          "name": "initial-pods-created",
+          "timestamp": "2026-09-16T17:08:57.759291564+02:00",
+          "durationFromPhaseStartSeconds": 5.34426635
+        },
+        {
+          "name": "initial-pods-ready",
+          "timestamp": "2026-09-16T17:08:58.078466743+02:00",
+          "durationFromPhaseStartSeconds": 5.663441529
+        }
+      ]
+    },
+    {
+      "name": "scale-down",
+      "startTime": "2026-09-16T17:08:58.078583909+02:00",
+      "endTime": "2026-09-16T17:08:58.29661003+02:00",
+      "durationFromTestStartSeconds": 5.666444782,
+      "milestones": [
+        {
+          "name": "pods-at-target",
+          "timestamp": "2026-09-16T17:08:58.296564238+02:00",
+          "durationFromPhaseStartSeconds": 0.217980119
+        }
+      ]
+    },
+    {
+      "name": "final-check",
+      "startTime": "2026-09-16T17:08:58.296648851+02:00",
+      "endTime": "2026-09-16T17:08:58.315249422+02:00",
+      "durationFromTestStartSeconds": 5.884509514,
+      "milestones": []
+    },
+    {
+      "name": "delete",
+      "startTime": "2026-09-16T17:08:58.315284554+02:00",
+      "endTime": "2026-09-16T17:08:58.425661079+02:00",
+      "durationFromTestStartSeconds": 5.903145217,
+      "milestones": [
+        {
+          "name": "pcs-deleted",
+          "timestamp": "2026-09-16T17:08:58.425617847+02:00",
+          "durationFromPhaseStartSeconds": 0.110333293
+        }
+      ]
+    }
+  ],
+  "testDurationSeconds": 6.013545593,
+  "k8sClient": {
+    "qps": 100,
+    "burst": 150
+  },
+  "controllerMaxReconcile": {
+    "podCliqueSet": 20,
+    "podCliqueScalingGroup": 20,
+    "podClique": 20
+  }
+}

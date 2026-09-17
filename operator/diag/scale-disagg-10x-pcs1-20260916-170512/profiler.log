@@ -1,0 +1,15 @@
+Sampling usage every 30.0s (namespaces=['grove-system', 'kai-scheduler', 
+'kube-system', 'pyroscope'], server=k3d-shared-e2e-test-cluster-server-0, 
+out=/root/go/src/github.com/ai-dynamo/grove/operator/diag/scale-disagg-10x-pcs1-
+20260916-170512)
+Press Ctrl-C to stop and print a summary.
+                 Resource usage summary (per-namespace totals)                  
+┏━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃             ┃         ┃    CPU mean ┃             ┃    Mem mean ┃    Mem max ┃
+┃ Namespace   ┃ Samples ┃         (m) ┃ CPU max (m) ┃       (MiB) ┃      (MiB) ┃
+┡━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ grove-syst… │      93 │        1050 │        2847 │         861 │       1498 │
+│ kai-schedu… │      93 │          57 │         307 │         272 │        662 │
+│ kube-system │      93 │         493 │        2823 │         501 │        695 │
+│ pyroscope   │      93 │         183 │         527 │         730 │       1346 │
+└─────────────┴─────────┴─────────────┴─────────────┴─────────────┴────────────┘

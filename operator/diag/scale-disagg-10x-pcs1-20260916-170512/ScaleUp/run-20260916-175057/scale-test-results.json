@@ -1,0 +1,100 @@
+{
+  "testName": "ScaleUp",
+  "runID": "run-20260916-175057",
+  "namespace": "default",
+  "pcsCount": 1,
+  "groveImage": "registry:5001/grove-operator:E2E_TESTS@sha256:8bef97414e6b607a35f7880dd17d92f565b95837a33e541e7bdd0cb33109b960",
+  "phases": [
+    {
+      "name": "operator-baseline",
+      "startTime": "2026-09-16T17:50:57.819433196+02:00",
+      "endTime": "2026-09-16T17:50:57.822098368+02:00",
+      "durationFromTestStartSeconds": 0.000047323,
+      "milestones": []
+    },
+    {
+      "name": "deploy",
+      "startTime": "2026-09-16T17:50:57.822137671+02:00",
+      "endTime": "2026-09-16T17:52:31.555531118+02:00",
+      "durationFromTestStartSeconds": 0.002751798,
+      "milestones": [
+        {
+          "name": "all-pods-created",
+          "timestamp": "2026-09-16T17:51:34.787560274+02:00",
+          "durationFromPhaseStartSeconds": 36.965422643
+        },
+        {
+          "name": "all-pods-ready",
+          "timestamp": "2026-09-16T17:52:31.555457183+02:00",
+          "durationFromPhaseStartSeconds": 93.733319542
+        }
+      ]
+    },
+    {
+      "name": "scale-up-pcs",
+      "startTime": "2026-09-16T17:52:31.55556946+02:00",
+      "endTime": "2026-09-16T17:54:00.773629486+02:00",
+      "durationFromTestStartSeconds": 93.736183587,
+      "milestones": [
+        {
+          "name": "all-pods-created",
+          "timestamp": "2026-09-16T17:53:03.828955686+02:00",
+          "durationFromPhaseStartSeconds": 32.273386266
+        },
+        {
+          "name": "all-pods-ready",
+          "timestamp": "2026-09-16T17:54:00.773550071+02:00",
+          "durationFromPhaseStartSeconds": 89.217980661
+        }
+      ]
+    },
+    {
+      "name": "scale-up-pcsg",
+      "startTime": "2026-09-16T17:54:00.773668738+02:00",
+      "endTime": "2026-09-16T17:55:55.329880282+02:00",
+      "durationFromTestStartSeconds": 182.954282865,
+      "milestones": [
+        {
+          "name": "all-pods-created",
+          "timestamp": "2026-09-16T17:54:44.293448091+02:00",
+          "durationFromPhaseStartSeconds": 43.519779383
+        },
+        {
+          "name": "all-pods-ready",
+          "timestamp": "2026-09-16T17:55:55.329802117+02:00",
+          "durationFromPhaseStartSeconds": 114.556133399
+        }
+      ]
+    },
+    {
+      "name": "final-check",
+      "startTime": "2026-09-16T17:55:55.329920014+02:00",
+      "endTime": "2026-09-16T17:55:55.929016276+02:00",
+      "durationFromTestStartSeconds": 297.510534141,
+      "milestones": []
+    },
+    {
+      "name": "delete",
+      "startTime": "2026-09-16T17:55:55.929050048+02:00",
+      "endTime": "2026-09-16T17:55:56.350312449+02:00",
+      "durationFromTestStartSeconds": 298.109664175,
+      "milestones": [
+        {
+          "name": "pcs-deleted",
+          "timestamp": "2026-09-16T17:55:56.350267575+02:00",
+          "durationFromPhaseStartSeconds": 0.421217527
+        }
+      ]
+    }
+  ],
+  "testDurationSeconds": 298.530949977,
+  "k8sClient": {
+    "qps": 100,
+    "burst": 150
+  },
+  "controllerMaxReconcile": {
+    "podCliqueSet": 20,
+    "podCliqueScalingGroup": 20,
+    "podClique": 20
+  }
+}

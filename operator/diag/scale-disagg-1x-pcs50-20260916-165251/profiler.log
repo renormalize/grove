@@ -1,0 +1,19 @@
+Sampling usage every 5.0s (namespaces=['grove-system', 'kai-scheduler', 
+'kube-system', 'pyroscope'], server=k3d-shared-e2e-test-cluster-server-0, 
+out=/root/go/src/github.com/ai-dynamo/grove/operator/diag/scale-disagg-1x-pcs50-
+20260916-165251)
+Press Ctrl-C to stop and print a summary.
+kubectl top pods -n grove-system failed: b'error: metrics not available yet\n'
+kubectl top pods -n kai-scheduler failed: b'error: metrics not available yet\n'
+kubectl top pods -n grove-system failed: b'error: metrics not available yet\n'
+kubectl top pods -n grove-system failed: b'error: metrics not available yet\n'
+                 Resource usage summary (per-namespace totals)                  
+┏━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃             ┃         ┃    CPU mean ┃             ┃    Mem mean ┃    Mem max ┃
+┃ Namespace   ┃ Samples ┃         (m) ┃ CPU max (m) ┃       (MiB) ┃      (MiB) ┃
+┡━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ grove-syst… │     105 │         209 │        1103 │         123 │        150 │
+│ kai-schedu… │     105 │          76 │         182 │         306 │        371 │
+│ kube-system │     105 │         115 │         310 │         165 │        190 │
+│ pyroscope   │     105 │          45 │         107 │         219 │        267 │
+└─────────────┴─────────┴─────────────┴─────────────┴─────────────┴────────────┘

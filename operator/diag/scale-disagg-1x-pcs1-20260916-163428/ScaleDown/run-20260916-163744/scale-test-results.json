@@ -1,0 +1,90 @@
+{
+  "testName": "ScaleDown",
+  "runID": "run-20260916-163744",
+  "namespace": "default",
+  "pcsCount": 1,
+  "groveImage": "registry:5001/grove-operator:E2E_TESTS@sha256:f969cf4694c6f5c15fa9d9e66afee5995c3e390acef238a13dfe2982d173ad85",
+  "phases": [
+    {
+      "name": "operator-baseline",
+      "startTime": "2026-09-16T16:37:44.708698839+02:00",
+      "endTime": "2026-09-16T16:37:44.711121097+02:00",
+      "durationFromTestStartSeconds": 0.000043084,
+      "milestones": []
+    },
+    {
+      "name": "deploy",
+      "startTime": "2026-09-16T16:37:44.71114848+02:00",
+      "endTime": "2026-09-16T16:38:16.249834643+02:00",
+      "durationFromTestStartSeconds": 0.002492725,
+      "milestones": [
+        {
+          "name": "all-pods-created",
+          "timestamp": "2026-09-16T16:37:59.546790853+02:00",
+          "durationFromPhaseStartSeconds": 14.835642413
+        },
+        {
+          "name": "all-pods-ready",
+          "timestamp": "2026-09-16T16:38:16.249767767+02:00",
+          "durationFromPhaseStartSeconds": 31.538619307
+        }
+      ]
+    },
+    {
+      "name": "scale-down-pcsg",
+      "startTime": "2026-09-16T16:38:16.249874526+02:00",
+      "endTime": "2026-09-16T16:38:35.710314868+02:00",
+      "durationFromTestStartSeconds": 31.541218761,
+      "milestones": [
+        {
+          "name": "pods-at-target",
+          "timestamp": "2026-09-16T16:38:35.710251953+02:00",
+          "durationFromPhaseStartSeconds": 19.460377457
+        }
+      ]
+    },
+    {
+      "name": "scale-down-pcs",
+      "startTime": "2026-09-16T16:38:35.710350901+02:00",
+      "endTime": "2026-09-16T16:38:53.114856891+02:00",
+      "durationFromTestStartSeconds": 51.001695146,
+      "milestones": [
+        {
+          "name": "pods-at-target",
+          "timestamp": "2026-09-16T16:38:53.114794376+02:00",
+          "durationFromPhaseStartSeconds": 17.404443495
+        }
+      ]
+    },
+    {
+      "name": "final-check",
+      "startTime": "2026-09-16T16:38:53.114898884+02:00",
+      "endTime": "2026-09-16T16:38:53.195997653+02:00",
+      "durationFromTestStartSeconds": 68.406243129,
+      "milestones": []
+    },
+    {
+      "name": "delete",
+      "startTime": "2026-09-16T16:38:53.196033176+02:00",
+      "endTime": "2026-09-16T16:38:53.30751585+02:00",
+      "durationFromTestStartSeconds": 68.487377421,
+      "milestones": [
+        {
+          "name": "pcs-deleted",
+          "timestamp": "2026-09-16T16:38:53.307463245+02:00",
+          "durationFromPhaseStartSeconds": 0.111430069
+        }
+      ]
+    }
+  ],
+  "testDurationSeconds": 68.598885257,
+  "k8sClient": {
+    "qps": 100,
+    "burst": 150
+  },
+  "controllerMaxReconcile": {
+    "podCliqueSet": 20,
+    "podCliqueScalingGroup": 20,
+    "podClique": 20
+  }
+}
