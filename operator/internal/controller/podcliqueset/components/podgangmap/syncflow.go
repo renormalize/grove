@@ -22,6 +22,7 @@ import (
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
+	ctrlutils "github.com/ai-dynamo/grove/operator/internal/controller/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 	componentutils "github.com/ai-dynamo/grove/operator/internal/utils/component"
 
@@ -202,7 +203,7 @@ func (r _resource) createOrPatchPodGangMap(ctx context.Context,
 	pcsReplicaIndex int,
 	entries []grovecorev1alpha1.PodGangEntry) error {
 	pgm := emptyPodGangMap(client.ObjectKey{Namespace: pcs.Namespace, Name: pgmName})
-	if _, err := componentutils.CreateOrPatchSpec(ctx, r.client, pgm, func() error {
+	if _, err := ctrlutils.CreateOrPatchSpec(ctx, r.client, pgm, func() error {
 		return r.buildResource(pgm, pcs, pcsReplicaIndex, entries)
 	}); err != nil {
 		return groveerr.WrapError(err, errCodeCreateOrPatchPodGangMap, component.OperationSync,

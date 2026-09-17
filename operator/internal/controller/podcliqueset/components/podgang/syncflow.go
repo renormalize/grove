@@ -25,6 +25,7 @@ import (
 	"github.com/ai-dynamo/grove/operator/internal/clustertopology"
 	"github.com/ai-dynamo/grove/operator/internal/constants"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
+	ctrlutils "github.com/ai-dynamo/grove/operator/internal/controller/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 	componentutils "github.com/ai-dynamo/grove/operator/internal/utils/component"
 	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
@@ -693,7 +694,7 @@ func (r _resource) createOrUpdatePodGang(ctx context.Context, ss *syncState, pgI
 	}
 	pg := emptyPodGang(pgObjectKey)
 	ss.logger.Info("CreateOrPatch PodGang", "objectKey", pgObjectKey)
-	_, err := componentutils.CreateOrPatchSpec(ctx, r.client, pg, func() error {
+	_, err := ctrlutils.CreateOrPatchSpec(ctx, r.client, pg, func() error {
 		return r.buildResource(ss.pcs, pgInfo, pg)
 	})
 	if err != nil {
