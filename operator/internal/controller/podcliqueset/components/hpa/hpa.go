@@ -23,9 +23,9 @@ import (
 	"github.com/ai-dynamo/grove/operator/api/common/constants"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
+	ctrlutils "github.com/ai-dynamo/grove/operator/internal/controller/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 	"github.com/ai-dynamo/grove/operator/internal/utils"
-	componentutils "github.com/ai-dynamo/grove/operator/internal/utils/component"
 	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
 
 	"github.com/go-logr/logr"
@@ -212,7 +212,7 @@ func (r _resource) deleteExcessHPATasks(logger logr.Logger, pcs *grovecorev1alph
 func (r _resource) doCreateOrUpdateHPA(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, expectedHPAInfo hpaInfo) error {
 	logger.Info("Running CreateOrUpdate HPA", "targetScaleResourceKind", expectedHPAInfo.targetScaleResourceKind, "targetScaleResourceName", expectedHPAInfo.targetScaleResourceName, "hpaObjectKey", expectedHPAInfo.objectKey)
 	hpa := emptyHPA(expectedHPAInfo.objectKey)
-	opResult, err := componentutils.CreateOrPatchSpec(ctx, r.client, hpa, func() error {
+	opResult, err := ctrlutils.CreateOrPatchSpec(ctx, r.client, hpa, func() error {
 		return r.buildResource(pcs, hpa, expectedHPAInfo)
 	})
 	if err != nil {
