@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package utils
+package kubernetes
 
 import (
 	"context"
@@ -86,7 +86,7 @@ func mutate(mutateFn controllerutil.MutateFn, key client.ObjectKey, obj client.O
 		return err
 	}
 	if newKey := client.ObjectKeyFromObject(obj); key != newKey {
-		return fmt.Errorf("MutateFn cannot mutate object name and/or object namespace")
+		return fmt.Errorf("mutateFn cannot mutate object name and/or object namespace")
 	}
 	return nil
 }

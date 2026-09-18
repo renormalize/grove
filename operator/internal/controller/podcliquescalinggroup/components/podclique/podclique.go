@@ -29,7 +29,6 @@ import (
 	"github.com/ai-dynamo/grove/operator/internal/constants"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
 	pcsgexpectations "github.com/ai-dynamo/grove/operator/internal/controller/podcliquescalinggroup/expectations"
-	ctrlutils "github.com/ai-dynamo/grove/operator/internal/controller/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 	"github.com/ai-dynamo/grove/operator/internal/expect"
 	"github.com/ai-dynamo/grove/operator/internal/mnnvl"
@@ -282,7 +281,7 @@ func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, ss 
 	pclq := emptyPodClique(pclqObjectKey)
 	pcsgObjKey := client.ObjectKeyFromObject(ss.pcsg)
 
-	opResult, err := ctrlutils.CreateOrPatchSpec(ctx, r.client, pclq, func() error {
+	opResult, err := k8sutils.CreateOrPatchSpec(ctx, r.client, pclq, func() error {
 		return r.buildResource(logger, ss, pcsgReplicaIndex, pclq, pclqExists)
 	})
 	if err != nil {
