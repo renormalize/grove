@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package utils
+package kubernetes
 
 import (
 	"context"
 	"testing"
 
+	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	groveclientscheme "github.com/ai-dynamo/grove/operator/internal/client"
 
 	"github.com/stretchr/testify/assert"
@@ -144,6 +145,39 @@ func TestCreateOrPatchSpec(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, controllerutil.OperationResultNone, result)
 		assert.Equal(t, 0, counter.patches, "a nil mutate function cannot change the object, so no patch must be issued")
+	})
+
+	t.Run("patches the main resource but drops a status-only mutation", func(t *testing.T) {
+		// CreateOrPatchSpec does not reconcile the Status subresource (see its doc comment). A
+		// mutateFn that changes only Status is observed as a change and triggers a Patch against
+		// the main resource, which the API server ignores for the status subresource: the caller
+		// sees OperationResultUpdated but the status change is silently lost. This test pins that
+		// contract so callers are not tempted to mutate Status through this helper.
+		existing := &grovecorev1alpha1.PodClique{
+			ObjectMeta: metav1.ObjectMeta{Name: "pclq", Namespace: "default"},
+		}
+		// PodClique must be registered as a status subresource for the fake client to reproduce the
+		// real API server's behavior of ignoring status on a non-status Patch.
+		cl := fake.NewClientBuilder().
+			WithScheme(groveclientscheme.Scheme).
+			WithObjects(existing.DeepCopy()).
+			WithStatusSubresource(&grovecorev1alpha1.PodClique{}).
+			Build()
+
+		pclq := &grovecorev1alpha1.PodClique{
+			ObjectMeta: metav1.ObjectMeta{Name: "pclq", Namespace: "default"},
+		}
+		result, err := CreateOrPatchSpec(ctx, cl, pclq, func() error {
+			pclq.Status.Replicas = 5
+			return nil
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, controllerutil.OperationResultUpdated, result, "a status change is observed as a change and reported as an update")
+
+		fetched := &grovecorev1alpha1.PodClique{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(pclq), fetched))
+		assert.Equal(t, int32(0), fetched.Status.Replicas, "the status-only mutation must not be persisted by the main-resource patch")
 	})
 }
 

@@ -22,7 +22,6 @@ import (
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
-	ctrlutils "github.com/ai-dynamo/grove/operator/internal/controller/utils"
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 	"github.com/ai-dynamo/grove/operator/internal/utils"
 	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
@@ -118,7 +117,7 @@ func (r _resource) Delete(ctx context.Context, logger logr.Logger, pgObjMeta met
 func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, pcsReplicaIndex int, svcObjectKey client.ObjectKey) error {
 	logger.Info("Running CreateOrUpdate PodCliqueSet Headless Service", "pcsReplicaIndex", pcsReplicaIndex, "objectKey", svcObjectKey)
 	svc := emptyService(svcObjectKey)
-	opResult, err := ctrlutils.CreateOrPatchSpec(ctx, r.client, svc, func() error {
+	opResult, err := k8sutils.CreateOrPatchSpec(ctx, r.client, svc, func() error {
 		return r.buildResource(svc, pcs, pcsReplicaIndex)
 	})
 	if err != nil {
