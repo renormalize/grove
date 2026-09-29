@@ -38,7 +38,54 @@ Each run collects two kinds of profiling data into its diag dir:
 
 ---
 
-## 2. Prerequisites (one-time)
+## 2. The disagg workload shape
+
+`disagg` renders a realistic **disaggregated LLM inference** deployment, mirroring how
+NVIDIA Dynamo / vLLM split prefill and decode so each scales independently. Each PCS
+replica is one model-serving instance:
+
+- A **prefill** PodCliqueScalingGroup and a **decode** PodCliqueScalingGroup, decode-heavy
+  at a fixed **1:2** prefill:decode group ratio.
+- Each group is **tensor-parallel-sized**: prefill worker clique **TP=4** pods, decode
+  worker clique **TP=8** pods. TP size is a model property, so it stays fixed across scales;
+  scale grows the number of instances (PCS replicas) and groups (PCSG replicas) instead.
+
+Pods per PCS replica = `prefillPCSG*4 + decodePCSG*8`. Each tier is sized to the **same
+total pod count as `flat`** (`1000 * multiplier`), so the two shapes are directly
+comparable:
+
+| Tier | PCS replicas | prefill PCSG | decode PCSG | pods/PCS replica | total pods |
+|---|---|---|---|---|---|
+| 1x | 50 | 1 | 2 | 20 | 1,000 |
+| 10x | 100 | 5 | 10 | 100 | 10,000 |
+| 50x | 250 | 10 | 20 | 200 | 50,000 |
+| 100x | 500 | 10 | 20 | 200 | 100,000 |
+
+Non-canonical `SCALE_PCS_REPLICAS` overrides keep the 1x PCSG ratio and carry all growth on
+PCS replicas, still yielding an exact `1000 * multiplier` total.
+
+Scale-up/down for disagg run **two measured phases** — grow/shrink decode PCSG replicas
+across every PCS, then add/remove PCS replicas — exercising different operator code paths
+than a flat replica bump.
+
+---
+
+## 3. Scripts and files
+
+The scale suite is made up of these pieces (all under `operator/`):
+
+| File | What it is |
+|---|---|
+| `hack/run-scale-suite.sh` | The matrix-sweep driver. Sweeps the full scale × spread matrix for one shape, a fresh cluster per point, continue-on-failure. The normal entry point. |
+| `hack/profile-usage.py` | The usage profiler. Samples per-pod CPU/mem (`kubectl top`) and the k3d server container (`docker stats`, the bundled k3s control plane) on an interval, writing `usage-pods.csv` + `usage-server.csv` and a per-namespace max/mean summary on Ctrl-C. Run standalone or launched per-combo by the sweep. |
+| `hack/scale-10x.yaml`, `scale-50x.yaml`, `scale-100x.yaml` | Cluster presets. Overlays of `scale.yaml` that differ only in `kwok.nodes` (1000 / 5000 / 10000). Consumed by the matching `make scale-cluster-up-*` targets. |
+| `make scale-cluster-up[-10x/-50x/-100x]` | Bring up a scale cluster at a tier (100 / 1000 / 5000 / 10000 KWOK nodes). |
+| `make run-scale-test` | Run the scale tests, shaped by `SCALE_WORKLOAD`, `SCALE_PCS_REPLICAS`, `SCALE_PCS_COUNT`, `GO_TEST_TIMEOUT`. |
+| `make profile-usage` | Deploy metrics-server, then run `profile-usage.py` (the manual-path wrapper for the profiler). |
+
+---
+
+## 4. Prerequisites (one-time)
 
 - Docker running (k3d + KWOK virtual nodes + `docker stats` for the control-plane sample).
 - `uv` — bootstrapped automatically into `hack/tools/bin` the first time you run any
@@ -49,7 +96,7 @@ Each run collects two kinds of profiling data into its diag dir:
 
 ---
 
-## 3. The normal path: matrix sweep
+## 5. The normal path: matrix sweep
 
 `hack/run-scale-suite.sh` sweeps the **full scale × spread matrix for one shape**, a fresh
 cluster per combo, continue-on-failure, with a pass/fail/skip summary at the end.
@@ -110,7 +157,7 @@ Per combo: `diag/scale-<shape>-<scale>-pcs<count>-<timestamp>/` containing the
 
 ---
 
-## 4. The manual path: a single run against your own cluster
+## 6. The manual path: a single run against your own cluster
 
 Use this to debug one point or iterate without the sweep's per-combo teardown.
 
@@ -139,7 +186,7 @@ make scale-cluster-down
 
 ---
 
-## 5. Fetching results to your Mac
+## 7. Fetching results to your Mac
 
 pprof files are gzipped and per-phase (fixed count, not time-based), and the usage CSVs
 sample coarser at higher tiers — so a full sweep is a few hundred small files. Tar the
@@ -160,7 +207,7 @@ go tool pprof -http=: pprof-<runID>-<phase>-cpu.pprof.gz
 
 ---
 
-## 6. Quick reference
+## 8. Quick reference
 
 ```bash
 # full flat matrix (machine A)
