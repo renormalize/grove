@@ -71,6 +71,12 @@ type PodCliqueSetSpec struct {
 	UpdateStrategy *PodCliqueSetUpdateStrategy `json:"updateStrategy,omitempty"`
 	// Template describes the template spec for PodGangs that will be created in the PodCliqueSet.
 	Template PodCliqueSetTemplateSpec `json:"template"`
+	// RevisionHistoryLimit is the maximum number of revisions that will be maintained in PodCliqueSet's revision
+	// history. The history limit excludes all revisions actively referenced by a PodCliqueSet.
+	// +optional
+	// +kubebuilder:default=10
+	// +kubebuilder:validation:Minimum=0
+	RevisionHistoryLimit *int32 `json:"revisionHistoryLimit,omitempty"`
 }
 
 // PodCliqueSetStatus defines the status of a PodCliqueSet.

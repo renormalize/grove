@@ -76,6 +76,14 @@ spec:
                 description: Replicas is the number of desired replicas of the PodCliqueSet.
                 format: int32
                 type: integer
+              revisionHistoryLimit:
+                default: 10
+                description: |-
+                  RevisionHistoryLimit is the maximum number of revisions that will be maintained in PodCliqueSet's revision
+                  history. The history limit excludes all revisions actively referenced by a PodCliqueSet.
+                format: int32
+                minimum: 0
+                type: integer
               template:
                 description: Template describes the template spec for PodGangs that
                   will be created in the PodCliqueSet.
