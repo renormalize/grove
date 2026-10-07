@@ -11085,6 +11085,10 @@ spec:
                   have MinAvailableBreached condition = False.
                 format: int32
                 type: integer
+              collisionCount:
+                description: CollisionCount disambiguates revision names.
+                format: int32
+                type: integer
               conditions:
                 description: Conditions represents the latest available observations
                   of the PodCliqueSet by its controller.
@@ -11151,6 +11155,9 @@ spec:
                   a rolling recreate of PodCliques and/or PodCliqueScalingGroups.
                   Only if this value is not nil and the newly computed hash value is different from the persisted CurrentGenerationHash value
                   then an update needs to be triggered.
+                type: string
+              currentRevision:
+                description: CurrentRevision is the last revision reached by the workload.
                 type: string
               hpaPodSelector:
                 description: |-
@@ -11397,6 +11404,9 @@ spec:
                     format: int32
                     type: integer
                 type: object
+              updateRevision:
+                description: UpdateRevision is the desired revision.
+                type: string
               updatedReplicas:
                 default: 0
                 description: UpdatedReplicas is the number of replicas that have been

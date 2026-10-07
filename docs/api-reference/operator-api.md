@@ -454,6 +454,7 @@ _Appears in:_
 | `replicas` _integer_ | Replicas is the number of desired replicas of the PodCliqueSet. | 0 |  |
 | `updateStrategy` _[PodCliqueSetUpdateStrategy](#podcliquesetupdatestrategy)_ | UpdateStrategy defines the strategy for updating replicas when<br />templates change. This applies to both standalone PodCliques and<br />PodCliqueScalingGroups. |  |  |
 | `template` _[PodCliqueSetTemplateSpec](#podcliquesettemplatespec)_ | Template describes the template spec for PodGangs that will be created in the PodCliqueSet. |  |  |
+| `revisionHistoryLimit` _integer_ | RevisionHistoryLimit is the maximum number of revisions that will be maintained in PodCliqueSet's revision<br />history. The history limit excludes all revisions actively referenced by a PodCliqueSet. | 10 | Minimum: 0 <br /> |
 
 
 #### PodCliqueSetStatus
@@ -470,6 +471,9 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `observedGeneration` _integer_ | ObservedGeneration is the most recent generation observed by the controller. |  |  |
+| `currentRevision` _string_ | CurrentRevision is the last revision reached by the workload. |  |  |
+| `updateRevision` _string_ | UpdateRevision is the desired revision. |  |  |
+| `collisionCount` _integer_ | CollisionCount disambiguates revision names. |  |  |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#condition-v1-meta) array_ | Conditions represents the latest available observations of the PodCliqueSet by its controller. |  |  |
 | `lastErrors` _[LastError](#lasterror) array_ | LastErrors captures the last errors observed by the controller when reconciling the PodCliqueSet. |  |  |
 | `replicas` _integer_ | Replicas is the total number of PodCliqueSet replicas created. |  |  |

@@ -83,6 +83,12 @@ type PodCliqueSetSpec struct {
 type PodCliqueSetStatus struct {
 	// ObservedGeneration is the most recent generation observed by the controller.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
+	// CurrentRevision is the last revision reached by the workload.
+	CurrentRevision string `json:"currentRevision,omitempty"`
+	// UpdateRevision is the desired revision.
+	UpdateRevision string `json:"updateRevision,omitempty"`
+	// CollisionCount disambiguates revision names.
+	CollisionCount *int32 `json:"collisionCount,omitempty"`
 	// Conditions represents the latest available observations of the PodCliqueSet by its controller.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`

@@ -33,13 +33,13 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -168,9 +168,9 @@ func TestCreateManagerOptions(t *testing.T) {
 				ResourceLock: "leases",
 			},
 			Debugging: &configv1alpha1.DebuggingConfiguration{
-				EnableProfiling: ptr.To(true),
-				PprofBindHost:   ptr.To("127.0.0.1"),
-				PprofBindPort:   ptr.To(2753),
+				EnableProfiling: new(true),
+				PprofBindHost:   new("127.0.0.1"),
+				PprofBindPort:   new(2753),
 			},
 		}
 
@@ -204,9 +204,9 @@ func TestCreateManagerOptions(t *testing.T) {
 				ResourceLock: "leases",
 			},
 			Debugging: &configv1alpha1.DebuggingConfiguration{
-				EnableProfiling: ptr.To(true),
-				PprofBindHost:   ptr.To("127.0.0.1"),
-				PprofBindPort:   ptr.To(9999),
+				EnableProfiling: new(true),
+				PprofBindHost:   new("127.0.0.1"),
+				PprofBindPort:   new(9999),
 			},
 		}
 
@@ -240,9 +240,9 @@ func TestCreateManagerOptions(t *testing.T) {
 				ResourceLock: "leases",
 			},
 			Debugging: &configv1alpha1.DebuggingConfiguration{
-				EnableProfiling: ptr.To(true),
-				PprofBindHost:   ptr.To("::1"),
-				PprofBindPort:   ptr.To(2753),
+				EnableProfiling: new(true),
+				PprofBindHost:   new("::1"),
+				PprofBindPort:   new(2753),
 			},
 		}
 
@@ -276,9 +276,9 @@ func TestCreateManagerOptions(t *testing.T) {
 				ResourceLock: "leases",
 			},
 			Debugging: &configv1alpha1.DebuggingConfiguration{
-				EnableProfiling: ptr.To(true),
-				PprofBindHost:   ptr.To("127.0.0.1"),
-				PprofBindPort:   ptr.To(2753),
+				EnableProfiling: new(true),
+				PprofBindHost:   new("127.0.0.1"),
+				PprofBindPort:   new(2753),
 			},
 		}
 
@@ -313,7 +313,7 @@ func TestCreateManagerOptions(t *testing.T) {
 				ResourceLock: "leases",
 			},
 			Debugging: &configv1alpha1.DebuggingConfiguration{
-				EnableProfiling: ptr.To(false),
+				EnableProfiling: new(false),
 			},
 		}
 
@@ -355,7 +355,7 @@ func TestCreateManagerOptions(t *testing.T) {
 			apicommon.LabelManagedByKey: apicommon.LabelManagedByValue,
 		})
 
-		// All core Kubernetes types managed by the operator should be filtered.
+		// Shared Kubernetes types managed by the operator should be filtered.
 		// Secret is intentionally excluded — the webhook TLS secret may be created
 		// by Helm without the managed-by label.
 		expectedTypes := []client.Object{
@@ -365,6 +365,7 @@ func TestCreateManagerOptions(t *testing.T) {
 			&rbacv1.Role{},
 			&rbacv1.RoleBinding{},
 			&autoscalingv2.HorizontalPodAutoscaler{},
+			&appsv1.ControllerRevision{},
 		}
 
 		require.NotNil(t, opts.Cache.ByObject)
@@ -790,8 +791,7 @@ func TestPodCacheFiltering(t *testing.T) {
 		require.NoError(t, testEnv.Stop())
 	}()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mgr, err := ctrl.NewManager(envCfg, ctrl.Options{
 		Scheme: groveclientscheme.Scheme,

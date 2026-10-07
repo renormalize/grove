@@ -30,6 +30,7 @@ import (
 	"github.com/ai-dynamo/grove/operator/internal/webhook"
 
 	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -104,7 +105,7 @@ func createManagerOptions(operatorCfg *configv1alpha1.OperatorConfiguration) ctr
 		RenewDeadline:                 &operatorCfg.LeaderElection.RenewDeadline.Duration,
 		RetryPeriod:                   &operatorCfg.LeaderElection.RetryPeriod.Duration,
 		Controller: ctrlconfig.Controller{
-			RecoverPanic: ptr.To(true),
+			RecoverPanic: new(true),
 		},
 		WebhookServer: ctrlwebhook.NewServer(ctrlwebhook.Options{
 			Host:    operatorCfg.Server.Webhooks.BindAddress,
@@ -140,6 +141,7 @@ func cacheOptions() cache.Options {
 			&rbacv1.Role{}:                           managedByGrove,
 			&rbacv1.RoleBinding{}:                    managedByGrove,
 			&autoscalingv2.HorizontalPodAutoscaler{}: managedByGrove,
+			&appsv1.ControllerRevision{}:             managedByGrove,
 		},
 	}
 }

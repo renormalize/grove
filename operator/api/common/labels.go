@@ -56,6 +56,10 @@ const (
 	LabelPodCliquePodIndex = "grove.io/podclique-pod-index"
 	// LabelPodTemplateHash is a key for a label that sets the hash of the PodSpec. This label will be set on a PodClique and will be shared by all pods in the PodClique.
 	LabelPodTemplateHash = "grove.io/pod-template-hash"
+	// LabelControllerRevisionHash identifies the ControllerRevision selected for a resource.
+	LabelControllerRevisionHash = "controller-revision-hash"
+	// LabelControllerRevisionDataHash records the hash used to name a ControllerRevision.
+	LabelControllerRevisionDataHash = "controller.kubernetes.io/hash"
 	// LabelSchedulerName is a label on PodGang that indicates which scheduler backend should sync this PodGang.
 	LabelSchedulerName = "grove.io/scheduler-name"
 )
