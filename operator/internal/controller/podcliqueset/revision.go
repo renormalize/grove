@@ -60,10 +60,6 @@ type podCliqueSetRevisionPayloadV1Alpha1 struct {
 // reconcileRevisionBootstrap creates the initial template checkpoint. Legacy workloads are
 // checkpointed only after the currently observed generation has converged.
 func (r *Reconciler) reconcileRevisionBootstrap(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet) ctrlcommon.ReconcileStepResult {
-	if pcs.Status.CurrentRevision != "" || pcs.Status.UpdateRevision != "" {
-		return r.repairPartialRevisionStatus(ctx, pcs)
-	}
-
 	if pcs.Status.CurrentGenerationHash != nil {
 		ready, err := r.legacyRevisionBootstrapReady(ctx, pcs)
 		if err != nil {
@@ -75,9 +71,19 @@ func (r *Reconciler) reconcileRevisionBootstrap(ctx context.Context, logger logr
 		}
 	}
 
+	// if pcs.Status.CurrentRevision != "" || pcs.Status.UpdateRevision != "" {
+	// 	return r.repairPartialRevisionStatus(ctx, pcs)
+	// }
+
 	revision, collisionCount, err := r.ensureBootstrapRevision(ctx, pcs)
 	if err != nil {
 		return ctrlcommon.ReconcileWithErrors("failed to bootstrap ControllerRevision", err)
+	}
+
+	if revision.Name == pcs.Status.CurrentRevision &&
+		revision.Name == pcs.Status.UpdateRevision &&
+		ptr.Deref(pcs.Status.CollisionCount, 0) == collisionCount {
+		return ctrlcommon.ContinueReconcile()
 	}
 
 	pcs.Status.CurrentRevision = revision.Name
