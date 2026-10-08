@@ -43,7 +43,7 @@ func (r *Reconciler) reconcileSpec(ctx context.Context, logger logr.Logger, pcs 
 	rLog := logger.WithValues("operation", "spec-reconcile")
 	reconcileStepFns := []ctrlcommon.ReconcileStepFn[grovecorev1alpha1.PodCliqueSet]{
 		r.ensureFinalizer,
-		r.reconcileRevisionBootstrap,
+		r.ensureCurrentControllerRevision,
 		r.processGenerationHashChange,
 		r.syncPodCliqueSetResources,
 		r.updateObservedGeneration,

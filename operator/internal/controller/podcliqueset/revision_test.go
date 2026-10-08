@@ -15,7 +15,6 @@
 package podcliqueset
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -37,10 +36,9 @@ func TestReconcileRevisionBootstrapNewPodCliqueSet(t *testing.T) {
 		WithPodCliqueParameters("worker", 1, nil).
 		Build()
 	fakeClient := testutils.SetupFakeClient(pcs)
-	apiReader := &countingReader{Reader: fakeClient}
-	r := &Reconciler{client: fakeClient, apiReader: apiReader}
+	r := &Reconciler{client: fakeClient}
 
-	result := r.reconcileRevisionBootstrap(t.Context(), logr.Discard(), pcs)
+	result := r.ensureCurrentControllerRevision(t.Context(), logr.Discard(), pcs)
 
 	require.False(t, result.HasErrors())
 	assert.True(t, result.NeedsRequeue())
@@ -60,7 +58,6 @@ func TestReconcileRevisionBootstrapNewPodCliqueSet(t *testing.T) {
 	assert.Equal(t, pcs.Name, revision.Labels[apicommon.LabelPartOfKey])
 	assert.NotEmpty(t, revision.Labels[apicommon.LabelControllerRevisionDataHash])
 	assert.True(t, metav1.IsControlledBy(revision, pcs))
-	assert.Zero(t, apiReader.getCalls, "an uncontended create should not read directly from the API server")
 
 	template, err := decodeRevisionTemplate(revision.Data.Raw)
 	require.NoError(t, err)
@@ -78,7 +75,7 @@ func TestReconcileRevisionBootstrapPreservesLegacyGenerationHash(t *testing.T) {
 	fakeClient := testutils.SetupFakeClient(pcs)
 	r := &Reconciler{client: fakeClient}
 
-	result := r.reconcileRevisionBootstrap(t.Context(), logr.Discard(), pcs)
+	result := r.ensureCurrentControllerRevision(t.Context(), logr.Discard(), pcs)
 
 	require.False(t, result.HasErrors())
 	assert.True(t, result.NeedsRequeue())
@@ -89,7 +86,7 @@ func TestReconcileRevisionBootstrapPreservesLegacyGenerationHash(t *testing.T) {
 	assert.Equal(t, updated.Status.CurrentRevision, updated.Status.UpdateRevision)
 }
 
-func TestReconcileRevisionBootstrapDefersUnsafeLegacyMigration(t *testing.T) {
+func TestEnsureCurrentControllerRevisionIgnoresLegacyRolloutState(t *testing.T) {
 	legacyHash := "legacy-hash"
 	tests := []struct {
 		name   string
@@ -121,13 +118,17 @@ func TestReconcileRevisionBootstrapDefersUnsafeLegacyMigration(t *testing.T) {
 			fakeClient := testutils.SetupFakeClient(pcs)
 			r := &Reconciler{client: fakeClient}
 
-			result := r.reconcileRevisionBootstrap(t.Context(), logr.Discard(), pcs)
+			result := r.ensureCurrentControllerRevision(t.Context(), logr.Discard(), pcs)
 
 			require.False(t, result.HasErrors())
-			assert.False(t, result.NeedsRequeue())
+			assert.True(t, result.NeedsRequeue())
 			revisions := &appsv1.ControllerRevisionList{}
 			require.NoError(t, fakeClient.List(t.Context(), revisions))
-			assert.Empty(t, revisions.Items)
+			require.Len(t, revisions.Items, 1)
+			updated := &grovecorev1alpha1.PodCliqueSet{}
+			require.NoError(t, fakeClient.Get(t.Context(), client.ObjectKeyFromObject(pcs), updated))
+			assert.Equal(t, revisions.Items[0].Name, updated.Status.CurrentRevision)
+			assert.Equal(t, updated.Status.CurrentRevision, updated.Status.UpdateRevision)
 		})
 	}
 }
@@ -150,7 +151,7 @@ func TestReconcileRevisionBootstrapMigratesCompletedLegacyUpdate(t *testing.T) {
 	fakeClient := testutils.SetupFakeClient(pcs, pclq)
 	r := &Reconciler{client: fakeClient}
 
-	result := r.reconcileRevisionBootstrap(t.Context(), logr.Discard(), pcs)
+	result := r.ensureCurrentControllerRevision(t.Context(), logr.Discard(), pcs)
 
 	require.False(t, result.HasErrors())
 	assert.True(t, result.NeedsRequeue())
@@ -169,7 +170,7 @@ func TestReconcileRevisionBootstrapReusesUnreferencedRevision(t *testing.T) {
 	fakeClient := testutils.SetupFakeClient(pcs, existing)
 	r := &Reconciler{client: fakeClient}
 
-	result := r.reconcileRevisionBootstrap(t.Context(), logr.Discard(), pcs)
+	result := r.ensureCurrentControllerRevision(t.Context(), logr.Discard(), pcs)
 
 	require.False(t, result.HasErrors())
 	updated := &grovecorev1alpha1.PodCliqueSet{}
@@ -205,32 +206,31 @@ func TestReconcileRevisionBootstrapHandlesNameCollision(t *testing.T) {
 	colliding := buildControllerRevision(pcs, data, 1, 0)
 	colliding.OwnerReferences[0].UID = uuid.NewUUID()
 	fakeClient := testutils.SetupFakeClient(pcs, colliding)
-	apiReader := &countingReader{Reader: fakeClient}
-	r := &Reconciler{client: fakeClient, apiReader: apiReader}
+	r := &Reconciler{client: fakeClient}
 
-	result := r.reconcileRevisionBootstrap(t.Context(), logr.Discard(), pcs)
+	firstResult := r.ensureCurrentControllerRevision(t.Context(), logr.Discard(), pcs)
 
-	require.False(t, result.HasErrors())
+	require.True(t, firstResult.HasErrors())
+	assert.True(t, firstResult.NeedsRequeue())
 	updated := &grovecorev1alpha1.PodCliqueSet{}
 	require.NoError(t, fakeClient.Get(t.Context(), client.ObjectKeyFromObject(pcs), updated))
 	require.NotNil(t, updated.Status.CollisionCount)
 	assert.Equal(t, int32(1), *updated.Status.CollisionCount)
+	assert.Empty(t, updated.Status.CurrentRevision)
+	assert.Empty(t, updated.Status.UpdateRevision)
+
+	secondResult := r.ensureCurrentControllerRevision(t.Context(), logr.Discard(), updated)
+
+	require.False(t, secondResult.HasErrors())
+	assert.True(t, secondResult.NeedsRequeue())
+	require.NoError(t, fakeClient.Get(t.Context(), client.ObjectKeyFromObject(pcs), updated))
 	assert.NotEqual(t, colliding.Name, updated.Status.CurrentRevision)
-	assert.Equal(t, 1, apiReader.getCalls, "a name collision should be resolved with one direct API-server read")
+	assert.Equal(t, updated.Status.CurrentRevision, updated.Status.UpdateRevision)
+	assert.Equal(t, int32(1), *updated.Status.CollisionCount)
 }
 
 func TestControllerRevisionNameIsLabelSafe(t *testing.T) {
 	name := controllerRevisionName(strings.Repeat("a", 63), strings.Repeat("b", 20))
 	assert.LessOrEqual(t, len(name), maxControllerRevisionNameLength)
 	assert.True(t, strings.HasSuffix(name, "-"+strings.Repeat("b", 20)))
-}
-
-type countingReader struct {
-	client.Reader
-	getCalls int
-}
-
-func (r *countingReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-	r.getCalls++
-	return r.Reader.Get(ctx, key, obj, opts...)
 }

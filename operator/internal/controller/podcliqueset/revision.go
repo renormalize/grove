@@ -31,7 +31,6 @@ import (
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/internal/constants"
 	ctrlcommon "github.com/ai-dynamo/grove/operator/internal/controller/common"
-	componentutils "github.com/ai-dynamo/grove/operator/internal/utils/component"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
@@ -41,7 +40,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -57,134 +55,57 @@ type podCliqueSetRevisionPayloadV1Alpha1 struct {
 	Template grovecorev1alpha1.PodCliqueSetTemplateSpec `json:"podCliqueSetTemplateSpec"`
 }
 
-// reconcileRevisionBootstrap creates the initial template checkpoint. Legacy workloads are
-// checkpointed only after the currently observed generation has converged.
-func (r *Reconciler) reconcileRevisionBootstrap(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet) ctrlcommon.ReconcileStepResult {
-	if pcs.Status.CurrentGenerationHash != nil {
-		ready, err := r.legacyRevisionBootstrapReady(ctx, pcs)
-		if err != nil {
-			return ctrlcommon.ReconcileWithErrors("failed to determine whether legacy PodCliqueSet can be migrated", err)
-		}
-		if !ready {
-			logger.V(1).Info("Deferring ControllerRevision bootstrap until the legacy generation converges")
-			return ctrlcommon.ContinueReconcile()
-		}
-	}
-
-	// if pcs.Status.CurrentRevision != "" || pcs.Status.UpdateRevision != "" {
-	// 	return r.repairPartialRevisionStatus(ctx, pcs)
-	// }
-
-	revision, collisionCount, err := r.ensureBootstrapRevision(ctx, pcs)
+// ensureCurrentControllerRevision creates the current controllerrevision from the PodCliqueSetSpec.
+// This function will in the future create a new ControllerRevision when the PCS Spec changes, before the update progress is set
+func (r *Reconciler) ensureCurrentControllerRevision(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet) ctrlcommon.ReconcileStepResult {
+	revision, collisionCount, err := r.createOrUpdateLatestControllerRevision(ctx, pcs)
 	if err != nil {
+		if apierrors.IsAlreadyExists(err) && collisionCount > ptr.Deref(pcs.Status.CollisionCount, 0) {
+			pcs.Status.CollisionCount = new(collisionCount)
+			if result := r.updatePodCliqueSetStatus(ctx, pcs, "failed to persist ControllerRevision collision count"); result.HasErrors() {
+				return result
+			}
+		}
 		return ctrlcommon.ReconcileWithErrors("failed to bootstrap ControllerRevision", err)
 	}
 
+	// the pcs status is up to date with the latest controllerrevision
 	if revision.Name == pcs.Status.CurrentRevision &&
 		revision.Name == pcs.Status.UpdateRevision &&
 		ptr.Deref(pcs.Status.CollisionCount, 0) == collisionCount {
 		return ctrlcommon.ContinueReconcile()
 	}
 
+	// update the PodCliqueSetStatus with the latest controllerrevision
 	pcs.Status.CurrentRevision = revision.Name
 	pcs.Status.UpdateRevision = revision.Name
 	if collisionCount != ptr.Deref(pcs.Status.CollisionCount, 0) {
 		pcs.Status.CollisionCount = new(collisionCount)
 	}
-	if err := r.client.Status().Update(ctx, pcs); err != nil {
-		return ctrlcommon.ReconcileWithErrors("failed to record ControllerRevision bootstrap", fmt.Errorf("could not update revision status for PodCliqueSet %v: %w", client.ObjectKeyFromObject(pcs), err))
+	if result := r.updatePodCliqueSetStatus(ctx, pcs, "failed to record PodCliqueSetStatus update with the latest ControllerRevision"); result.HasErrors() {
+		return result
 	}
 
 	logger.Info("Bootstrapped PodCliqueSet ControllerRevision", "revision", revision.Name)
 	return ctrlcommon.ReconcileAfter(constants.ComponentSyncRetryInterval, "waiting for ControllerRevision bootstrap to be observed")
 }
 
-func (r *Reconciler) repairPartialRevisionStatus(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet) ctrlcommon.ReconcileStepResult {
-	if pcs.Status.CurrentRevision != "" && pcs.Status.UpdateRevision != "" {
-		return ctrlcommon.ContinueReconcile()
-	}
-
-	revisionName := pcs.Status.CurrentRevision
-	if revisionName == "" {
-		revisionName = pcs.Status.UpdateRevision
-	}
-	revision := &appsv1.ControllerRevision{}
-	if err := r.client.Get(ctx, client.ObjectKey{Namespace: pcs.Namespace, Name: revisionName}, revision); err != nil {
-		return ctrlcommon.ReconcileWithErrors("failed to repair partial ControllerRevision status", err)
-	}
-	if !metav1.IsControlledBy(revision, pcs) {
-		return ctrlcommon.ReconcileWithErrors("failed to repair partial ControllerRevision status", fmt.Errorf("ControllerRevision %s is not controlled by PodCliqueSet %v", revisionName, client.ObjectKeyFromObject(pcs)))
-	}
-	if _, err := decodeRevisionTemplate(revision.Data.Raw); err != nil {
-		return ctrlcommon.ReconcileWithErrors("failed to repair partial ControllerRevision status", fmt.Errorf("could not decode ControllerRevision %s: %w", revisionName, err))
-	}
-
-	pcs.Status.CurrentRevision = revisionName
-	pcs.Status.UpdateRevision = revisionName
+func (r *Reconciler) updatePodCliqueSetStatus(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, description string) ctrlcommon.ReconcileStepResult {
 	if err := r.client.Status().Update(ctx, pcs); err != nil {
-		return ctrlcommon.ReconcileWithErrors("failed to repair partial ControllerRevision status", err)
+		return ctrlcommon.ReconcileWithErrors(description, fmt.Errorf("could not update status for PodCliqueSet %v: %w", client.ObjectKeyFromObject(pcs), err))
 	}
-	return ctrlcommon.ReconcileAfter(constants.ComponentSyncRetryInterval, "waiting for repaired ControllerRevision status to be observed")
+	return ctrlcommon.ContinueReconcile()
 }
 
-func (r *Reconciler) legacyRevisionBootstrapReady(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet) (bool, error) {
-	if pcs.Status.ObservedGeneration == nil || *pcs.Status.ObservedGeneration != pcs.Generation {
-		return false, nil
-	}
-	if pcs.Status.UpdateProgress == nil {
-		return true, nil
-	}
-	if pcs.Status.UpdateProgress.UpdateEndedAt == nil {
-		return false, nil
-	}
-
-	// UpdateEndedAt alone does not prove convergence for OnDelete updates because it is set when
-	// the update is accepted, before users have manually replaced all outdated children. Verify
-	// that every expected child has reached the PCS generation before checkpointing the template.
-	standalonePCLQs, pcsgs, err := r.listExpectedPCSChildren(ctx, pcs)
-	if err != nil {
-		return false, err
-	}
-	expectedPCLQs := componentutils.GetExpectedStandAlonePCLQFQNsPerPCSReplica(pcs)
-	expectedPCSGs := componentutils.GetExpectedPCSGFQNsPerPCSReplica(pcs)
-	if len(standalonePCLQs) != countExpectedChildren(expectedPCLQs) || len(pcsgs) != countExpectedChildren(expectedPCSGs) {
-		return false, nil
-	}
-
-	for i := range standalonePCLQs {
-		if standalonePCLQs[i].Status.CurrentPodCliqueSetGenerationHash == nil ||
-			*standalonePCLQs[i].Status.CurrentPodCliqueSetGenerationHash != *pcs.Status.CurrentGenerationHash {
-			return false, nil
-		}
-	}
-	for i := range pcsgs {
-		if pcsgs[i].Status.CurrentPodCliqueSetGenerationHash == nil ||
-			*pcsgs[i].Status.CurrentPodCliqueSetGenerationHash != *pcs.Status.CurrentGenerationHash {
-			return false, nil
-		}
-	}
-	return true, nil
-}
-
-func countExpectedChildren(childrenByReplica map[int][]string) int {
-	var count int
-	for _, names := range childrenByReplica {
-		count += len(names)
-	}
-	return count
-}
-
-func (r *Reconciler) ensureBootstrapRevision(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet) (*appsv1.ControllerRevision, int32, error) {
+// createOrUpdateLatestControllerRevision ensures that the corresponding ControllerRevision for the current PodCliqueSet is present in the cluster
+func (r *Reconciler) createOrUpdateLatestControllerRevision(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet) (*appsv1.ControllerRevision, int32, error) {
 	desiredTemplate := normalizeRevisionTemplate(&pcs.Spec.Template)
-	data, err := encodeRevisionTemplate(desiredTemplate)
-	if err != nil {
-		return nil, 0, err
-	}
-
 	revisions, err := r.listOwnedRevisions(ctx, pcs)
 	if err != nil {
 		return nil, 0, err
 	}
+
+	// nextRevision is used to create the next controllerrevision, or update an already existing older revision
 	var nextRevision int64 = 1
 	var equivalentRevision *appsv1.ControllerRevision
 	for i := range revisions {
@@ -193,47 +114,42 @@ func (r *Reconciler) ensureBootstrapRevision(ctx context.Context, pcs *grovecore
 			nextRevision = revision.Revision + 1
 		}
 		equal, compareErr := revisionDataMatchesTemplate(revision.Data.Raw, desiredTemplate)
-		if compareErr == nil && equal && (equivalentRevision == nil || revision.Revision > equivalentRevision.Revision) {
+		if compareErr == nil && equal {
+			// there should always only be one controllerrevision that matches the template. its revision should be moved forward if it is lagging behind
 			equivalentRevision = revision
 		}
 	}
+
+	// update the controllerrevision if necessary
 	if equivalentRevision != nil {
-		return equivalentRevision, ptr.Deref(pcs.Status.CollisionCount, 0), nil
+		if equivalentRevision.Revision == nextRevision-1 {
+			// equivalentRevision is already the latest revision, no need to update it
+			return equivalentRevision, ptr.Deref(pcs.Status.CollisionCount, 0), nil
+		} else {
+			// update controllerrevision to nextRevision
+			equivalentRevision.Revision = nextRevision
+			return equivalentRevision, ptr.Deref(pcs.Status.CollisionCount, 0), r.client.Update(ctx, equivalentRevision)
+		}
 	}
 
-	collisionCount := ptr.Deref(pcs.Status.CollisionCount, 0)
-	var selectedRevision *appsv1.ControllerRevision
-	err = retry.OnError(retry.DefaultBackoff, apierrors.IsAlreadyExists, func() error {
-		revision := buildControllerRevision(pcs, data, nextRevision, collisionCount)
-		createErr := r.client.Create(ctx, revision)
-		if createErr == nil {
-			selectedRevision = revision
-			return nil
-		}
-		if !apierrors.IsAlreadyExists(createErr) {
-			return createErr
-		}
-
-		existing := &appsv1.ControllerRevision{}
-		if getErr := r.apiReader.Get(ctx, client.ObjectKeyFromObject(revision), existing); getErr != nil {
-			return getErr
-		}
-
-		equal, compareErr := revisionDataMatchesTemplate(existing.Data.Raw, desiredTemplate)
-		if metav1.IsControlledBy(existing, pcs) && compareErr == nil && equal {
-			selectedRevision = existing
-			return nil
-		}
-		if collisionCount == int32(1<<31-1) {
-			return errors.New("ControllerRevision collision count overflow")
-		}
-		collisionCount++
-		return createErr
-	})
+	// create the missing controllerrevision
+	data, err := encodeRevisionTemplate(desiredTemplate)
 	if err != nil {
+		return nil, 0, err
+	}
+	collisionCount := ptr.Deref(pcs.Status.CollisionCount, 0)
+
+	revision := buildControllerRevision(pcs, data, nextRevision, collisionCount)
+	if err = r.client.Create(ctx, revision); err != nil && !apierrors.IsAlreadyExists(err) {
 		return nil, collisionCount, err
 	}
-	return selectedRevision, collisionCount, nil
+	if apierrors.IsAlreadyExists(err) {
+		if collisionCount == int32(1<<31-1) {
+			return nil, 0, fmt.Errorf("ControllerRevision collision count overflow")
+		}
+		collisionCount++
+	}
+	return revision, collisionCount, err
 }
 
 func (r *Reconciler) listOwnedRevisions(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet) ([]appsv1.ControllerRevision, error) {
