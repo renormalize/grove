@@ -11358,6 +11358,30 @@ spec:
                     items:
                       type: string
                     type: array
+                  replicaRevisions:
+                    description: ReplicaRevisions binds each PodCliqueSet replica
+                      to its source ControllerRevision.
+                    items:
+                      description: PodCliqueSetReplicaRevision binds a PodCliqueSet
+                        replica to a ControllerRevision.
+                      properties:
+                        replicaIndex:
+                          description: ReplicaIndex is the zero-based PodCliqueSet
+                            replica index.
+                          format: int32
+                          type: integer
+                        revision:
+                          description: Revision is the name of the ControllerRevision
+                            selected for the replica.
+                          type: string
+                      required:
+                      - replicaIndex
+                      - revision
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - replicaIndex
+                    x-kubernetes-list-type: map
                   totalPodCliqueScalingGroupsCount:
                     default: 0
                     description: |-

@@ -31,6 +31,7 @@ import (
 	"github.com/ai-dynamo/grove/operator/internal/resourceclaim"
 	"github.com/ai-dynamo/grove/operator/internal/utils"
 	componentutils "github.com/ai-dynamo/grove/operator/internal/utils/component"
+	controllerrevision "github.com/ai-dynamo/grove/operator/internal/utils/controllerrevision"
 	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
 
 	"github.com/go-logr/logr"
@@ -81,6 +82,15 @@ func (r _resource) prepareSyncContext(ctx context.Context, pcsg *grovecorev1alph
 			fmt.Sprintf("failed to get owner PodCliqueSet for PodCliqueScalingGroup %s", client.ObjectKeyFromObject(pcsg)),
 		)
 	}
+	resolvedRevision, err := controllerrevision.ResolveForResource(ctx, r.client, syncSnap.pcs, pcsg)
+	if err != nil {
+		return nil, groveerr.WrapError(err,
+			errCodeGetPodCliqueSet,
+			component.OperationSync,
+			fmt.Sprintf("failed to resolve ControllerRevision for PodCliqueScalingGroup %s", client.ObjectKeyFromObject(pcsg)),
+		)
+	}
+	syncSnap.pcs = controllerrevision.PodCliqueSetWithTemplate(syncSnap.pcs, resolvedRevision.Template)
 
 	// Resolve PCS replica index and matching PCSG config for resource sharing
 	syncSnap.pcsReplicaIndex, err = getPCSReplicaFromPCSG(pcsg)

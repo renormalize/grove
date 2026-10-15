@@ -15,14 +15,10 @@
 package podcliqueset
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"hash/fnv"
-	"io"
 	"strconv"
 	"strings"
 
@@ -31,10 +27,10 @@ import (
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/internal/constants"
 	ctrlcommon "github.com/ai-dynamo/grove/operator/internal/controller/common"
+	controllerrevision "github.com/ai-dynamo/grove/operator/internal/utils/controllerrevision"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -46,17 +42,9 @@ import (
 
 const maxControllerRevisionNameLength = 63
 
-type podCliqueSetRevisionHeader struct {
-	APIVersion string `json:"apiVersion"`
-}
-
-type podCliqueSetRevisionPayloadV1Alpha1 struct {
-	podCliqueSetRevisionHeader
-	Template grovecorev1alpha1.PodCliqueSetTemplateSpec `json:"podCliqueSetTemplateSpec"`
-}
-
-// ensureCurrentControllerRevision creates the current controllerrevision from the PodCliqueSetSpec.
-// This function will in the future create a new ControllerRevision when the PCS Spec changes, before the update progress is set
+// ensureCurrentControllerRevision creates the desired ControllerRevision from the PodCliqueSetSpec.
+// Bootstrap initializes both revision fields. Later template changes advance only UpdateRevision;
+// CurrentRevision advances after the rollout completes.
 func (r *Reconciler) ensureCurrentControllerRevision(ctx context.Context, logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet) ctrlcommon.ReconcileStepResult {
 	revision, collisionCount, err := r.createOrUpdateLatestControllerRevision(ctx, pcs)
 	if err != nil {
@@ -69,15 +57,17 @@ func (r *Reconciler) ensureCurrentControllerRevision(ctx context.Context, logger
 		return ctrlcommon.ReconcileWithErrors("failed to bootstrap ControllerRevision", err)
 	}
 
-	// the pcs status is up to date with the latest controllerrevision
-	if revision.Name == pcs.Status.CurrentRevision &&
+	// The PCS status is up to date with the latest desired ControllerRevision.
+	if pcs.Status.CurrentRevision != "" &&
 		revision.Name == pcs.Status.UpdateRevision &&
 		ptr.Deref(pcs.Status.CollisionCount, 0) == collisionCount {
 		return ctrlcommon.ContinueReconcile()
 	}
 
-	// update the PodCliqueSetStatus with the latest controllerrevision
-	pcs.Status.CurrentRevision = revision.Name
+	// CurrentRevision is initialized once and remains the last fully converged revision.
+	if pcs.Status.CurrentRevision == "" {
+		pcs.Status.CurrentRevision = revision.Name
+	}
 	pcs.Status.UpdateRevision = revision.Name
 	if collisionCount != ptr.Deref(pcs.Status.CollisionCount, 0) {
 		pcs.Status.CollisionCount = new(collisionCount)
@@ -86,8 +76,8 @@ func (r *Reconciler) ensureCurrentControllerRevision(ctx context.Context, logger
 		return result
 	}
 
-	logger.Info("Bootstrapped PodCliqueSet ControllerRevision", "revision", revision.Name)
-	return ctrlcommon.ReconcileAfter(constants.ComponentSyncRetryInterval, "waiting for ControllerRevision bootstrap to be observed")
+	logger.Info("Reconciled PodCliqueSet ControllerRevision", "revision", revision.Name)
+	return ctrlcommon.ReconcileAfter(constants.ComponentSyncRetryInterval, "waiting for ControllerRevision status to be observed")
 }
 
 func (r *Reconciler) updatePodCliqueSetStatus(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet, description string) ctrlcommon.ReconcileStepResult {
@@ -99,7 +89,7 @@ func (r *Reconciler) updatePodCliqueSetStatus(ctx context.Context, pcs *grovecor
 
 // createOrUpdateLatestControllerRevision ensures that the corresponding ControllerRevision for the current PodCliqueSet is present in the cluster
 func (r *Reconciler) createOrUpdateLatestControllerRevision(ctx context.Context, pcs *grovecorev1alpha1.PodCliqueSet) (*appsv1.ControllerRevision, int32, error) {
-	desiredTemplate := normalizeRevisionTemplate(&pcs.Spec.Template)
+	desiredTemplate := controllerrevision.NormalizeTemplate(&pcs.Spec.Template)
 	revisions, err := r.listOwnedRevisions(ctx, pcs)
 	if err != nil {
 		return nil, 0, err
@@ -113,7 +103,7 @@ func (r *Reconciler) createOrUpdateLatestControllerRevision(ctx context.Context,
 		if revision.Revision >= nextRevision {
 			nextRevision = revision.Revision + 1
 		}
-		equal, compareErr := revisionDataMatchesTemplate(revision.Data.Raw, desiredTemplate)
+		equal, compareErr := controllerrevision.DataMatchesTemplate(revision.Data.Raw, desiredTemplate)
 		if compareErr == nil && equal {
 			// there should always only be one controllerrevision that matches the template. its revision should be moved forward if it is lagging behind
 			equivalentRevision = revision
@@ -133,7 +123,7 @@ func (r *Reconciler) createOrUpdateLatestControllerRevision(ctx context.Context,
 	}
 
 	// create the missing controllerrevision
-	data, err := encodeRevisionTemplate(desiredTemplate)
+	data, err := controllerrevision.EncodeTemplate(desiredTemplate)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -205,57 +195,4 @@ func hashRevisionData(data []byte, collisionCount int32) string {
 	_, _ = hasher.Write(data)
 	_ = binary.Write(hasher, binary.LittleEndian, collisionCount)
 	return utilrand.SafeEncodeString(strconv.FormatUint(hasher.Sum64(), 10))
-}
-
-func encodeRevisionTemplate(template *grovecorev1alpha1.PodCliqueSetTemplateSpec) ([]byte, error) {
-	payload := podCliqueSetRevisionPayloadV1Alpha1{
-		podCliqueSetRevisionHeader: podCliqueSetRevisionHeader{
-			APIVersion: grovecorev1alpha1.SchemeGroupVersion.String(),
-		},
-		Template: *normalizeRevisionTemplate(template),
-	}
-	data, err := json.Marshal(&payload)
-	if err != nil {
-		return nil, fmt.Errorf("could not encode PodCliqueSet revision: %w", err)
-	}
-	return data, nil
-}
-
-func decodeRevisionTemplate(data []byte) (*grovecorev1alpha1.PodCliqueSetTemplateSpec, error) {
-	var header podCliqueSetRevisionHeader
-	if err := json.Unmarshal(data, &header); err != nil {
-		return nil, fmt.Errorf("could not decode revision header: %w", err)
-	}
-	if header.APIVersion != grovecorev1alpha1.SchemeGroupVersion.String() {
-		return nil, fmt.Errorf("unsupported PodCliqueSet revision API version %q", header.APIVersion)
-	}
-
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var payload podCliqueSetRevisionPayloadV1Alpha1
-	if err := decoder.Decode(&payload); err != nil {
-		return nil, fmt.Errorf("could not decode PodCliqueSet revision: %w", err)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return nil, errors.New("PodCliqueSet revision contains trailing data")
-	}
-	return normalizeRevisionTemplate(&payload.Template), nil
-}
-
-// normalizeRevisionTemplate returns a copy in the canonical form used for semantic revision
-// comparisons. It intentionally performs no canonicalization today. Add rules only for
-// version-independent equivalences, such as nil and empty collections that all consumers treat
-// identically, or deterministic ordering of lists whose API semantics are truly unordered. Never
-// reorder Cliques, CliqueNames, or other order-sensitive fields. Historical API defaults and other
-// version-specific compatibility rules belong in the corresponding revision decoder instead.
-func normalizeRevisionTemplate(template *grovecorev1alpha1.PodCliqueSetTemplateSpec) *grovecorev1alpha1.PodCliqueSetTemplateSpec {
-	return template.DeepCopy()
-}
-
-func revisionDataMatchesTemplate(data []byte, normalizedTemplate *grovecorev1alpha1.PodCliqueSetTemplateSpec) (bool, error) {
-	storedTemplate, err := decodeRevisionTemplate(data)
-	if err != nil {
-		return false, err
-	}
-	return apiequality.Semantic.DeepEqual(storedTemplate, normalizedTemplate), nil
 }

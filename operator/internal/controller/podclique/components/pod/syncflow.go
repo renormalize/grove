@@ -30,6 +30,7 @@ import (
 	"github.com/ai-dynamo/grove/operator/internal/index"
 	"github.com/ai-dynamo/grove/operator/internal/utils"
 	componentutils "github.com/ai-dynamo/grove/operator/internal/utils/component"
+	controllerrevision "github.com/ai-dynamo/grove/operator/internal/utils/controllerrevision"
 	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
 
 	groveschedulerv1alpha1 "github.com/ai-dynamo/grove/scheduler/api/core/v1alpha1"
@@ -58,7 +59,15 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 			fmt.Sprintf("failed to get owner PodCliqueSet of PodClique: %v", pclqObjectKey),
 		)
 	}
-	ss.pcs = pcs
+	resolvedRevision, err := controllerrevision.ResolveForResource(ctx, r.client, pcs, pclq)
+	if err != nil {
+		return nil, groveerr.WrapError(err,
+			errCodeGetPodCliqueSet,
+			component.OperationSync,
+			fmt.Sprintf("failed to resolve ControllerRevision for PodClique: %v", pclqObjectKey),
+		)
+	}
+	ss.pcs = controllerrevision.PodCliqueSetWithTemplate(pcs, resolvedRevision.Template)
 	pcsObjectKey := client.ObjectKeyFromObject(pcs)
 
 	ss.expectedPodTemplateHash, err = componentutils.GetExpectedPCLQPodTemplateHash(ss.pcs, pclq.ObjectMeta)

@@ -20,6 +20,7 @@ import (
 
 	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	controllerrevision "github.com/ai-dynamo/grove/operator/internal/utils/controllerrevision"
 	testutils "github.com/ai-dynamo/grove/operator/test/utils"
 
 	"github.com/go-logr/logr"
@@ -59,9 +60,33 @@ func TestReconcileRevisionBootstrapNewPodCliqueSet(t *testing.T) {
 	assert.NotEmpty(t, revision.Labels[apicommon.LabelControllerRevisionDataHash])
 	assert.True(t, metav1.IsControlledBy(revision, pcs))
 
-	template, err := decodeRevisionTemplate(revision.Data.Raw)
+	template, err := controllerrevision.DecodeTemplate(revision.Data.Raw)
 	require.NoError(t, err)
 	assert.Equal(t, pcs.Spec.Template, *template)
+}
+
+func TestEnsureCurrentControllerRevisionPreservesCurrentRevisionOnUpdate(t *testing.T) {
+	pcs := testutils.NewPodCliqueSetBuilder(testPCSName, testNamespace, uuid.NewUUID()).
+		WithPodCliqueParameters("worker", 1, nil).
+		Build()
+	fakeClient := testutils.SetupFakeClient(pcs)
+	r := &Reconciler{client: fakeClient}
+
+	result := r.ensureCurrentControllerRevision(t.Context(), logr.Discard(), pcs)
+	require.False(t, result.HasErrors())
+	stable := &grovecorev1alpha1.PodCliqueSet{}
+	require.NoError(t, fakeClient.Get(t.Context(), client.ObjectKeyFromObject(pcs), stable))
+	currentRevision := stable.Status.CurrentRevision
+
+	stable.Spec.Template.PriorityClassName = "high-priority"
+	require.NoError(t, fakeClient.Update(t.Context(), stable))
+	result = r.ensureCurrentControllerRevision(t.Context(), logr.Discard(), stable)
+	require.False(t, result.HasErrors())
+
+	updated := &grovecorev1alpha1.PodCliqueSet{}
+	require.NoError(t, fakeClient.Get(t.Context(), client.ObjectKeyFromObject(pcs), updated))
+	assert.Equal(t, currentRevision, updated.Status.CurrentRevision)
+	assert.NotEqual(t, currentRevision, updated.Status.UpdateRevision)
 }
 
 func TestReconcileRevisionBootstrapPreservesLegacyGenerationHash(t *testing.T) {
@@ -164,7 +189,7 @@ func TestReconcileRevisionBootstrapReusesUnreferencedRevision(t *testing.T) {
 	pcs := testutils.NewPodCliqueSetBuilder(testPCSName, testNamespace, uuid.NewUUID()).
 		WithPodCliqueParameters("worker", 1, nil).
 		Build()
-	data, err := encodeRevisionTemplate(&pcs.Spec.Template)
+	data, err := controllerrevision.EncodeTemplate(&pcs.Spec.Template)
 	require.NoError(t, err)
 	existing := buildControllerRevision(pcs, data, 1, 0)
 	fakeClient := testutils.SetupFakeClient(pcs, existing)
@@ -182,18 +207,18 @@ func TestReconcileRevisionBootstrapReusesUnreferencedRevision(t *testing.T) {
 }
 
 func TestDecodeRevisionTemplateRejectsUnknownFieldsAndVersions(t *testing.T) {
-	_, err := decodeRevisionTemplate([]byte(`{"apiVersion":"grove.io/v1alpha1","podCliqueSetTemplateSpec":{},"unknown":true}`))
+	_, err := controllerrevision.DecodeTemplate([]byte(`{"apiVersion":"grove.io/v1alpha1","podCliqueSetTemplateSpec":{},"unknown":true}`))
 	require.ErrorContains(t, err, "unknown field")
 
-	_, err = decodeRevisionTemplate([]byte(`{"apiVersion":"grove.io/v2","podCliqueSetTemplateSpec":{}}`))
+	_, err = controllerrevision.DecodeTemplate([]byte(`{"apiVersion":"grove.io/v2","podCliqueSetTemplateSpec":{}}`))
 	require.ErrorContains(t, err, "unsupported PodCliqueSet revision API version")
 }
 
 func TestRevisionDataMatchesTypedTemplateIgnoringJSONRepresentation(t *testing.T) {
 	formatted := []byte("{\n  \"podCliqueSetTemplateSpec\": {},\n  \"apiVersion\": \"grove.io/v1alpha1\"\n}")
-	desiredTemplate := normalizeRevisionTemplate(&grovecorev1alpha1.PodCliqueSetTemplateSpec{})
+	desiredTemplate := controllerrevision.NormalizeTemplate(&grovecorev1alpha1.PodCliqueSetTemplateSpec{})
 
-	equal, err := revisionDataMatchesTemplate(formatted, desiredTemplate)
+	equal, err := controllerrevision.DataMatchesTemplate(formatted, desiredTemplate)
 
 	require.NoError(t, err)
 	assert.True(t, equal)
@@ -201,7 +226,7 @@ func TestRevisionDataMatchesTypedTemplateIgnoringJSONRepresentation(t *testing.T
 
 func TestReconcileRevisionBootstrapHandlesNameCollision(t *testing.T) {
 	pcs := testutils.NewPodCliqueSetBuilder(testPCSName, testNamespace, uuid.NewUUID()).Build()
-	data, err := encodeRevisionTemplate(&pcs.Spec.Template)
+	data, err := controllerrevision.EncodeTemplate(&pcs.Spec.Template)
 	require.NoError(t, err)
 	colliding := buildControllerRevision(pcs, data, 1, 0)
 	colliding.OwnerReferences[0].UID = uuid.NewUUID()

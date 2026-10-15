@@ -18,6 +18,7 @@ import (
 	"context"
 	"testing"
 
+	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
 	testutils "github.com/ai-dynamo/grove/operator/test/utils"
@@ -42,7 +43,9 @@ func TestShouldCheckPendingUpdatesForPCLQ(t *testing.T) {
 		// Test case description
 		name                string
 		pcsUpdateProgress   *grovecorev1alpha1.PodCliqueSetUpdateProgress
+		pcsUpdateRevision   string
 		pclqPCSReplicaIndex int32
+		pclqRevision        string
 		pcsgOwned           bool
 		// expected is the expected result
 		expected bool
@@ -57,8 +60,20 @@ func TestShouldCheckPendingUpdatesForPCLQ(t *testing.T) {
 			pcsUpdateProgress: &grovecorev1alpha1.PodCliqueSetUpdateProgress{
 				CurrentlyUpdating: []grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress{{ReplicaIndex: 0}},
 			},
+			pcsUpdateRevision:   "update-revision",
 			pclqPCSReplicaIndex: 0,
+			pclqRevision:        "update-revision",
 			expected:            true,
+		},
+		{
+			name: "standalone_matching_active_pcs_replica_waits_for_update_revision",
+			pcsUpdateProgress: &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+				CurrentlyUpdating: []grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress{{ReplicaIndex: 0}},
+			},
+			pcsUpdateRevision:   "update-revision",
+			pclqPCSReplicaIndex: 0,
+			pclqRevision:        "current-revision",
+			expected:            false,
 		},
 		{
 			name:                "standalone_active_pcs_update_without_selected_replica",
@@ -101,9 +116,13 @@ func TestShouldCheckPendingUpdatesForPCLQ(t *testing.T) {
 				})
 			}
 			pcs := pcsBuilder.Build()
+			pcs.Status.UpdateRevision = tc.pcsUpdateRevision
 			pclq := testutils.NewPodCliqueBuilder(testPCSName, pcsUID, "worker", testNamespace, tc.pclqPCSReplicaIndex).Build()
 			if tc.pcsgOwned {
 				pclq = testutils.NewPCSGPodCliqueBuilder(testPCSName+"-0-worker-0", testNamespace, testPCSName, "group", 0, 0).Build()
+			}
+			if tc.pclqRevision != "" {
+				pclq.Labels[apicommon.LabelControllerRevisionHash] = tc.pclqRevision
 			}
 
 			result, err := shouldCheckPendingUpdatesForPCLQ(logr.Discard(), pcs, pclq)
@@ -219,10 +238,55 @@ func TestShouldResetOrTriggerUpdate(t *testing.T) {
 			},
 			pclq: &grovecorev1alpha1.PodClique{
 				Status: grovecorev1alpha1.PodCliqueStatus{
+					Replicas:        3,
+					UpdatedReplicas: 3,
 					UpdateProgress: &grovecorev1alpha1.PodCliqueUpdateProgress{
 						PodCliqueSetGenerationHash: "current-hash",
 						UpdateStartedAt:            metav1.Now(),
 						UpdateEndedAt:              ptr.To(metav1.Now()), // completed
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "completed_update_without_replica_convergence_is_restarted",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					CurrentGenerationHash: ptr.To("current-hash"),
+				},
+			},
+			pclq: &grovecorev1alpha1.PodClique{
+				Status: grovecorev1alpha1.PodCliqueStatus{
+					Replicas:        3,
+					UpdatedReplicas: 0,
+					UpdateProgress: &grovecorev1alpha1.PodCliqueUpdateProgress{
+						PodCliqueSetGenerationHash: "current-hash",
+						UpdateStartedAt:            metav1.Now(),
+						UpdateEndedAt:              ptr.To(metav1.Now()),
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "completed_on_delete_update_is_not_restarted_for_old_pods",
+			pcs: &grovecorev1alpha1.PodCliqueSet{
+				Spec: grovecorev1alpha1.PodCliqueSetSpec{
+					UpdateStrategy: &grovecorev1alpha1.PodCliqueSetUpdateStrategy{Type: grovecorev1alpha1.OnDeleteStrategy},
+				},
+				Status: grovecorev1alpha1.PodCliqueSetStatus{
+					CurrentGenerationHash: ptr.To("current-hash"),
+				},
+			},
+			pclq: &grovecorev1alpha1.PodClique{
+				Status: grovecorev1alpha1.PodCliqueStatus{
+					Replicas:        3,
+					UpdatedReplicas: 0,
+					UpdateProgress: &grovecorev1alpha1.PodCliqueUpdateProgress{
+						PodCliqueSetGenerationHash: "current-hash",
+						UpdateStartedAt:            metav1.Now(),
+						UpdateEndedAt:              ptr.To(metav1.Now()),
 					},
 				},
 			},

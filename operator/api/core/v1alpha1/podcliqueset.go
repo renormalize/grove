@@ -188,6 +188,19 @@ type PodCliqueSetUpdateProgress struct {
 	// in-flight component's update is dropped. Only populated for the Coherent strategy.
 	// +optional
 	InScopePodCliqueScalingGroups []string `json:"inScopePodCliqueScalingGroups,omitempty"`
+	// ReplicaRevisions binds each PodCliqueSet replica to its source ControllerRevision.
+	// +optional
+	// +listType=map
+	// +listMapKey=replicaIndex
+	ReplicaRevisions []PodCliqueSetReplicaRevision `json:"replicaRevisions,omitempty"`
+}
+
+// PodCliqueSetReplicaRevision binds a PodCliqueSet replica to a ControllerRevision.
+type PodCliqueSetReplicaRevision struct {
+	// ReplicaIndex is the zero-based PodCliqueSet replica index.
+	ReplicaIndex int32 `json:"replicaIndex"`
+	// Revision is the name of the ControllerRevision selected for the replica.
+	Revision string `json:"revision"`
 }
 
 // PodCliqueSetReplicaUpdateProgress captures the progress of an update for a specific PodCliqueSet replica.

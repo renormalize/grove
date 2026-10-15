@@ -54,8 +54,8 @@ func (r *Reconciler) RegisterWithManager(mgr manager.Manager) error {
 		}).
 		For(&grovecorev1alpha1.PodCliqueScalingGroup{}, builder.WithPredicates(
 			predicate.And(
-				predicate.GenerationChangedPredicate{},
 				podCliqueScalingGroupUpdatePredicate(),
+				podCliqueScalingGroupGenerationOrRevisionChangedPredicate(),
 			)),
 		).
 		Watches(&grovecorev1alpha1.PodCliqueSet{},
@@ -87,6 +87,22 @@ func podCliqueScalingGroupUpdatePredicate() predicate.Predicate {
 		},
 		GenericFunc: func(_ event.GenericEvent) bool { return false },
 	}
+}
+
+// podCliqueScalingGroupGenerationOrRevisionChangedPredicate admits spec updates and revision-only
+// metadata updates. A PodCliqueScalingGroup's spec does not contain its member PodClique templates,
+// so changing one of those templates advances only the ControllerRevision label on the group.
+func podCliqueScalingGroupGenerationOrRevisionChangedPredicate() predicate.Predicate {
+	return predicate.Or(
+		predicate.GenerationChangedPredicate{},
+		predicate.Funcs{
+			UpdateFunc: func(updateEvent event.UpdateEvent) bool {
+				oldRevision := updateEvent.ObjectOld.GetLabels()[apicommon.LabelControllerRevisionHash]
+				newRevision := updateEvent.ObjectNew.GetLabels()[apicommon.LabelControllerRevisionHash]
+				return oldRevision != newRevision
+			},
+		},
+	)
 }
 
 // mapPCSToPCSG maps PodCliqueSet rolling update events to PodCliqueScalingGroup reconcile requests for the currently updating replica

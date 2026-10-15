@@ -30,6 +30,7 @@ import (
 	"github.com/ai-dynamo/grove/operator/internal/mnnvl"
 	"github.com/ai-dynamo/grove/operator/internal/utils"
 	componentutils "github.com/ai-dynamo/grove/operator/internal/utils/component"
+	controllerrevision "github.com/ai-dynamo/grove/operator/internal/utils/controllerrevision"
 	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
 
 	"github.com/go-logr/logr"
@@ -265,7 +266,12 @@ func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pcs
 	pcsObjKey := client.ObjectKeyFromObject(pcs)
 
 	opResult, err := k8sutils.CreateOrPatchSpec(ctx, r.client, pclq, func() error {
-		return r.buildResource(logger, pcs, int(pcsReplica), pclqExists, pclq)
+		resolved, resolveErr := controllerrevision.ResolveForReplica(ctx, r.client, pcs, int(pcsReplica))
+		if resolveErr != nil {
+			return resolveErr
+		}
+		revisionPCS := controllerrevision.PodCliqueSetWithTemplate(pcs, resolved.Template)
+		return r.buildResourceForRevision(logger, revisionPCS, int(pcsReplica), pclqExists, resolved.Name, pclq)
 	})
 	if err != nil {
 		r.eventRecorder.Eventf(pcs, corev1.EventTypeWarning, constants.ReasonPodCliqueCreateOrUpdateFailed, "PodClique %v creation or updation failed: %v", pclqObjectKey, err)
@@ -281,10 +287,10 @@ func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pcs
 	return nil
 }
 
-// buildResource configures a PodClique with the desired state from its template. During a coherent update
+// buildResourceForRevision configures a PodClique with the desired state from its revision template. During a coherent update
 // it applies the new template only to the replica under update and preserves the running revision on every
 // other replica (see preserveRunningRevision).
-func (r _resource) buildResource(logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, pcsReplica int, pclqExists bool, pclq *grovecorev1alpha1.PodClique) error {
+func (r _resource) buildResourceForRevision(logger logr.Logger, pcs *grovecorev1alpha1.PodCliqueSet, pcsReplica int, pclqExists bool, revisionName string, pclq *grovecorev1alpha1.PodClique) error {
 	cliqueName := apicommon.ExtractPodCliqueNameFromStandalonePCLQFQN(pclq.Name, apicommon.ResourceNameReplica{Name: pcs.Name, Replica: pcsReplica})
 	pclqTemplate := componentutils.FindPodCliqueTemplateSpecByName(pcs, cliqueName)
 	if pclqTemplate == nil {
@@ -300,6 +306,9 @@ func (r _resource) buildResource(logger logr.Logger, pcs *grovecorev1alpha1.PodC
 		!componentutils.IsPCSReplicaUnderCoherentUpdate(pcs, pcsReplica)
 	if err := r.setPodCliqueObjectMeta(pcs, pcsReplica, pclqTemplate, preserveRevision, pclq); err != nil {
 		return err
+	}
+	if revisionName != "" {
+		pclq.Labels[apicommon.LabelControllerRevisionHash] = revisionName
 	}
 	return setPodCliqueSpec(logger, pcs, pcsReplica, cliqueName, pclqTemplate, pclqExists, preserveRevision, pclq)
 }

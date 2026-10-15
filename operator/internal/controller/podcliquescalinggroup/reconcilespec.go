@@ -97,6 +97,17 @@ func (r *Reconciler) processUpdate(ctx context.Context, logger logr.Logger, pcsg
 		return ctrlcommon.ContinueReconcile()
 	}
 
+	// Selecting a PCS replica updates parent status before the PodCliqueScalingGroup component
+	// patches the selected replica's children. Wait for that patch so child reconciliation cannot
+	// resolve the old revision and falsely complete against the old template.
+	pcsgRevision := pcsg.Labels[apicommon.LabelControllerRevisionHash]
+	if pcsgRevision != pcs.Status.UpdateRevision {
+		logger.V(1).Info("PodCliqueSet replica is selected for update, but PodCliqueScalingGroup has not adopted the update revision yet. Skipping processing update for this PodCliqueScalingGroup",
+			"podCliqueScalingGroupRevision", pcsgRevision,
+			"updateRevision", pcs.Status.UpdateRevision)
+		return ctrlcommon.ContinueReconcile()
+	}
+
 	// Trigger processing of pending updates for this PCSG. Check if all pending updates for this PCSG and for the PCS CurrentGenerationHash
 	// has already been completed or are already in-progress. If that is true, then there is nothing more to do.
 	// If the rolling update is in-progress for a different PCS CurrentGenerationHash, or it has not even been started, then

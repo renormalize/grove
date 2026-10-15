@@ -26,6 +26,7 @@ import (
 	groveerr "github.com/ai-dynamo/grove/operator/internal/errors"
 	"github.com/ai-dynamo/grove/operator/internal/resourceclaim"
 	componentutils "github.com/ai-dynamo/grove/operator/internal/utils/component"
+	controllerrevision "github.com/ai-dynamo/grove/operator/internal/utils/controllerrevision"
 	k8sutils "github.com/ai-dynamo/grove/operator/internal/utils/kubernetes"
 
 	"github.com/go-logr/logr"
@@ -88,6 +89,15 @@ func (r _resource) Sync(ctx context.Context, _ logr.Logger, pclq *grovecorev1alp
 			fmt.Sprintf("failed to get PCS for PCLQ %s", client.ObjectKeyFromObject(pclq)),
 		)
 	}
+	resolvedRevision, err := controllerrevision.ResolveForResource(ctx, r.client, pcs, pclq)
+	if err != nil {
+		return groveerr.WrapError(err,
+			errSyncPCLQLevelRC,
+			component.OperationSync,
+			fmt.Sprintf("failed to resolve ControllerRevision for PCLQ %s", client.ObjectKeyFromObject(pclq)),
+		)
+	}
+	pcs = controllerrevision.PodCliqueSetWithTemplate(pcs, resolvedRevision.Template)
 
 	cliqueName, err := componentutils.GetPodCliqueNameFromPodCliqueFQN(pclq.ObjectMeta)
 	if err != nil {

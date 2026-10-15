@@ -17,16 +17,77 @@ package podcliquescalinggroup
 import (
 	"testing"
 
+	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	testutils "github.com/ai-dynamo/grove/operator/test/utils"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
+
+func TestPodCliqueScalingGroupGenerationOrRevisionChangedPredicate(t *testing.T) {
+	tests := []struct {
+		name          string
+		oldGeneration int64
+		newGeneration int64
+		oldRevision   string
+		newRevision   string
+		changeOther   bool
+		want          bool
+	}{
+		{
+			name:          "generation_change",
+			oldGeneration: 1,
+			newGeneration: 2,
+			oldRevision:   "revision-1",
+			newRevision:   "revision-1",
+			want:          true,
+		},
+		{
+			name:          "revision_only_change",
+			oldGeneration: 1,
+			newGeneration: 1,
+			oldRevision:   "revision-1",
+			newRevision:   "revision-2",
+			want:          true,
+		},
+		{
+			name:          "unrelated_label_change",
+			oldGeneration: 1,
+			newGeneration: 1,
+			oldRevision:   "revision-1",
+			newRevision:   "revision-1",
+			changeOther:   true,
+			want:          false,
+		},
+	}
+
+	pred := podCliqueScalingGroupGenerationOrRevisionChangedPredicate()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			oldPCSG := &grovecorev1alpha1.PodCliqueScalingGroup{ObjectMeta: metav1.ObjectMeta{
+				Generation: tc.oldGeneration,
+				Labels:     map[string]string{apicommon.LabelControllerRevisionHash: tc.oldRevision},
+			}}
+			newPCSG := &grovecorev1alpha1.PodCliqueScalingGroup{ObjectMeta: metav1.ObjectMeta{
+				Generation: tc.newGeneration,
+				Labels:     map[string]string{apicommon.LabelControllerRevisionHash: tc.newRevision},
+			}}
+			if tc.changeOther {
+				oldPCSG.Labels["unrelated"] = "old"
+				newPCSG.Labels["unrelated"] = "new"
+			}
+
+			got := pred.Update(event.UpdateEvent{ObjectOld: oldPCSG, ObjectNew: newPCSG})
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
 
 // TestPodGangMapPredicate verifies the PodGangMap watch predicate. It must fire on Create so a
 // reconstructed PodGangMap that already carries a multi-anchor distribution is processed, and on an
