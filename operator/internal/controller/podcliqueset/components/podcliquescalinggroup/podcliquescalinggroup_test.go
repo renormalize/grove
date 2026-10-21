@@ -87,7 +87,7 @@ func TestDeletedPCSGIsRecreatedFromReplicaRevision(t *testing.T) {
 	recreated := &grovecorev1alpha1.PodCliqueScalingGroup{}
 	require.NoError(t, cl.Get(t.Context(), pcsgKey, recreated))
 	assert.Equal(t, int32(1), *recreated.Spec.MinAvailable)
-	assert.Equal(t, oldRevision.Name, recreated.Labels[apicommon.LabelControllerRevisionHash])
+	assert.NotContains(t, recreated.Labels, "controller-revision-hash")
 }
 
 func pcsgTestRevision(t *testing.T, pcs *grovecorev1alpha1.PodCliqueSet, name string, template *grovecorev1alpha1.PodCliqueSetTemplateSpec) *appsv1.ControllerRevision {
@@ -597,7 +597,7 @@ func TestBuildResource(t *testing.T) {
 				},
 			}
 
-			err := r.buildResourceForRevision(pcsg, tc.pcs, tc.pcsReplica, *tc.pcsgCfg, false, "")
+			err := r.buildResourceForRevision(pcsg, tc.pcs, tc.pcsReplica, *tc.pcsgCfg, false)
 			assert.NoError(t, err)
 
 			if tc.validate != nil {
@@ -712,7 +712,7 @@ func TestBuildResource_MNNVLAnnotationPropagation(t *testing.T) {
 				},
 			}
 
-			err := r.buildResourceForRevision(pcsg, pcs, 0, pcsgCfg, false, "")
+			err := r.buildResourceForRevision(pcsg, pcs, 0, pcsgCfg, false)
 			require.NoError(t, err)
 
 			if tc.expectedAnnotations != nil {

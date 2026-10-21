@@ -136,18 +136,6 @@ func shouldCheckPendingUpdatesForPCLQ(logger logr.Logger, pcs *grovecorev1alpha1
 		return false, nil
 	}
 
-	// Selecting a PCS replica updates parent status before the PodClique component patches the
-	// selected replica's children. That status change can enqueue this controller while the
-	// PodClique still names its old revision. Wait for the child patch so the Pod component does
-	// not resolve the old template and falsely conclude that the old Pods are already updated.
-	pclqRevision := pclq.Labels[apicommon.LabelControllerRevisionHash]
-	if pclqRevision != pcs.Status.UpdateRevision {
-		logger.V(1).Info("PodCliqueSet replica is selected for update, but PodClique has not adopted the update revision yet. Skipping processing update for this PodClique",
-			"podCliqueRevision", pclqRevision,
-			"updateRevision", pcs.Status.UpdateRevision)
-		return false, nil
-	}
-
 	return true, nil
 }
 

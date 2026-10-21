@@ -89,7 +89,15 @@ func (r _resource) Sync(ctx context.Context, _ logr.Logger, pclq *grovecorev1alp
 			fmt.Sprintf("failed to get PCS for PCLQ %s", client.ObjectKeyFromObject(pclq)),
 		)
 	}
-	resolvedRevision, err := controllerrevision.ResolveForResource(ctx, r.client, pcs, pclq)
+	pcsReplicaIndex, err := k8sutils.GetPodCliqueSetReplicaIndex(pclq.ObjectMeta)
+	if err != nil {
+		return groveerr.WrapError(err,
+			errSyncPCLQLevelRC,
+			component.OperationSync,
+			fmt.Sprintf("failed to determine PCS replica index for PCLQ %s", client.ObjectKeyFromObject(pclq)),
+		)
+	}
+	resolvedRevision, err := controllerrevision.ResolveForReplica(ctx, r.client, pcs, pcsReplicaIndex)
 	if err != nil {
 		return groveerr.WrapError(err,
 			errSyncPCLQLevelRC,

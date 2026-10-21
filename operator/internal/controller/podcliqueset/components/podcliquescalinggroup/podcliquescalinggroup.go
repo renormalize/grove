@@ -179,7 +179,7 @@ func (r _resource) doCreateOrUpdate(ctx context.Context, logger logr.Logger, pcs
 		if !ok {
 			return fmt.Errorf("PodCliqueScalingGroupConfig %q not found in ControllerRevision %q", pcsgConfig.Name, resolved.Name)
 		}
-		if err := r.buildResourceForRevision(pcsg, revisionPCS, pcsReplica, revisionConfig, pcsgExists, resolved.Name); err != nil {
+		if err := r.buildResourceForRevision(pcsg, revisionPCS, pcsReplica, revisionConfig, pcsgExists); err != nil {
 			return groveerr.WrapError(err,
 				errCodeCreatePodCliqueScalingGroup,
 				component.OperationSync,
@@ -215,7 +215,7 @@ func (r _resource) doDelete(ctx context.Context, logger logr.Logger, pcs *grovec
 }
 
 // buildResourceForRevision configures a PCSG with the desired state from the revision template.
-func (r _resource) buildResourceForRevision(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pcs *grovecorev1alpha1.PodCliqueSet, pcsReplica int, pcsgConfig grovecorev1alpha1.PodCliqueScalingGroupConfig, pcsgExists bool, revisionName string) error {
+func (r _resource) buildResourceForRevision(pcsg *grovecorev1alpha1.PodCliqueScalingGroup, pcs *grovecorev1alpha1.PodCliqueSet, pcsReplica int, pcsgConfig grovecorev1alpha1.PodCliqueScalingGroupConfig, pcsgExists bool) error {
 	if err := controllerutil.SetControllerReference(pcs, pcsg, r.scheme); err != nil {
 		return groveerr.WrapError(err,
 			errSyncPodCliqueScalingGroup,
@@ -233,9 +233,6 @@ func (r _resource) buildResourceForRevision(pcsg *grovecorev1alpha1.PodCliqueSca
 	pcsg.Spec.MinAvailable = pcsgConfig.MinAvailable
 	pcsg.Spec.CliqueNames = pcsgConfig.CliqueNames
 	pcsg.Labels = getLabels(pcs, pcsReplica, client.ObjectKeyFromObject(pcsg))
-	if revisionName != "" {
-		pcsg.Labels[apicommon.LabelControllerRevisionHash] = revisionName
-	}
 	pcsg.Annotations = getAnnotations(pcsgConfig)
 	pcsg.Annotations = propagateMNNVLAnnotations(pcsg.Annotations, pcs.Annotations)
 

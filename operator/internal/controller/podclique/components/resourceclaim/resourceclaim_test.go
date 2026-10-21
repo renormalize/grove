@@ -80,6 +80,7 @@ func newPCS(refs []grovecorev1alpha1.ResourceSharingSpec, templates []grovecorev
 				ResourceClaimTemplates: templates,
 			},
 		},
+		Status: grovecorev1alpha1.PodCliqueSetStatus{UpdateRevision: "test-revision"},
 	}
 }
 
@@ -94,7 +95,6 @@ func newPCLQ(replicas int32) *grovecorev1alpha1.PodClique {
 				apicommon.LabelPartOfKey:                pcsName,
 				apicommon.LabelManagedByKey:             apicommon.LabelManagedByValue,
 				apicommon.LabelPodCliqueSetReplicaIndex: "0",
-				apicommon.LabelControllerRevisionHash:   "test-revision",
 			},
 		},
 		Spec: grovecorev1alpha1.PodCliqueSpec{
@@ -351,6 +351,7 @@ func TestSync(t *testing.T) {
 					ResourceClaimTemplates: templates,
 				},
 			},
+			Status: grovecorev1alpha1.PodCliqueSetStatus{UpdateRevision: "test-revision"},
 		}
 		pclq := newPCLQ(2)
 		cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pcs, newControllerRevision(t, pcs)).Build()

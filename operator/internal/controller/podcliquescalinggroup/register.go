@@ -55,7 +55,7 @@ func (r *Reconciler) RegisterWithManager(mgr manager.Manager) error {
 		For(&grovecorev1alpha1.PodCliqueScalingGroup{}, builder.WithPredicates(
 			predicate.And(
 				podCliqueScalingGroupUpdatePredicate(),
-				podCliqueScalingGroupGenerationOrRevisionChangedPredicate(),
+				predicate.GenerationChangedPredicate{},
 			)),
 		).
 		Watches(&grovecorev1alpha1.PodCliqueSet{},
@@ -89,22 +89,6 @@ func podCliqueScalingGroupUpdatePredicate() predicate.Predicate {
 	}
 }
 
-// podCliqueScalingGroupGenerationOrRevisionChangedPredicate admits spec updates and revision-only
-// metadata updates. A PodCliqueScalingGroup's spec does not contain its member PodClique templates,
-// so changing one of those templates advances only the ControllerRevision label on the group.
-func podCliqueScalingGroupGenerationOrRevisionChangedPredicate() predicate.Predicate {
-	return predicate.Or(
-		predicate.GenerationChangedPredicate{},
-		predicate.Funcs{
-			UpdateFunc: func(updateEvent event.UpdateEvent) bool {
-				oldRevision := updateEvent.ObjectOld.GetLabels()[apicommon.LabelControllerRevisionHash]
-				newRevision := updateEvent.ObjectNew.GetLabels()[apicommon.LabelControllerRevisionHash]
-				return oldRevision != newRevision
-			},
-		},
-	)
-}
-
 // mapPCSToPCSG maps PodCliqueSet rolling update events to PodCliqueScalingGroup reconcile requests for the currently updating replica
 func mapPCSToPCSG() handler.MapFunc {
 	return func(_ context.Context, obj client.Object) []reconcile.Request {
@@ -112,16 +96,14 @@ func mapPCSToPCSG() handler.MapFunc {
 		if !ok {
 			return nil
 		}
-		if pcs.Status.UpdateProgress == nil {
-			return nil
-		}
 		var pcsReplicaIndices []int32
-		if componentutils.IsRollingUpdateStrategy(pcs) &&
+		if pcs.Status.UpdateProgress != nil &&
+			componentutils.IsRollingUpdateStrategy(pcs) &&
 			len(pcs.Status.UpdateProgress.CurrentlyUpdating) > 0 {
 			// Rolling recreate needs to have a CurrentlyUpdating which is used to generate an event for the corresponding PCSG
 			pcsReplicaIndices = lo.RangeFrom(pcs.Status.UpdateProgress.CurrentlyUpdating[0].ReplicaIndex, 1)
 		} else {
-			// OnDelete will not have a specific CurrentlyUpdating, so PCSG resources of all PCS replicas are reconciled
+			// Stable and OnDelete workloads do not have a specific CurrentlyUpdating replica, so reconcile all PCSGs.
 			pcsReplicaIndices = lo.RangeFrom(int32(0), int(pcs.Spec.Replicas))
 		}
 		return pcsgReconcileRequestsForPCSReplicas(pcs, pcsReplicaIndices)
@@ -166,6 +148,9 @@ func shouldEnqueueOnPCSUpdate(event event.UpdateEvent) bool {
 	newPCS, okNew := event.ObjectNew.(*grovecorev1alpha1.PodCliqueSet)
 	if !okOld || !okNew {
 		return false
+	}
+	if oldPCS.Status.UpdateRevision != newPCS.Status.UpdateRevision {
+		return true
 	}
 
 	if oldPCS.Status.UpdateProgress != nil && newPCS.Status.UpdateProgress != nil {

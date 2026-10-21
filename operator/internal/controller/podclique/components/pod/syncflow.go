@@ -59,7 +59,15 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 			fmt.Sprintf("failed to get owner PodCliqueSet of PodClique: %v", pclqObjectKey),
 		)
 	}
-	resolvedRevision, err := controllerrevision.ResolveForResource(ctx, r.client, pcs, pclq)
+	ss.pcsReplicaIndex, err = k8sutils.GetPodCliqueSetReplicaIndex(pclq.ObjectMeta)
+	if err != nil {
+		return nil, groveerr.WrapError(err,
+			errCodeGetPodGangMap,
+			component.OperationSync,
+			fmt.Sprintf("failed to determine PodCliqueSet replica index for PodClique: %v", pclqObjectKey),
+		)
+	}
+	resolvedRevision, err := controllerrevision.ResolveForReplica(ctx, r.client, pcs, ss.pcsReplicaIndex)
 	if err != nil {
 		return nil, groveerr.WrapError(err,
 			errCodeGetPodCliqueSet,
@@ -88,15 +96,6 @@ func (r _resource) prepareSyncFlow(ctx context.Context, logger logr.Logger, pclq
 		)
 	}
 	ss.isStandalonePCLQ = componentutils.IsStandalonePCLQ(ss.pcs, ss.cliqueName)
-
-	ss.pcsReplicaIndex, err = k8sutils.GetPodCliqueSetReplicaIndex(pclq.ObjectMeta)
-	if err != nil {
-		return nil, groveerr.WrapError(err,
-			errCodeGetPodGangMap,
-			component.OperationSync,
-			fmt.Sprintf("failed to determine PodCliqueSet replica index for PodClique: %v", pclqObjectKey),
-		)
-	}
 
 	// A PodCliqueScalingGroup-owned PodClique belongs to a single PodGang, named on its
 	// grove.io/podgang label at creation. A standalone PodClique is distributed across anchor

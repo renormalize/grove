@@ -18,7 +18,6 @@ import (
 	"context"
 	"testing"
 
-	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/ai-dynamo/grove/operator/internal/controller/common/component"
 	testutils "github.com/ai-dynamo/grove/operator/test/utils"
@@ -136,52 +135,25 @@ func TestGetOrderedKindsForSyncPCSG(t *testing.T) {
 	}
 }
 
-func TestProcessUpdateWaitsForUpdateRevision(t *testing.T) {
-	tests := []struct {
-		name                 string
-		pcsgRevision         string
-		expectUpdateProgress bool
-	}{
-		{
-			name:                 "waits_for_parent_to_patch_update_revision",
-			pcsgRevision:         "current-revision",
-			expectUpdateProgress: false,
-		},
-		{
-			name:                 "starts_after_update_revision_is_patched",
-			pcsgRevision:         "update-revision",
-			expectUpdateProgress: true,
-		},
+func TestProcessUpdateStartsForSelectedPCSReplica(t *testing.T) {
+	pcsUID := uuid.NewUUID()
+	pcs := testutils.NewPodCliqueSetBuilder(testPCSNamePCSG, testNamespacePCSG, pcsUID).
+		WithReplicas(1).
+		WithScalingGroup(testPCSGName, []string{"worker"}).
+		WithPodCliqueSetGenerationHash(ptr.To("new-generation-hash")).
+		Build()
+	pcs.Status.UpdateRevision = "update-revision"
+	pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
+		CurrentlyUpdating: []grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress{{ReplicaIndex: 0}},
 	}
+	pcsg := testutils.NewPodCliqueScalingGroupBuilder(testPCSGName, testNamespacePCSG, testPCSNamePCSG, 0).Build()
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			pcsUID := uuid.NewUUID()
-			pcs := testutils.NewPodCliqueSetBuilder(testPCSNamePCSG, testNamespacePCSG, pcsUID).
-				WithReplicas(1).
-				WithScalingGroup(testPCSGName, []string{"worker"}).
-				WithPodCliqueSetGenerationHash(ptr.To("new-generation-hash")).
-				Build()
-			pcs.Status.UpdateRevision = "update-revision"
-			pcs.Status.UpdateProgress = &grovecorev1alpha1.PodCliqueSetUpdateProgress{
-				CurrentlyUpdating: []grovecorev1alpha1.PodCliqueSetReplicaUpdateProgress{{ReplicaIndex: 0}},
-			}
-			pcsg := testutils.NewPodCliqueScalingGroupBuilder(testPCSGName, testNamespacePCSG, testPCSNamePCSG, 0).
-				WithLabels(map[string]string{apicommon.LabelControllerRevisionHash: tc.pcsgRevision}).
-				Build()
-
-			reconciler := &Reconciler{client: testutils.SetupFakeClient(pcs, pcsg)}
-			result := reconciler.processUpdate(context.Background(), logr.Discard(), pcsg)
-			_, err := result.Result()
-			require.NoError(t, err)
-			if tc.expectUpdateProgress {
-				require.NotNil(t, pcsg.Status.UpdateProgress)
-				assert.Equal(t, "new-generation-hash", pcsg.Status.UpdateProgress.PodCliqueSetGenerationHash)
-			} else {
-				assert.Nil(t, pcsg.Status.UpdateProgress)
-			}
-		})
-	}
+	reconciler := &Reconciler{client: testutils.SetupFakeClient(pcs, pcsg)}
+	result := reconciler.processUpdate(context.Background(), logr.Discard(), pcsg)
+	_, err := result.Result()
+	require.NoError(t, err)
+	require.NotNil(t, pcsg.Status.UpdateProgress)
+	assert.Equal(t, "new-generation-hash", pcsg.Status.UpdateProgress.PodCliqueSetGenerationHash)
 }
 
 // TestShouldResetOrTriggerUpdatePCSG tests the shouldResetOrTriggerUpdate function for PodCliqueScalingGroup

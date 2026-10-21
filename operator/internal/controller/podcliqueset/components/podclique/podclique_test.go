@@ -462,7 +462,7 @@ func TestBuildResource_MNNVLInjection(t *testing.T) {
 				eventRecorder: record.NewFakeRecorder(10),
 			}
 
-			err := operator.buildResourceForRevision(logr.Discard(), pcs, pcsReplica, false, "", pclq)
+			err := operator.buildResourceForRevision(logr.Discard(), pcs, pcsReplica, false, pclq)
 			require.NoError(t, err)
 
 			// Verify pod-level claims
@@ -516,7 +516,7 @@ func TestBuildResource_StripsTopologyAnnotation(t *testing.T) {
 	}
 
 	operator := &_resource{scheme: groveclientscheme.Scheme}
-	err := operator.buildResourceForRevision(logr.Discard(), pcs, 0, false, "", pclq)
+	err := operator.buildResourceForRevision(logr.Discard(), pcs, 0, false, pclq)
 	require.NoError(t, err)
 	require.NotNil(t, pclq.Annotations)
 	assert.Equal(t, "yes", pclq.Annotations["example.com/keep"])
@@ -570,7 +570,7 @@ func TestBuildResource_PreservesRevisionForReplicaNotUnderCoherentUpdate(t *test
 
 			operator := &_resource{scheme: groveclientscheme.Scheme}
 
-			err := operator.buildResourceForRevision(logr.Discard(), pcs, tc.pcsReplica, true, "", pclq)
+			err := operator.buildResourceForRevision(logr.Discard(), pcs, tc.pcsReplica, true, pclq)
 			require.NoError(t, err)
 
 			if tc.expectPreserved {
@@ -619,7 +619,7 @@ func TestDeletedPodCliqueIsRecreatedFromReplicaRevision(t *testing.T) {
 	recreated := &grovecorev1alpha1.PodClique{}
 	require.NoError(t, cl.Get(t.Context(), pclqKey, recreated))
 	assert.Equal(t, "old", recreated.Spec.PodSpec.Containers[0].Image)
-	assert.Equal(t, oldRevision.Name, recreated.Labels[apicommon.LabelControllerRevisionHash])
+	assert.NotContains(t, recreated.Labels, "controller-revision-hash")
 }
 
 func podCliqueTestRevision(t *testing.T, pcs *grovecorev1alpha1.PodCliqueSet, name string, template *grovecorev1alpha1.PodCliqueSetTemplateSpec) *appsv1.ControllerRevision {
@@ -674,7 +674,7 @@ func TestBuildResource_ExplicitStartsAfterStaysSinglePrefixed(t *testing.T) {
 
 	// Reconcile twice. StartsAfter must remain the single-prefix FQN both times.
 	for i := range 2 {
-		err := operator.buildResourceForRevision(logr.Discard(), pcs, pcsReplica, true, "", pclq)
+		err := operator.buildResourceForRevision(logr.Discard(), pcs, pcsReplica, true, pclq)
 		require.NoError(t, err, "reconcile %d", i)
 		assert.Equal(t, wantStartsAfter, pclq.Spec.StartsAfter, "reconcile %d", i)
 	}

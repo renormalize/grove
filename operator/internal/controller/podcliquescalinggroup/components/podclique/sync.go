@@ -82,7 +82,12 @@ func (r _resource) prepareSyncContext(ctx context.Context, pcsg *grovecorev1alph
 			fmt.Sprintf("failed to get owner PodCliqueSet for PodCliqueScalingGroup %s", client.ObjectKeyFromObject(pcsg)),
 		)
 	}
-	resolvedRevision, err := controllerrevision.ResolveForResource(ctx, r.client, syncSnap.pcs, pcsg)
+	// Resolve the PCS replica before selecting its ControllerRevision.
+	syncSnap.pcsReplicaIndex, err = getPCSReplicaFromPCSG(pcsg)
+	if err != nil {
+		return nil, err
+	}
+	resolvedRevision, err := controllerrevision.ResolveForReplica(ctx, r.client, syncSnap.pcs, syncSnap.pcsReplicaIndex)
 	if err != nil {
 		return nil, groveerr.WrapError(err,
 			errCodeGetPodCliqueSet,
@@ -92,11 +97,7 @@ func (r _resource) prepareSyncContext(ctx context.Context, pcsg *grovecorev1alph
 	}
 	syncSnap.pcs = controllerrevision.PodCliqueSetWithTemplate(syncSnap.pcs, resolvedRevision.Template)
 
-	// Resolve PCS replica index and matching PCSG config for resource sharing
-	syncSnap.pcsReplicaIndex, err = getPCSReplicaFromPCSG(pcsg)
-	if err != nil {
-		return nil, err
-	}
+	// Resolve the matching PCSG config for resource sharing.
 	syncSnap.pcsgConfig = resourceclaim.FindPCSGConfig(syncSnap.pcs, pcsg, syncSnap.pcsReplicaIndex)
 
 	// The PodGangMap for this PCS replica is the authority for PodGang names. It is created by the

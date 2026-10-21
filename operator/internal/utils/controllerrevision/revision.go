@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"io"
 
-	apicommon "github.com/ai-dynamo/grove/operator/api/common"
 	grovecorev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -148,15 +147,6 @@ func ResolveForReplica(ctx context.Context, cl client.Client, pcs *grovecorev1al
 	revisionName, ok := FindReplicaRevision(pcs, replicaIndex)
 	if !ok {
 		return nil, fmt.Errorf("PodCliqueSet %s/%s has no ControllerRevision binding for replica %d", pcs.Namespace, pcs.Name, replicaIndex)
-	}
-	return Resolve(ctx, cl, pcs, revisionName)
-}
-
-// ResolveForResource resolves the ControllerRevision named by a resource label.
-func ResolveForResource(ctx context.Context, cl client.Client, pcs *grovecorev1alpha1.PodCliqueSet, obj metav1.Object) (*Resolved, error) {
-	revisionName := obj.GetLabels()[apicommon.LabelControllerRevisionHash]
-	if revisionName == "" {
-		return nil, fmt.Errorf("resource %s/%s has no %q label", obj.GetNamespace(), obj.GetName(), apicommon.LabelControllerRevisionHash)
 	}
 	return Resolve(ctx, cl, pcs, revisionName)
 }
